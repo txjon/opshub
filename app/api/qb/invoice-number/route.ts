@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 import { createClient } from "@/lib/supabase/server";
 
 export async function POST(req: NextRequest) {
@@ -11,13 +10,12 @@ export async function POST(req: NextRequest) {
     const { jobId, invoiceNumber } = await req.json();
     if (!jobId) return NextResponse.json({ error: "Missing jobId" }, { status: 400 });
 
-    // Get current type_meta to merge
-    const { data: job } = await supabase.from("jobs").select("type_meta").eq("id", jobId).single();
+    const { data: job } = await supabase.from("jobs").select("qb_invoice_number").eq("id", jobId).single();
     if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
 
-    const tm = (job.type_meta || {}) as any;
-    const prevNumber = tm.qb_invoice_number;
-    await mergeJobTypeMeta(supabase, jobId, { qb_invoice_number: invoiceNumber || null });
+    const prevNumber = (job as any).qb_invoice_number || null;
+    const { error: wErr } = await supabase.from("jobs").update({ qb_invoice_number: invoiceNumber || null }).eq("id", jobId);
+    if (wErr) return NextResponse.json({ error: wErr.message }, { status: 500 });
 
     // Log activity (only if the number changed)
     if (prevNumber !== (invoiceNumber || null)) {

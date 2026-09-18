@@ -100,7 +100,7 @@ export async function createReorderJob(db: Db, opts: {
   }
   const { data: srcItems } = await db
     .from("items")
-    .select("*, buy_sheet_lines(size, qty_ordered), jobs!inner(id, client_id, job_number, title, job_type, payment_terms, shipping_route, created_at, type_meta)")
+    .select("*, buy_sheet_lines(size, qty_ordered), jobs!inner(id, client_id, job_number, title, job_type, payment_terms, shipping_route, created_at, type_meta, qb_invoice_number, qb_invoice_id)")
     .in("id", ids);
   const owned = (srcItems || []).filter((it: any) => it.jobs?.client_id === client.id);
   // Source purchasing ref per item ("4345-I"): invoice # (else job #) + letter =
@@ -110,7 +110,7 @@ export async function createReorderJob(db: Db, opts: {
   const letterByItem: Record<string, string> = {};
   const seen: Record<string, number> = {};
   for (const sib of (sibs || [])) { const n = seen[sib.job_id] = (seen[sib.job_id] || 0); letterByItem[sib.id] = String.fromCharCode(65 + n); seen[sib.job_id] = n + 1; }
-  const srcRefOf = (it: any) => `${it.jobs?.type_meta?.qb_invoice_number || it.jobs?.job_number || "?"}-${letterByItem[it.id] || "?"}`;
+  const srcRefOf = (it: any) => `${it.jobs?.qb_invoice_number || it.jobs?.job_number || "?"}-${letterByItem[it.id] || "?"}`;
   if (owned.length !== ids.length) throw new Error("Item not found");
   if (!owned.length && !products.length) throw new Error("Cart is empty");
 

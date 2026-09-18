@@ -341,7 +341,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
 
     const branding = await getPdfBranding();
     const html = renderInvoiceHTML({
-      invoiceNum: job.type_meta?.qb_invoice_number || job.type_meta?.stripe_invoice_number || orderInfo.invoiceNum || job.job_number || "",
+      invoiceNum: job.qb_invoice_number || job.type_meta?.stripe_invoice_number || orderInfo.invoiceNum || job.job_number || "",
       today,
       terms,
       shipDate: latestEta ? new Date(latestEta + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "",
@@ -379,7 +379,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     // Filename = client name + number — the job memo is internal and must not
     // ride along in a client-downloaded file name.
     const clientSlug = ((job as any).clients?.name || "").replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-");
-    const displayNum = job.type_meta?.qb_invoice_number || job.job_number || jobId.slice(0, 8);
+    const displayNum = job.qb_invoice_number || job.job_number || jobId.slice(0, 8);
     const filename = `HPD-Invoice-${displayNum}${clientSlug ? `-${clientSlug}` : ""}.pdf`;
 
     const isDownload = req.nextUrl.searchParams.get("download");

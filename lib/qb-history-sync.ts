@@ -7,7 +7,7 @@
 // rebuilt from QB truth. Hand product-group assignments come from the
 // history_assignments table (mig 154 — moved off Jon's laptop so Vercel can
 // apply them); manual truth beats keyword resolution. Every row is stamped
-// opshub_job_id by matching doc_num ↔ jobs.type_meta.qb_invoice_number, which
+// opshub_job_id by matching doc_num ↔ jobs.qb_invoice_number (column, mig 182), which
 // is what keeps god-mode's archive/+OpsHub-era scopes double-count-free.
 import { getAccessToken } from "./quickbooks";
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -100,9 +100,9 @@ export async function runQbHistorySync(db: Db): Promise<{ lines: number; gross: 
   // Overlap stamp — doc_num ↔ the OpsHub job that pushed that invoice.
   const jobMap = new Map<string, string>();
   for (let from = 0; ; from += 1000) {
-    const { data } = await db.from("jobs").select("id, type_meta").range(from, from + 999);
+    const { data } = await db.from("jobs").select("id, qb_invoice_number").not("qb_invoice_number", "is", null).range(from, from + 999);
     for (const j of (data as any[]) || []) {
-      const n = j.type_meta?.qb_invoice_number;
+      const n = j.qb_invoice_number;
       if (n) jobMap.set(String(n).trim(), j.id);
     }
     if (!data || data.length < 1000) break;

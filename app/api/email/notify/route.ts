@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: true, skipped: "already_sent" });
       }
 
-      const invoiceNum = typeMeta.qb_invoice_number || typeMeta.stripe_invoice_number || (job as any).job_number || "";
+      const invoiceNum = (job as any).qb_invoice_number || typeMeta.stripe_invoice_number || (job as any).job_number || "";
       const portalToken = (job as any).portal_token;
       const hubClient = (job as any).clients;
       // Client Hub URL when the client is flagged in; legacy per-job
@@ -263,7 +263,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: true, skipped: "not_all_received", remaining });
       }
 
-      const invoiceNum = typeMeta.qb_invoice_number || typeMeta.stripe_invoice_number || (job as any).job_number || "";
+      const invoiceNum = (job as any).qb_invoice_number || typeMeta.stripe_invoice_number || (job as any).job_number || "";
       const portalToken = (job as any).portal_token;
       const hubClient = (job as any).clients;
       // Client Hub URL when the client is flagged in; legacy per-job
@@ -323,7 +323,7 @@ export async function POST(req: NextRequest) {
       }
 
       const typeMeta = ((job as any).type_meta || {}) as any;
-      const invoiceNum = typeMeta.qb_invoice_number || typeMeta.stripe_invoice_number || (job as any).job_number || "";
+      const invoiceNum = (job as any).qb_invoice_number || typeMeta.stripe_invoice_number || (job as any).job_number || "";
       const qbPaymentLink = typeMeta.qb_payment_link || "";
       const portalToken = (job as any).portal_token;
       const hubClient = (job as any).clients;
@@ -400,7 +400,7 @@ export async function POST(req: NextRequest) {
       // The customer email (drop_ship) references the invoice, so it's required
       // there. The warehouse email (ship_through/stage) is an internal incoming-
       // goods alert — no invoice needed; fall back to the job number for labels.
-      const invoiceNumRaw: string | undefined = typeMeta.qb_invoice_number || typeMeta.stripe_invoice_number;
+      const invoiceNumRaw: string | undefined = (job as any).qb_invoice_number || typeMeta.stripe_invoice_number;
       if (!invoiceNumRaw && route === "drop_ship") {
         return NextResponse.json({ error: "Invoice number required — generate the invoice before notifying", code: "invoice_required" }, { status: 400 });
       }

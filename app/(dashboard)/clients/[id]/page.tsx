@@ -77,7 +77,7 @@ export default function ClientSpacePage() {
         supabase.from("jobs")
           // shipping_route / phase_timestamps / quote_approved_at + the item money
           // and lifecycle fields feed the Working Sheet in the Pipeline section.
-          .select("id, job_number, title, phase, payment_terms, target_ship_date, created_at, quote_approved, quote_approved_at, shipping_route, phase_timestamps, type_meta, costing_summary, items(id, name, sort_order, ship_est, expected_arrival, created_at, blank_sku, blank_vendor, garment_type, drive_link, pipeline_stage, artwork_status, received_at_hpd, forwarded_at, webstore_entered_at, sell_per_unit, client_retail_per_unit, client_eta, notes, archived_at, completed_at, shipping_route, blanks_order_cost, blanks_order_number, product_id, design_id, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(id, amount, status, due_date, paid_date, invoice_number)")
+          .select("id, job_number, title, phase, payment_terms, target_ship_date, created_at, quote_approved, quote_approved_at, shipping_route, phase_timestamps, type_meta, qb_invoice_number, qb_invoice_id, costing_summary, items(id, name, sort_order, ship_est, expected_arrival, created_at, blank_sku, blank_vendor, garment_type, drive_link, pipeline_stage, artwork_status, received_at_hpd, forwarded_at, webstore_entered_at, sell_per_unit, client_retail_per_unit, client_eta, notes, archived_at, completed_at, shipping_route, blanks_order_cost, blanks_order_number, product_id, design_id, decorator_assignments(decorators(name, short_code)), buy_sheet_lines(size, qty_ordered)), payment_records(id, amount, status, due_date, paid_date, invoice_number)")
           .eq("client_id", id).order("created_at", { ascending: false }),
         supabase.from("releases").select("*").eq("client_id", id).order("created_at", { ascending: false }),
         supabase.from("products").select("*").eq("client_id", id).order("created_at", { ascending: false }),
@@ -110,7 +110,7 @@ export default function ClientSpacePage() {
       const jobIds = ((js || []) as any[]).map(j => j.id);
       if (jobIds.length) {
         const { data: act } = await supabase.from("job_activity")
-          .select("message, created_at, jobs(job_number, type_meta)").in("job_id", jobIds)
+          .select("message, created_at, jobs(job_number, type_meta, qb_invoice_number, qb_invoice_id)").in("job_id", jobIds)
           .order("created_at", { ascending: false }).limit(14);
         setWire(act || []);
       }
@@ -200,7 +200,7 @@ export default function ClientSpacePage() {
         const key = `${(it.name || "").trim().toLowerCase()}|${(it.blank_sku || "").trim().toLowerCase()}`;
         const inst = {
           itemId: it.id, jobId: it.job.id, driveLink: it.drive_link || null,
-          ref: it.job.type_meta?.qb_invoice_number ? `#${it.job.type_meta.qb_invoice_number}` : it.job.job_number,
+          ref: it.job.qb_invoice_number ? `#${it.job.qb_invoice_number}` : it.job.job_number,
           date: it.created_at,
           qty: (it.buy_sheet_lines || []).reduce((a: number, l: any) => a + (Number(l.qty_ordered) || 0), 0),
           sizes: (it.buy_sheet_lines || []).filter((l: any) => (l.qty_ordered || 0) > 0),
@@ -368,7 +368,7 @@ function Overview({ client, contacts, wire, model, briefs, secHead, onEdit }: an
               <span style={{ fontSize: 10, fontFamily: H.mono, color: H.faint, whiteSpace: "nowrap", flexShrink: 0 }}>{wt(w.created_at)}</span>
               <span style={{ fontSize: 12.5, lineHeight: 1.5, minWidth: 0 }}>
                 {/* invoice # is the client-facing identity when it exists (Jon, Aug 3) */}
-                <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", color: H.faint, marginRight: 7 }}>{w.jobs?.type_meta?.qb_invoice_number ? `#${w.jobs.type_meta.qb_invoice_number}` : (w.jobs?.job_number || "")}</span>
+                <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", color: H.faint, marginRight: 7 }}>{w.jobs?.qb_invoice_number ? `#${w.jobs.qb_invoice_number}` : (w.jobs?.job_number || "")}</span>
                 {w.message}
               </span>
             </div>
@@ -466,7 +466,7 @@ function OrdersRail({ model, hist, reports, secHead }: any) {
   const paidReports = (reports || []).filter((r: any) => !openReports.includes(r));
   const row = (j: any) => {
     const units = (j.items || []).reduce((a: number, i: any) => a + (i.buy_sheet_lines || []).reduce((s: number, l: any) => s + (Number(l.qty_ordered) || 0), 0), 0);
-    const ref = j.type_meta?.qb_invoice_number ? `#${j.type_meta.qb_invoice_number}` : j.job_number;
+    const ref = j.qb_invoice_number ? `#${j.qb_invoice_number}` : j.job_number;
     const d = JOB_DIRECTIVES[j.phase];
     // Payment chip — the hub's orders-page read: PAID + date, overdue red,
     // due amber, quiet when nothing's invoiced. (Money tab merged in, Aug 3.)
@@ -803,7 +803,7 @@ function ActionFeed({ jobs, phaseViews, proofStatus, thumbs, router, secHead }: 
           style={{ display: "flex", alignItems: "center", gap: 16, padding: "10px 0", borderBottom: `1px solid ${H.line}`, cursor: "pointer", position: "relative", zIndex: raised === job.id ? 5 : 1 }}>
           <div style={{ width: 190, flexShrink: 0, minWidth: 0 }}>
             <div style={{ fontSize: 12.5, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              <span style={{ fontFamily: H.mono, color: H.dim, marginRight: 8 }}>{job.type_meta?.qb_invoice_number ? `#${job.type_meta.qb_invoice_number}` : job.job_number}</span>
+              <span style={{ fontFamily: H.mono, color: H.dim, marginRight: 8 }}>{job.qb_invoice_number ? `#${job.qb_invoice_number}` : job.job_number}</span>
             </div>
             <div style={{ fontSize: 10.5, color: H.faint, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{stage.reason || stage.now}</div>
           </div>

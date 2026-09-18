@@ -40,12 +40,12 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
   async function loadAll() {
     setLoading(true);
     const [{ data: js }, { data: es }, { data: its }] = await Promise.all([
-      supabase.from("jobs").select("id, job_number, type_meta, costing_data, clients(name)").eq("company_id", companyId),
+      supabase.from("jobs").select("id, job_number, type_meta, qb_invoice_number, qb_invoice_id, costing_data, clients(name)").eq("company_id", companyId),
       supabase.from("cost_entries").select("id, job_id, amount, ext_tracking, ext_date, vendor_invoice_number, vendor_name, po_ref, not_job_specific, created_at, source, status").in("source", FREIGHT_SOURCES),
       // Single-source S3: freight calc overlays qty from buy_sheet_lines.
       supabase.from("items").select("id, job_id, name, sort_order, blank_costs, buy_sheet_lines(size, qty_ordered)"),
     ]);
-    setJobs(((js as any[]) || []).map(j => ({ id: j.id, job_number: j.job_number, qb_invoice_number: j.type_meta?.qb_invoice_number ?? null, client_name: (j.clients as any)?.name ?? null, costing_data: j.costing_data })));
+    setJobs(((js as any[]) || []).map(j => ({ id: j.id, job_number: j.job_number, qb_invoice_number: j.qb_invoice_number ?? null, client_name: (j.clients as any)?.name ?? null, costing_data: j.costing_data })));
     setExisting((es as any[]) || []);
     setJobItems(((its as any[]) || []));
     setLoading(false);

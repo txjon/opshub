@@ -25,14 +25,14 @@ const norm = n => (n || "").trim().toLowerCase();
 
 (async () => {
   const { data: jobs, error } = await s.from("jobs")
-    .select("id, job_number, phase, type_meta, costing_data")
+    .select("id, job_number, phase, type_meta, qb_invoice_number, qb_invoice_id, costing_data")
     .not("type_meta", "is", null);
   if (error) { console.error(error.message); process.exit(1); }
 
   // Jobs that were actually invoiced in QB
   const qbJobs = (jobs || []).filter(j => {
     const tm = j.type_meta || {};
-    return tm.qb_invoice_number || tm.qb_invoice_id || (Number(tm.qb_total_with_tax) || 0) > 0;
+    return j.qb_invoice_number || j.qb_invoice_id || (Number(tm.qb_total_with_tax) || 0) > 0;
   });
   const ids = qbJobs.map(j => j.id);
 

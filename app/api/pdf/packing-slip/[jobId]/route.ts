@@ -41,7 +41,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
 
     const clientName = (job.clients as any)?.name || "Client";
     const jobNumber = job.job_number || "";
-    const invoiceNum = (job.type_meta as any)?.qb_invoice_number || jobNumber;
+    const invoiceNum = (job as any).qb_invoice_number || jobNumber;
     const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "America/Los_Angeles" });
 
     const route = job.shipping_route || "ship_through";

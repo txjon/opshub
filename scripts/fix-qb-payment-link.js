@@ -53,9 +53,9 @@ async function qb(access, realm, path, init = {}) {
 async function main() {
   const { access, realm } = await getAccessToken();
 
-  const { data: job } = await supabase.from("jobs").select("id, job_number, title, type_meta").eq("id", jobId).single();
+  const { data: job } = await supabase.from("jobs").select("id, job_number, title, type_meta, qb_invoice_number, qb_invoice_id").eq("id", jobId).single();
   if (!job) { console.error("Job not found"); process.exit(1); }
-  const invoiceId = job.type_meta?.qb_invoice_id;
+  const invoiceId = job.qb_invoice_id;
   if (!invoiceId) { console.error("Job has no qb_invoice_id"); process.exit(1); }
   console.log(`→ Job ${job.job_number} — invoice id ${invoiceId}`);
 

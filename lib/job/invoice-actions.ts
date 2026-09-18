@@ -6,7 +6,6 @@
 // See [[jon-clean-architecture-standard]]. NOTE: the triplicated qty/total math
 // in the QB/PDF/variance routes is a SEPARATE, ticketed extraction (billing-derive).
 import { createClient } from "@/lib/supabase/client";
-import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 
 const today = () => new Date().toISOString().split("T")[0];
@@ -96,19 +95,6 @@ export async function deletePayment(id: string): Promise<void> {
   await supabase.from("payment_records").delete().eq("id", id);
 }
 
-// Persist a type_meta patch (invoice date override, manual invoice #). Returns
-// the merged type_meta so the caller can push it into local job state.
-export async function patchTypeMeta(job: any, patch: Record<string, any>, opts: { logMsg?: string } = {}): Promise<any> {
-  const supabase = createClient();
-  // null clears a key (kept present, value null) — mig 176 refuses dropping
-  // identity keys such as qb_invoice_number; readers treat null and absent alike.
-  const norm: Record<string, any> = {};
-  for (const [k, v] of Object.entries(patch)) norm[k] = v === undefined ? null : v;
-  const r = await mergeJobTypeMeta(supabase, job.id, norm);
-  const next = r.ok ? r.typeMeta : { ...(job.type_meta || {}), ...norm };
-  if (opts.logMsg) logJobActivity(job.id, opts.logMsg);
-  return next;
-}
 
 // Recording a payment implies the quote is approved — flip the gate so
 // downstream alerts can fire without a separate "Approve Quote" click.

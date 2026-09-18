@@ -103,12 +103,12 @@ export function GlobalSearch({ bar = false, pages = [] }: {
     const [jobsRes, jobsByClientRes, clientsRes, decoratorsRes, itemsRes] = await Promise.all([
       supabase
         .from("jobs")
-        .select("id, title, job_number, type_meta, phase, clients(name)")
-        .or(`title.ilike.%${q}%,job_number.ilike.%${q}%,type_meta->>qb_invoice_number.ilike.%${q}%`)
+        .select("id, title, job_number, type_meta, qb_invoice_number, qb_invoice_id, phase, clients(name)")
+        .or(`title.ilike.%${q}%,job_number.ilike.%${q}%,qb_invoice_number.ilike.%${q}%`)
         .limit(5),
       supabase
         .from("jobs")
-        .select("id, title, job_number, type_meta, phase, clients!inner(name)")
+        .select("id, title, job_number, type_meta, qb_invoice_number, qb_invoice_id, phase, clients!inner(name)")
         .ilike("clients.name", `%${q}%`)
         .limit(5),
       supabase
@@ -147,7 +147,7 @@ export function GlobalSearch({ bar = false, pages = [] }: {
 
     // Jobs
     for (const j of (jobsRes.data || [])) {
-      const displayNum = (j as any).type_meta?.qb_invoice_number || j.job_number;
+      const displayNum = (j as any).qb_invoice_number || j.job_number;
       results.push({
         type: "project",
         id: j.id,
@@ -160,7 +160,7 @@ export function GlobalSearch({ bar = false, pages = [] }: {
     // Jobs matched by client name
     for (const j of (jobsByClientRes.data || [])) {
       if (!results.some(r => r.id === j.id)) {
-        const displayNum = (j as any).type_meta?.qb_invoice_number || j.job_number;
+        const displayNum = (j as any).qb_invoice_number || j.job_number;
         results.push({
           type: "project",
           id: j.id,

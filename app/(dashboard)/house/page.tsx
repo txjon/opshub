@@ -70,19 +70,19 @@ export default function HousePage() {
       const none = Promise.resolve({ data: [] as any[] });
       const [{ data: j }, { data: r }, { data: act }, { data: latePay }, { count: pullCount }, { data: coJobs }, { data: arJobs }, { data: recv }] = await Promise.all([
         supabase.from("jobs")
-          .select("id, job_number, title, phase, target_ship_date, created_at, updated_at, phase_timestamps, type_meta, costing_data, clients(name), items(id, pipeline_stage, pipeline_timestamps, buy_sheet_lines(qty_ordered), decorator_assignments(decorators(name, short_code)))")
+          .select("id, job_number, title, phase, target_ship_date, created_at, updated_at, phase_timestamps, type_meta, qb_invoice_number, qb_invoice_id, costing_data, clients(name), items(id, pipeline_stage, pipeline_timestamps, buy_sheet_lines(qty_ordered), decorator_assignments(decorators(name, short_code)))")
           .not("phase", "in", "(complete,cancelled,on_hold)"),
         // slots + their items ride along so a CLOSED release can be read from
         // the ledger (lib/release-lanes closedReleaseMove); buys attach below
         supabase.from("releases").select("*, clients(name), release_slots(id, line_id, item_id, sold_qtys, qtys, items!release_slots_item_id_fkey(id, name, received_qtys, buy_sheet_lines(size, qty_ordered)))").not("status", "in", "(cut,shelved,done)"),
         supabase.from("job_activity").select("message, created_at, jobs(job_number, clients(name))").order("created_at", { ascending: false }).limit(16),
-        god ? supabase.from("payment_records").select("id, job_id, amount, status, due_date, invoice_number, jobs!inner(id, job_number, title, phase, type_meta, clients(name))").in("status", ["sent", "viewed", "partial", "overdue"]).lt("due_date", new Date().toISOString().slice(0, 10)).not("jobs.phase", "eq", "cancelled").limit(8) : none,
+        god ? supabase.from("payment_records").select("id, job_id, amount, status, due_date, invoice_number, jobs!inner(id, job_number, title, phase, type_meta, qb_invoice_number, qb_invoice_id, clients(name))").in("status", ["sent", "viewed", "partial", "overdue"]).lt("due_date", new Date().toISOString().slice(0, 10)).not("jobs.phase", "eq", "cancelled").limit(8) : none,
         supabase.from("pull_requests").select("id", { count: "exact", head: true }).in("status", ["pending", "partial"]),
         // post-production: shipped jobs whose invoice hasn't been finalized
         // with actuals yet (deriveInvoice filters the true reconcile set below)
         god ? supabase.from("jobs")
-          .select("id, job_number, title, phase, shipping_route, fulfillment_status, type_meta, costing_summary, clients(name), items(id, pipeline_stage, shipping_route, forwarded_at)")
-          .not("type_meta->>qb_invoice_id", "is", null)
+          .select("id, job_number, title, phase, shipping_route, fulfillment_status, type_meta, qb_invoice_number, qb_invoice_id, costing_summary, clients(name), items(id, pipeline_stage, shipping_route, forwarded_at)")
+          .not("qb_invoice_id", "is", null)
           .is("type_meta->>qb_variance_pushed_at", null)
           .not("phase", "in", "(cancelled,on_hold)")
           .order("updated_at", { ascending: false }).limit(30) : none,
@@ -92,8 +92,8 @@ export default function HousePage() {
         // collections keyed only on payment_records due dates. The same
         // query powers PAYMENTS NEED REVIEW (recorded > invoice = phantom).
         god ? supabase.from("jobs")
-          .select("id, job_number, title, phase, type_meta, clients(name), payment_records(amount, status)")
-          .not("type_meta->>qb_invoice_id", "is", null)
+          .select("id, job_number, title, phase, type_meta, qb_invoice_number, qb_invoice_id, clients(name), payment_records(amount, status)")
+          .not("qb_invoice_id", "is", null)
           .not("phase", "eq", "cancelled")
           .order("updated_at", { ascending: false }).limit(400) : none,
         // post-production: receiving count variances (moved here from the
@@ -367,7 +367,7 @@ export default function HousePage() {
               </div>
               <div className="hs-grid">
                 {model.prepJobs.slice(0, 12).map((x: any) => {
-                  const ref = (x.type_meta as any)?.qb_invoice_number ? `#${(x.type_meta as any).qb_invoice_number}` : x.job_number;
+                  const ref = (x as any).qb_invoice_number ? `#${(x as any).qb_invoice_number}` : x.job_number;
                   const units = (x.items || []).reduce((a: number, i: any) => a + (i.buy_sheet_lines || []).reduce((s: number, l: any) => s + (Number(l.qty_ordered) || 0), 0), 0);
                   const verb = units === 0 ? "Finish the build" : "Cost & quote it";
                   const meta = units === 0 ? "not built out yet" : `${units.toLocaleString()} pcs`;
@@ -391,14 +391,14 @@ export default function HousePage() {
                   const d = level === "late" ? HOUSE_EXTRA_DIRECTIVES.vendor_late : HOUSE_EXTRA_DIRECTIVES.vendor_confirm;
                   const meta = promised ? `vendor promised ${fmtDate(due)}` : `needs to move by ${fmtDate(due)} to make the ship date`;
                   return card(`vr-${x.id}`, jobArt[x.id] ? thumbSrc(jobArt[x.id]) : null,
-                    x.clients?.name || "—", (x.type_meta as any)?.qb_invoice_number ? `#${(x.type_meta as any).qb_invoice_number}` : x.job_number,
+                    x.clients?.name || "—", (x as any).qb_invoice_number ? `#${(x as any).qb_invoice_number}` : x.job_number,
                     meta, d.verb, level === "late" ? H.red : H.amber, `/jobs/${x.id}`, "Handle it", d,
                     () => setSheet({ kind: "vendor", job: x, due, level, promised, vendorKey, meta, directive: d }));
                 })}
                 {model.readyJobs.slice(0, 12).map((x: any) => {
                   const v = PHASE_VERB[x.phase];
                   const late = x.target_ship_date && x.target_ship_date < new Date().toISOString().slice(0, 10);
-                  const ref = (x.type_meta as any)?.qb_invoice_number ? `#${(x.type_meta as any).qb_invoice_number}` : x.job_number;
+                  const ref = (x as any).qb_invoice_number ? `#${(x as any).qb_invoice_number}` : x.job_number;
                   const units = (x.items || []).reduce((a: number, i: any) => a + (i.buy_sheet_lines || []).reduce((s: number, l: any) => s + (Number(l.qty_ordered) || 0), 0), 0);
                   const dd = JOB_DIRECTIVES[x.phase];
                   return card(`job-${x.id}`, jobArt[x.id] ? thumbSrc(jobArt[x.id]) : null,
@@ -427,18 +427,18 @@ export default function HousePage() {
                   DISTRO_DIRECTIVES.variance.verb, H.red, "/receiving2", "Settle it here", DISTRO_DIRECTIVES.variance,
                   () => setSheet({ kind: "variance", item: it })))}
                 {closeOut.slice(0, 6).map((x: any) => {
-                  const ref = (x.type_meta as any)?.qb_invoice_number ? `#${(x.type_meta as any).qb_invoice_number}` : x.job_number;
+                  const ref = (x as any).qb_invoice_number ? `#${(x as any).qb_invoice_number}` : x.job_number;
                   return card(`co-${x.id}`, null,
                     x.clients?.name || "—", ref,
                     `shipped · invoice not finalized with actuals`,
                     HOUSE_EXTRA_DIRECTIVES.bill_actuals.verb, H.amber, `/jobs/${x.id}`, "Finalize on the job", HOUSE_EXTRA_DIRECTIVES.bill_actuals);
                 })}
                 {payReview.map(({ job: x, total, paid }: any) => card(`prev-${x.id}`, null,
-                  `${x.clients?.name || "—"} · #${(x.type_meta as any)?.qb_invoice_number || x.job_number}`, x.title,
+                  `${x.clients?.name || "—"} · #${(x as any).qb_invoice_number || x.job_number}`, x.title,
                   `recorded $${Math.round(paid).toLocaleString()} vs invoice $${Math.round(total).toLocaleString()}`,
                   HOUSE_EXTRA_DIRECTIVES.payment_review.verb, H.red, `/jobs/${x.id}`, "Open the job", HOUSE_EXTRA_DIRECTIVES.payment_review))}
                 {openAR.slice(0, 8).map(({ job: x, due, total, paid }: any) => card(`ar-${x.id}`, null,
-                  `${x.clients?.name || "—"} · #${(x.type_meta as any)?.qb_invoice_number || x.job_number}`, x.title,
+                  `${x.clients?.name || "—"} · #${(x as any).qb_invoice_number || x.job_number}`, x.title,
                   `$${Math.round(due).toLocaleString()} open · invoice $${Math.round(total).toLocaleString()}${paid > 0 ? ` · $${Math.round(paid).toLocaleString()} in` : ""}`,
                   HOUSE_EXTRA_DIRECTIVES.overdue_payment.verb, H.amber, `/jobs/${x.id}`, "Collect it here", HOUSE_EXTRA_DIRECTIVES.overdue_payment))}
                 {overduePay.filter((p: any) => !openAR.some((a: any) => a.job.id === (p.jobs?.id || p.job_id))).slice(0, 4).map((p: any) => {
@@ -673,7 +673,7 @@ function ActionSheet({ sheet, onClose, onShipByLogged, onSaleClosed, onDropDone,
     const jobId = p.jobs?.id || p.job_id;
     setBusy("remind"); setErr(null);
     try {
-      const qbNum = p.jobs?.type_meta?.qb_invoice_number || p.invoice_number;
+      const qbNum = p.jobs?.qb_invoice_number || p.invoice_number;
       const res = await fetch("/api/email/send", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

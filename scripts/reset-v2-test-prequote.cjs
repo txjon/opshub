@@ -18,7 +18,7 @@ const DROP_META = [
 ];
 
 (async () => {
-  const { data: job } = await sb.from('jobs').select('id, job_number, type_meta').eq('title', 'TEST — V2 Job Detail').single();
+  const { data: job } = await sb.from('jobs').select('id, job_number, type_meta, qb_invoice_number, qb_invoice_id').eq('title', 'TEST — V2 Job Detail').single();
   if (!job) { console.log('Test job not found — run scripts/seed-v2-test-job.cjs first.'); return; }
 
   const tm = { ...(job.type_meta || {}) };

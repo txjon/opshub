@@ -151,12 +151,12 @@ export function useWarehouse() {
     const [activeRes, recentEnteredRes] = await Promise.all([
       supabase
         .from("jobs")
-        .select("id, title, job_number, client_id, shipping_route, fulfillment_status, fulfillment_tracking, phase, type_meta, clients(name)")
+        .select("id, title, job_number, client_id, shipping_route, fulfillment_status, fulfillment_tracking, phase, type_meta, qb_invoice_number, qb_invoice_id, clients(name)")
         .not("phase", "in", '("complete","cancelled")')
         .order("created_at", { ascending: false }),
       supabase
         .from("jobs")
-        .select("id, title, job_number, client_id, shipping_route, fulfillment_status, fulfillment_tracking, phase, type_meta, clients(name)")
+        .select("id, title, job_number, client_id, shipping_route, fulfillment_status, fulfillment_tracking, phase, type_meta, qb_invoice_number, qb_invoice_id, clients(name)")
         .eq("shipping_route", "stage")
         .eq("phase", "complete")
         .gte("updated_at", fortyEightHoursAgo)
@@ -254,8 +254,8 @@ export function useWarehouse() {
         id: j.id,
         title: j.title,
         job_number: j.job_number,
-        display_number: typeMeta.qb_invoice_number || j.job_number,
-        qb_invoice_number: typeMeta.qb_invoice_number || null,
+        display_number: j.qb_invoice_number || j.job_number,
+        qb_invoice_number: j.qb_invoice_number || null,
         shipping_route: j.shipping_route || "ship_through",
         fulfillment_status: j.fulfillment_status,
         fulfillment_tracking: j.fulfillment_tracking,

@@ -54,7 +54,7 @@ export async function GET(
     if (job.client_id) {
       const { data: allJobs } = await sb
         .from("jobs")
-        .select("id, title, job_number, phase, target_ship_date, portal_token, type_meta, quote_approved, costing_data")
+        .select("id, title, job_number, phase, target_ship_date, portal_token, type_meta, qb_invoice_number, qb_invoice_id, quote_approved, costing_data")
         .eq("client_id", job.client_id)
         .not("phase", "eq", "cancelled")
         .order("target_ship_date", { ascending: true, nullsFirst: false });
@@ -73,7 +73,7 @@ export async function GET(
           phase: j.phase,
           shipDate: j.target_ship_date,
           portalToken: j.portal_token,
-          invoiceNumber: sentAt ? (((tenant.default_payment_provider === "stripe" ? (j.type_meta as any)?.stripe_invoice_number : (j.type_meta as any)?.qb_invoice_number)) || null) : null,
+          invoiceNumber: sentAt ? (((tenant.default_payment_provider === "stripe" ? (j.type_meta as any)?.stripe_invoice_number : (j as any).qb_invoice_number)) || null) : null,
           isComplete: j.phase === "complete",
           itemCount,
           unitCount,
@@ -156,7 +156,7 @@ export async function GET(
       else if (/quote rejected|revision requested/i.test(msg) && /quote/i.test(msg)) clientMsg = msg;
       else if (/invoice sent to client/i.test(msg)) {
         const tmInv = (job.type_meta as any) || {};
-        const invNum = tenant.default_payment_provider === "stripe" ? tmInv.stripe_invoice_number : tmInv.qb_invoice_number;
+        const invNum = tenant.default_payment_provider === "stripe" ? tmInv.stripe_invoice_number : (job as any).qb_invoice_number;
         clientMsg = invNum ? `Invoice #${invNum} delivered` : "Invoice delivered";
       }
       else if (/invoice \+ proofs sent/i.test(msg)) clientMsg = "Invoice and proofs delivered";
@@ -357,7 +357,7 @@ export async function GET(
     // the quote was emailed. A quote approved internally (via client PO) never
     // sets quote_sent_at, so gating totals on isQuoteSent showed Total: $0 (and
     // hid the Pay button) on a fully-invoiced order. Mirror the client-hub route.
-    const showTotals = isQuoteSent || !!typeMeta.invoice_sent_at || !!typeMeta.qb_invoice_id || !!typeMeta.stripe_invoice_number;
+    const showTotals = isQuoteSent || !!typeMeta.invoice_sent_at || !!(job as any).qb_invoice_id || !!typeMeta.stripe_invoice_number;
     const portalQuoteItems = isQuoteSent ? quoteItems : [];
     // Additional charges (fees/passthru/discounts) — shown as their own lines on
     // the quote, folded into the subtotal so it matches the amount due.
@@ -407,7 +407,7 @@ export async function GET(
         // Manually-entered invoice numbers (qb_invoice_number set,
         // qb_invoice_id null) don't count — there's no OpsHub-side QB
         // record to compare against, so the staleness test is noise.
-        if (!typeMeta.qb_invoice_id) return false;
+        if (!(job as any).qb_invoice_id) return false;
         // QB total includes the additional charges (invoice_extra_lines), so the
         // comparison subtotal must too — otherwise any invoice with extra
         // charges reads as permanently "stale" and never shows a Pay button.
@@ -444,7 +444,7 @@ export async function GET(
         return typeMeta.qb_payment_link || null;
       })(),
       invoiceNumber: ((typeMeta.invoice_sent_at || (payments || []).some((p: any) => p.status && !["draft","void"].includes(p.status)))
-        ? ((tenant.default_payment_provider === "stripe" ? typeMeta.stripe_invoice_number : typeMeta.qb_invoice_number) || null)
+        ? ((tenant.default_payment_provider === "stripe" ? typeMeta.stripe_invoice_number : (job as any).qb_invoice_number) || null)
         : null),
       activity: (activity || []).map((a: any) => ({
         message: a.message,
@@ -474,7 +474,7 @@ export async function POST(
     // Validate token
     const { data: job } = await sb
       .from("jobs")
-      .select("id, title, client_id, type_meta")
+      .select("id, title, client_id, type_meta, qb_invoice_number, qb_invoice_id")
       .eq("portal_token", token)
       .single();
 

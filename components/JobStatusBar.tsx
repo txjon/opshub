@@ -90,7 +90,7 @@ export function JobStatusBar({ job, stage, items = [], payments = [], navigate =
   // proofs). "Complete" is measured against the job's CURRENT value — when a
   // job is revised upward after invoicing, the old invoice/payment no longer
   // covers it, so both slip back to amber until re-invoiced / topped up.
-  const invoiced = !!(tm.qb_invoice_number || (job as any).invoice_sent);
+  const invoiced = !!((job as any).qb_invoice_number || (job as any).invoice_sent);
   const paidTarget = Math.max(invTotal || 0, cs.grossRev || 0);
   const paidFull = paidAmt > 0 && paidAmt >= paidTarget - 0.005;
   const paidPartial = paidAmt > 0 && !paidFull;
@@ -124,7 +124,7 @@ export function JobStatusBar({ job, stage, items = [], payments = [], navigate =
         const p = stage.proofs;
         return p ? `${quotePart} · ${p.approved}/${p.total} proofs approved` : quotePart;
       }
-      case "invoice": return tm.qb_invoice_number ? `Invoice #${tm.qb_invoice_number}${invTotal ? ` · ${money(invTotal)}` : ""}${tm.qb_invoice_created_at ? ` · sent ${fmtDT(tm.qb_invoice_created_at)}` : ""}${invoiceStale ? ` · quote now ${money(cs.grossRev)} — needs update` : ""}` : "Not invoiced yet";
+      case "invoice": return (job as any).qb_invoice_number ? `Invoice #${(job as any).qb_invoice_number}${invTotal ? ` · ${money(invTotal)}` : ""}${tm.qb_invoice_created_at ? ` · sent ${fmtDT(tm.qb_invoice_created_at)}` : ""}${invoiceStale ? ` · quote now ${money(cs.grossRev)} — needs update` : ""}` : "Not invoiced yet";
       case "paid": return paidAmt > 0 ? `${money(paidAmt)} / ${money(paidTarget)} paid${paidDate ? ` · ${fmtDT(paidDate)}` : ""}` : (paidTarget ? `${money(paidTarget)} due` : (stage.paidState === "onaccount" ? "On account" : "Unpaid"));
       case "order": return `${posSent} PO${posSent === 1 ? "" : "s"} sent · blanks ${blanksOrdered ? "ordered" : "not ordered"}`;
       case "production": return nItems ? `${shipped}/${nItems} shipped from vendor` : "In production";

@@ -72,8 +72,8 @@ export async function POST(req: NextRequest) {
     // pull portal_token so we can build the white-label Stripe pay URL
     // (/portal/{token}/pay) for tenants on the Stripe payment provider.
     const adminClient = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-    const { data: jobData } = await adminClient.from("jobs").select("job_number, title, type_meta, portal_token, clients(name)").eq("id", jobId).single();
-    const qbInvNum = (jobData as any)?.type_meta?.qb_invoice_number;
+    const { data: jobData } = await adminClient.from("jobs").select("job_number, title, type_meta, qb_invoice_number, qb_invoice_id, portal_token, clients(name)").eq("id", jobId).single();
+    const qbInvNum = (jobData as any)?.qb_invoice_number;
     const jobNum = (jobData as any)?.job_number;
     const projectTitle = (jobData as any)?.title || "";
     const clientGreeting = (jobData as any)?.clients?.name || (recipientName ? recipientName.split(" ")[0] : "there");
@@ -175,9 +175,9 @@ export async function POST(req: NextRequest) {
     let qbPaymentLink = "";
     if ((type === "invoice" || type === "reminder") && jobId) {
       const adminClient = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-      const { data: jobData } = await adminClient.from("jobs").select("type_meta").eq("id", jobId).single();
+      const { data: jobData } = await adminClient.from("jobs").select("type_meta, qb_invoice_number, qb_invoice_id").eq("id", jobId).single();
       qbPaymentLink = jobData?.type_meta?.qb_payment_link || "";
-      const invoiceId = (jobData?.type_meta as any)?.qb_invoice_id;
+      const invoiceId = (jobData as any)?.qb_invoice_id;
       const isLegacy = qbPaymentLink.startsWith("https://app.qbo.intuit.com/app/invoices/pay");
       if (invoiceId && (!qbPaymentLink || isLegacy)) {
         try {
@@ -384,7 +384,7 @@ export async function POST(req: NextRequest) {
       // RFQ history — append to type_meta.rfq_history so the Costing tab
       // can show "RFQ sent to X · Y days ago" badges next to affected items.
       if (type === "rfq" && vendor) {
-        const { data: jd } = await adminClient.from("jobs").select("type_meta").eq("id", jobId).single();
+        const { data: jd } = await adminClient.from("jobs").select("type_meta, qb_invoice_number, qb_invoice_id").eq("id", jobId).single();
         const prevHistory = ((jd?.type_meta as any)?.rfq_history || []) as any[];
         const entry = {
           vendor,

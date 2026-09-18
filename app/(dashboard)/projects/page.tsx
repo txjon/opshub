@@ -108,7 +108,7 @@ export default function ProjectsBoard() {
   useEffect(() => {
     (async () => {
       const { data } = await supabase.from("jobs")
-        .select("id, job_number, title, phase, shipping_route, payment_terms, quote_approved, quote_approved_at, created_at, updated_at, phase_timestamps, target_ship_date, type_meta, costing_summary, clients(name), payment_records(amount, status, paid_date), items(id, name, sort_order, pipeline_stage, artwork_status, shipping_route, ship_est, expected_arrival, blanks_order_cost, blanks_order_number, received_at_hpd, forwarded_at, webstore_entered_at, buy_sheet_lines(qty_ordered), decorator_assignments(decorators(name, short_code)))")
+        .select("id, job_number, title, phase, shipping_route, payment_terms, quote_approved, quote_approved_at, created_at, updated_at, phase_timestamps, target_ship_date, type_meta, qb_invoice_number, qb_invoice_id, costing_summary, clients(name), payment_records(amount, status, paid_date), items(id, name, sort_order, pipeline_stage, artwork_status, shipping_route, ship_est, expected_arrival, blanks_order_cost, blanks_order_number, received_at_hpd, forwarded_at, webstore_entered_at, buy_sheet_lines(qty_ordered), decorator_assignments(decorators(name, short_code)))")
         .not("phase", "in", "(cancelled)")
         .order("created_at", { ascending: false });
       const js = (data as any[]) || [];
@@ -156,7 +156,7 @@ export default function ProjectsBoard() {
   const clients = useMemo(() => [...new Set(rows.filter(r => tab === "completed" ? r.stage.complete : !r.stage.complete).map(clientName))].sort(), [rows, tab]);
 
   const q = query.toLowerCase().trim();
-  const matchQ = (r: Row) => !q || `${r.job.job_number} ${(r.job as any).type_meta?.qb_invoice_number || ""} ${clientName(r)} ${r.job.title || ""}`.toLowerCase().includes(q);
+  const matchQ = (r: Row) => !q || `${r.job.job_number} ${(r.job as any).qb_invoice_number || ""} ${clientName(r)} ${r.job.title || ""}`.toLowerCase().includes(q);
   const base = rows.filter(r => (!clientFilter || clientName(r) === clientFilter) && matchQ(r));
   const activeCQ = base.filter(r => !r.stage.complete); // client + search filtered — drives the stage counts
   const done = base.filter(r => r.stage.complete);
@@ -183,7 +183,7 @@ export default function ProjectsBoard() {
         return byCreated(a, b);
       });
     } else if (sortBy === "invoice") {
-      const inv = (r: Row) => parseInt((r.job.type_meta as any)?.qb_invoice_number, 10);
+      const inv = (r: Row) => parseInt((r.job as any).qb_invoice_number, 10);
       list.sort((a, b) => {
         if (hold(a) !== hold(b)) return hold(a) - hold(b);
         const ia = inv(a), ib = inv(b);
@@ -299,7 +299,7 @@ function Strip({ r, thumbs, proofStatus, completed = false, flash = false, onOpe
   const isMobile = useIsMobile();
   // Once a QB invoice # is assigned that's the number used everywhere (POs tie to
   // it, it matches QB) — lead with it, fall back to the job number pre-invoice.
-  const invNo = (job.type_meta as any)?.qb_invoice_number || job.job_number;
+  const invNo = (job as any).qb_invoice_number || job.job_number;
   const [raised, setRaised] = useState(false); // rise above sibling strips while the peek is open
   const sig = stage.signal;
   // On hold: dates aren't live — no countdown, no urgency edge, sinks in sort.

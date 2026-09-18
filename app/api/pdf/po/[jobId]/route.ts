@@ -608,7 +608,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     });
 
     const poData = {
-      job_number: ((job.type_meta as any)?.qb_invoice_number || job.job_number) + itemLetters,
+      job_number: ((job as any).qb_invoice_number || job.job_number) + itemLetters,
       client_name: (job.clients as any)?.name || "—",
       // PO date = the date the PO was originally marked sent (if it
       // ever was). Falls back to today's render time so first-print
@@ -666,7 +666,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     // job-title slug dropped; email attachments reuse this exact name via the
     // Content-Disposition header so 3 vendors never get identically-named PDFs).
     const vendorSlug = vendorName.replace(/\s+/g, "-");
-    const displayNum = (job.type_meta as any)?.qb_invoice_number || job.job_number;
+    const displayNum = (job as any).qb_invoice_number || job.job_number;
     const numCore = String(displayNum || "").replace(/^HPD-/, ""); // avoid HPD-PO-HPD-…
     const filename = `HPD-PO-${numCore}${itemLetters}-${vendorSlug}${isRevised ? "-revised" : ""}.pdf`;
 

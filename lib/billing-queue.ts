@@ -92,7 +92,7 @@ export function computeBillingQueue(opts: {
 
     const cps = job.costing_data?.costProds || [];
     const margin = String(job.costing_data?.margin ?? 0);
-    const qbRef = job.type_meta?.qb_invoice_number || job.job_number;
+    const qbRef = job.qb_invoice_number || job.job_number;
     // letter = item position (A,B,C…) matching the PO PDF: the item-sorted
     // OVERLAID list when live items are supplied (final form — the stored
     // array is creation-ordered on rearranged jobs and lies), else the raw
@@ -169,7 +169,7 @@ export function computeBillingQueue(opts: {
     const costComplete = vendors.every(v => v.state === "billed" || v.state === "over" || v.state === "complete");
     const billedPct = jExp > 0 ? Math.min(100, Math.round((100 * jBilled) / jExp)) : (jBilled > 0 ? 100 : 0);
     outJobs.push({
-      id: job.id, job_number: job.job_number, qb_invoice_number: job.type_meta?.qb_invoice_number || null,
+      id: job.id, job_number: job.job_number, qb_invoice_number: job.qb_invoice_number || null,
       client_name: job.clients?.name || null,
       phase: job.phase || null, vendors, expected: jExp, billed: jBilled, outstanding: jOut,
       costComplete, billedPct,

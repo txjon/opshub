@@ -106,17 +106,18 @@ export async function POST(req: NextRequest) {
 
     for (const qbInvoiceId of invoiceRefs) {
       // Match by qb_invoice_id
+      // Invoice identity = jobs.qb_invoice_id / qb_invoice_number (mig 182 columns).
       let { data: jobs } = await admin
         .from("jobs")
-        .select("id, title, type_meta, costing_summary, quote_approved, clients(name)")
-        .filter("type_meta->>qb_invoice_id", "eq", qbInvoiceId);
+        .select("id, title, type_meta, qb_invoice_number, qb_invoice_id, costing_summary, quote_approved, clients(name)")
+        .eq("qb_invoice_id", qbInvoiceId);
 
       // Fallback: match by qb_invoice_number
       if (!jobs?.length) {
         const { data: fallback } = await admin
           .from("jobs")
-          .select("id, title, type_meta, costing_summary, quote_approved, clients(name)")
-          .filter("type_meta->>qb_invoice_number", "eq", String(qbInvoiceId));
+          .select("id, title, type_meta, qb_invoice_number, qb_invoice_id, costing_summary, quote_approved, clients(name)")
+          .eq("qb_invoice_number", String(qbInvoiceId));
         if (fallback?.length) jobs = fallback;
       }
 
@@ -183,7 +184,7 @@ export async function POST(req: NextRequest) {
           amount,
           status: "paid",
           paid_date: payment.TxnDate || today,
-          invoice_number: (job.type_meta as any)?.qb_invoice_number || null,
+          invoice_number: (job as any).qb_invoice_number || null,
         });
         insertErr = error;
       }

@@ -2705,6 +2705,8 @@ export type Database = {
           financial_closed_by: string | null;
           is_internal: boolean;
           ship_to_location_id: string | null;
+          qb_invoice_number: string | null;
+          qb_invoice_id: string | null;
         };
         Insert: {
           id?: string;
@@ -2743,6 +2745,8 @@ export type Database = {
           financial_closed_by?: string | null;
           is_internal?: boolean;
           ship_to_location_id?: string | null;
+          qb_invoice_number?: string | null;
+          qb_invoice_id?: string | null;
         };
         Update: {
           id?: string;
@@ -2781,6 +2785,8 @@ export type Database = {
           financial_closed_by?: string | null;
           is_internal?: boolean;
           ship_to_location_id?: string | null;
+          qb_invoice_number?: string | null;
+          qb_invoice_id?: string | null;
         };
         Relationships: [
           { foreignKeyName: "jobs_client_id_fkey"; columns: ["client_id"]; isOneToOne: false; referencedRelation: "clients"; referencedColumns: ["id"] },

@@ -56,7 +56,7 @@ export function flattenClientItems(jobs: any[]): any[] {
         ...it,
         jobId: j.id,
         jobTitle: j.title,
-        jobNumber: tm.qb_invoice_number || j.job_number,
+        jobNumber: j.qb_invoice_number || j.job_number,
         jobDate: j.target_ship_date || j.created_at,
         jobPhase: j.phase,
         shippingRoute: j.shipping_route || null,

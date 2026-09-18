@@ -40,7 +40,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       .from("jobs")
       .select(`
         id, job_number, title, phase, quote_approved, target_ship_date,
-        created_at, updated_at, payment_terms, type_meta,
+        created_at, updated_at, payment_terms, type_meta, qb_invoice_number, qb_invoice_id,
         portal_token, costing_summary,
         shipping_route, phase_timestamps
       `)
@@ -382,14 +382,14 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
         invoice_number: isInvoiceSent
           ? (tenantProvider === "stripe"
               ? (typeMeta.stripe_invoice_number || null)
-              : (typeMeta.qb_invoice_number || null))
+              : ((j as any).qb_invoice_number || null))
           : null,
         payment_link: isInvoiceSent
           ? (tenantProvider === "stripe"
               ? (j.portal_token ? `${tenantOrigin}/portal/${j.portal_token}/pay` : null)
               : (typeMeta.qb_payment_link || null))
           : null,
-        qb_invoice_number: isInvoiceSent && tenantProvider !== "stripe" ? (typeMeta.qb_invoice_number || null) : null,
+        qb_invoice_number: isInvoiceSent && tenantProvider !== "stripe" ? ((j as any).qb_invoice_number || null) : null,
         qb_payment_link: isInvoiceSent && tenantProvider !== "stripe" ? (typeMeta.qb_payment_link || null) : null,
         has_invoice: isInvoiced,
         pricing_visible: isPricingVisible,

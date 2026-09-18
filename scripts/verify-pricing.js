@@ -26,11 +26,11 @@ async function run() {
     console.log("\nRecent jobs:\n");
     const { data: jobs } = await supabase
       .from("jobs")
-      .select("id, job_number, title, type_meta, clients(name), costing_summary")
+      .select("id, job_number, title, type_meta, qb_invoice_number, qb_invoice_id, clients(name), costing_summary")
       .order("created_at", { ascending: false })
       .limit(15);
     for (const j of (jobs || [])) {
-      const inv = j.type_meta?.qb_invoice_number || "";
+      const inv = j.qb_invoice_number || "";
       const rev = j.costing_summary?.grossRev;
       console.log(`  ${j.id}  ${inv || j.job_number}  ${j.clients?.name || "—"}  ${j.title || ""}  ${rev ? fmt(rev) : "no costing"}`);
     }
@@ -47,7 +47,7 @@ async function run() {
 
   if (!job) { console.log("Job not found"); return; }
 
-  const inv = job.type_meta?.qb_invoice_number || job.job_number;
+  const inv = job.qb_invoice_number || job.job_number;
   const locked = job.type_meta?.costing_locked || false;
   console.log("\n" + "=".repeat(70));
   console.log(`JOB: ${job.clients?.name || "—"} — ${job.title || ""}`);

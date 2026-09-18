@@ -101,14 +101,14 @@ export async function POST(req: NextRequest) {
         console.log(`[QB Invoice] Cached qb_customer_id=${clientRecord.qb_customer_id} is missing or inactive — self-healing`);
         healedFrom = clientRecord.qb_customer_id;
         await admin.from("clients").update({ qb_customer_id: null }).eq("id", clientRecord.id);
-        const tm = (job.type_meta as any) || {};
-        if (tm.qb_invoice_id) {
-          // Set to null, never delete — mig 176 refuses an update that DROPS an
-          // identity key; null reads the same everywhere (truthiness).
-          const cleared = { qb_invoice_id: null, qb_invoice_number: null, qb_payment_link: null, qb_tax_amount: null, qb_total_with_tax: null, qb_invoice_created_at: null, qb_invoice_updated_at: null };
-          const cleanedMeta = { ...tm, ...cleared };
-          await mergeJobTypeMeta(admin, jobId, cleared);
-          (job as any).type_meta = cleanedMeta;
+        if ((job as any).qb_invoice_id) {
+          // Invoice identity lives in real columns (mig 182); attributes stay in
+          // type_meta and are nulled (never deleted — mig 176).
+          const clearedAttrs = { qb_payment_link: null, qb_tax_amount: null, qb_total_with_tax: null, qb_invoice_created_at: null, qb_invoice_updated_at: null };
+          await admin.from("jobs").update({ qb_invoice_number: null, qb_invoice_id: null }).eq("id", jobId);
+          await mergeJobTypeMeta(admin, jobId, clearedAttrs);
+          (job as any).qb_invoice_number = null; (job as any).qb_invoice_id = null;
+          (job as any).type_meta = { ...((job.type_meta as any) || {}), ...clearedAttrs };
         }
       }
     }
@@ -234,7 +234,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No items with quantities" }, { status: 400 });
     }
 
-    const existingInvoiceId = job.type_meta?.qb_invoice_id;
+    const existingInvoiceId = (job as any).qb_invoice_id as string | null;
 
     const shipAddr = (await loadJobShipTo(admin, jobId))?.address || undefined;   // project destination (client address book)
 
@@ -272,21 +272,18 @@ export async function POST(req: NextRequest) {
       const prevLink: string = (job.type_meta as any)?.qb_payment_link || "";
       const healedLink = updated.paymentLink || prevLink;
 
-      await admin.from("jobs").update({
-        type_meta: {
-          ...(job.type_meta || {}),
-          qb_tax_amount: updated.taxAmount,
-          qb_total_with_tax: updated.totalWithTax,
-          qb_invoice_updated_at: new Date().toISOString(),
-          ...(healedLink !== prevLink ? { qb_payment_link: healedLink } : {}),
-          ...(useShippedQtys ? {
-            qb_variance_pushed_at: new Date().toISOString(),
-            qb_variance_total: updated.totalWithTax,
-            qb_variance_tax: updated.taxAmount,
-            ...(billableQtys ? { qb_variance_billable_qtys: billableQtys } : {}),
-          } : {}),
-        },
-      }).eq("id", jobId);
+      await mergeJobTypeMeta(admin, jobId, {
+        qb_tax_amount: updated.taxAmount,
+        qb_total_with_tax: updated.totalWithTax,
+        qb_invoice_updated_at: new Date().toISOString(),
+        ...(healedLink !== prevLink ? { qb_payment_link: healedLink } : {}),
+        ...(useShippedQtys ? {
+          qb_variance_pushed_at: new Date().toISOString(),
+          qb_variance_total: updated.totalWithTax,
+          qb_variance_tax: updated.taxAmount,
+          ...(billableQtys ? { qb_variance_billable_qtys: billableQtys } : {}),
+        } : {}),
+      });
       // Keep the derived summary current after any invoice update (fees /
       // extra lines may have shifted). effectiveRevenue reads variance
       // fields from type_meta directly; this keeps the rest coherent.
@@ -309,7 +306,7 @@ export async function POST(req: NextRequest) {
           await admin.from("payment_records").insert({
             job_id: jobId,
             qb_invoice_id: existingInvoiceId,
-            invoice_number: job.type_meta?.qb_invoice_number || null,
+            invoice_number: (job as any).qb_invoice_number || null,
             type: "full_payment",
             amount: updTotal,
             status: "sent",
@@ -322,14 +319,14 @@ export async function POST(req: NextRequest) {
       // Log activity
       await admin.from("job_activity").insert({
         job_id: jobId, user_id: userId, type: "auto",
-        message: `Invoice updated in QuickBooks — #${job.type_meta?.qb_invoice_number || "pending"} · $${updated.totalWithTax?.toFixed(2) || "?"}`,
+        message: `Invoice updated in QuickBooks — #${(job as any).qb_invoice_number || "pending"} · $${updated.totalWithTax?.toFixed(2) || "?"}`,
       });
 
       return NextResponse.json({
         success: true,
         updated: true,
         invoiceId: existingInvoiceId,
-        invoiceNumber: job.type_meta?.qb_invoice_number,
+        invoiceNumber: (job as any).qb_invoice_number,
         paymentLink: healedLink,
         ...(healedFrom ? { healedFrom } : {}),
       });
@@ -346,18 +343,15 @@ export async function POST(req: NextRequest) {
       skipPaymentLink: !!quiet,
     });
 
-    // Save QB invoice data to job
-    await admin.from("jobs").update({
-      type_meta: {
-        ...(job.type_meta || {}),
-        qb_invoice_id: result.invoiceId,
-        qb_invoice_number: result.invoiceNumber,
-        qb_payment_link: result.paymentLink,
-        qb_tax_amount: result.taxAmount,
-        qb_total_with_tax: result.totalWithTax,
-        qb_invoice_created_at: new Date().toISOString(),
-      },
-    }).eq("id", jobId);
+    // Save QB invoice data to job: identity in columns (mig 182), attributes in type_meta.
+    const { error: idErr } = await admin.from("jobs").update({ qb_invoice_number: result.invoiceNumber, qb_invoice_id: result.invoiceId }).eq("id", jobId);
+    if (idErr) throw new Error(`QB invoice #${result.invoiceNumber} was created but could not be recorded on the job: ${idErr.message}`);
+    await mergeJobTypeMeta(admin, jobId, {
+      qb_payment_link: result.paymentLink,
+      qb_tax_amount: result.taxAmount,
+      qb_total_with_tax: result.totalWithTax,
+      qb_invoice_created_at: new Date().toISOString(),
+    });
     // Refresh the derived summary at first send too (the update path already
     // does) — a summary that drifted before invoicing otherwise makes the hub
     // read "order grew, nothing to pay" and hide the Pay button (#4411).

@@ -24,15 +24,15 @@ const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABA
   // Try by job_number first
   let { data: jobs } = await sb
     .from("jobs")
-    .select("id, title, job_number, type_meta, shipping_route, clients(name)")
+    .select("id, title, job_number, type_meta, qb_invoice_number, qb_invoice_id, shipping_route, clients(name)")
     .eq("job_number", arg);
 
   if (!jobs || jobs.length === 0) {
     // Fall back: search type_meta.qb_invoice_number
     const { data: all } = await sb
       .from("jobs")
-      .select("id, title, job_number, type_meta, shipping_route, clients(name)");
-    jobs = (all || []).filter(j => (j.type_meta || {}).qb_invoice_number === arg);
+      .select("id, title, job_number, type_meta, qb_invoice_number, qb_invoice_id, shipping_route, clients(name)");
+    jobs = (all || []).filter(j => j.qb_invoice_number === arg);
   }
 
   if (!jobs || jobs.length === 0) {
@@ -44,7 +44,7 @@ const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABA
     const tm = job.type_meta || {};
     const records = Array.isArray(tm.shipping_notifications) ? tm.shipping_notifications : [];
     console.log("=".repeat(70));
-    console.log(`Job: ${job.job_number}  (Invoice: ${tm.qb_invoice_number || "—"})`);
+    console.log(`Job: ${job.job_number}  (Invoice: ${job.qb_invoice_number || "—"})`);
     console.log(`Title: ${job.title}`);
     console.log(`Client: ${(job.clients || {}).name || "—"}`);
     console.log(`Route: ${job.shipping_route || "—"}`);

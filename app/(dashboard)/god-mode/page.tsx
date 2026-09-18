@@ -39,7 +39,7 @@ export default async function GodModePage() {
     costMarksRes,
   ] = await Promise.all([
     supabase.from("jobs")
-      .select("id, job_number, title, phase, client_id, clients(name), company_id, payment_terms, target_ship_date, costing_summary, costing_data, type_meta, phase_timestamps, created_at, quote_approved, quote_approved_at, is_inventory, is_test, is_internal")
+      .select("id, job_number, title, phase, client_id, clients(name), company_id, payment_terms, target_ship_date, costing_summary, costing_data, type_meta, qb_invoice_number, qb_invoice_id, phase_timestamps, created_at, quote_approved, quote_approved_at, is_inventory, is_test, is_internal")
       .order("created_at", { ascending: false }),
     supabase.from("items")
       .select("id, job_id, name, sort_order, blank_costs, pipeline_stage, pipeline_timestamps, sell_per_unit, cost_per_unit, cost_per_unit_all_in, garment_type, ship_qtys, blanks_order_cost, blanks_order_number, shipping_route, forwarded_at, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id)")
@@ -230,7 +230,7 @@ export default async function GodModePage() {
         const qbTotal = (j.type_meta as any)?.qb_total_with_tax || grossRev;
         // AR = invoiced & unpaid. Un-invoiced jobs (intake/pending) and cancelled
         // jobs are NOT receivables, even if they carry projected revenue.
-        const isAR = !!(j.type_meta as any)?.qb_invoice_number && j.phase !== "cancelled";
+        const isAR = !!(j as any).qb_invoice_number && j.phase !== "cancelled";
         return {
           jobId: j.id, title: j.title, phase: j.phase, createdAt: j.created_at,
           grossRev, totalCost: tCost, marginPct, paid, outstanding: isAR ? Math.max(0, qbTotal - paid) : 0,
@@ -355,7 +355,7 @@ export default async function GodModePage() {
 
     const row: any = {
       jobId: j.id, jobTitle: j.title, clientName, amount: outstanding,
-      expectedIso: expectedDate.toISOString(), invoiceNum: meta.qb_invoice_number || null,
+      expectedIso: expectedDate.toISOString(), invoiceNum: j.qb_invoice_number || null,
       _date: expectedDate,
     };
     forecast.push(row);

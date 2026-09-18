@@ -105,7 +105,7 @@ export function deriveProjectStage(job: any, phaseView: any | undefined, items: 
   // ── front of the spine: derive from the client/money gates ──
   const quoteSent = !!tm.quote_sent_at;
   const approved = !!job.quote_approved;
-  const invoiceSent = !!(job as any).invoice_sent || !!tm.qb_invoice_number;
+  const invoiceSent = !!(job as any).invoice_sent || !!(job as any).qb_invoice_number;
   const posSent = ((tm.po_sent_vendors || []) as any[]).length > 0;
   const blanksOrdered = items.length > 0 && items.every((it: any) => it.blanks_order_cost != null || it.blanks_order_number);
 
