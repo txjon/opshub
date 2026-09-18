@@ -66,6 +66,11 @@ export default function VendorPortalPage({ params }: { params: { token: string }
       setCompletedOrders(d.completed || []);
       setCompletedTotal(d.completedTotal || 0);
       setCompletedOffset(0);
+      // Kick off the history scan NOW (background, ~3s on prod) so the Past
+      // tab is complete by the time it's opened. Until it lands the tab shows
+      // no count: "Past (3)" was the preloaded all-shipped rows and read as
+      // the whole history (Jon, Sep 18).
+      loadCompleted(0, "", false);
     } catch { setError("Unable to load."); }
     finally { setLoading(false); }
   }
@@ -227,7 +232,7 @@ export default function VendorPortalPage({ params }: { params: { token: string }
                   color: tab === t ? C.text : C.muted,
                   borderBottom: tab === t ? `2px solid ${C.text}` : "2px solid transparent",
                 }}>
-                {t === "active" ? `Active (${orders.length})` : `Past (${completedTotal || pastList.length})`}
+                {t === "active" ? `Active (${orders.length})` : completedLoaded ? `Past (${completedTotal})` : completedError ? "Past (!)" : "Past …"}
               </button>
             ))}
           </div>
