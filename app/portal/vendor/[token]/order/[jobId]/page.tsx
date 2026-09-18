@@ -18,9 +18,14 @@ import { StatusPill, vendorStageFor, rollupOrderStatus } from "../../_shared/Sta
 // deep links work even when the order lives in the completed bucket.
 
 type DecoLine = { label: string; qty: number; rate: number; total: number };
+type ProdFile = { id: string; name: string; stage: "print_ready" | "proof" | "mockup"; mimeType: string | null; size: number | null; createdAt: string; viewUrl: string; downloadUrl: string; thumbUrl: string };
 type OrderItem = {
   id: string; name: string; letter: string; garmentType: string; blankVendor: string;
-  blankSku: string; pipelineStage: string; driveLink: string | null;
+  blankSku: string; pipelineStage: string;
+  // Production files = the item's active files served through OpsHub (never a
+  // Drive folder). filesAfterPo = uploaded after this vendor's PO went out;
+  // filesRemoved = names the PO listed that are no longer current.
+  files: ProdFile[]; filesChanged?: boolean; filesAfterPo?: string[]; filesRemoved?: string[];
   incomingGoods: string | null; productionNotes: string | null;
   packingNotes: string | null; shipTracking: string | null;
   shipQtys: Record<string, number> | null; sizes: string[]; qtys: Record<string, number>;
@@ -31,7 +36,7 @@ type OrderItem = {
 type Order = {
   jobId: string; jobNumber: string; jobTitle: string; clientName: string;
   phase: string; shipDate: string | null; shippingRoute: string;
-  poSent: boolean; poSentDate: string | null; shipTo: any; shipMethod: string | null;
+  poSent: boolean; poSentDate: string | null; release: { version: number; sentAt: string } | null; shipTo: any; shipMethod: string | null;
   shippingAccount: string; grandTotal: number; totalUnits: number;
   items: OrderItem[];
 };
@@ -275,12 +280,7 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
                       </table>
                     </div>
                   )}
-                  {item.driveLink && (
-                    <div style={{ fontSize: 12 }}>
-                      <span style={{ ...LBL, marginRight: 6 }}>Production folder</span>
-                      <a href={item.driveLink} target="_blank" rel="noopener noreferrer" style={{ color: C.accent, fontWeight: 600, wordBreak: "break-all" }}>Open files ↗</a>
-                    </div>
-                  )}
+                  <ProductionFiles item={item} release={order.release} />
                 </div>
               </div>
 
@@ -445,6 +445,68 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
           House Party Distro must be notified of any blank shortages or discrepancies within 24 hours of receipt of goods. Outbound shipping is at the sole direction of House Party Distro. Packing lists and tracking numbers must be supplied to House Party Distro immediately after the order has shipped. House Party Distro must be invoiced for any charges within 30 days of the PO date.
         </div>
       </main>
+    </div>
+  );
+}
+
+
+// ── Production files ──────────────────────────────────────────────────────────
+// The printer's file list. Exactly the item's active files in OpsHub, served
+// through the app: print files first, then proof and mockup. A file uploaded
+// after this vendor's PO is flagged so the printer knows to re-pull it; a file
+// the PO listed that has since been replaced is named so they don't use a
+// stale download. Never a folder link — a folder can hold files the app has
+// retired (HPD-2608-042 printed from one).
+const STAGE_LABEL: Record<ProdFile["stage"], string> = { print_ready: "Print file", proof: "Proof", mockup: "Mockup" };
+function fmtSize(n: number | null): string {
+  if (!n) return "";
+  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(n / 1024))} KB`;
+}
+function ProductionFiles({ item, release }: { item: OrderItem; release: { version: number; sentAt: string } | null }) {
+  const files = item.files || [];
+  const after = new Set(item.filesAfterPo || []);
+  const removed = item.filesRemoved || [];
+  const prints = files.filter(f => f.stage === "print_ready");
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+        <span style={LBL}>Production files{prints.length ? ` · ${prints.length} print file${prints.length === 1 ? "" : "s"}` : ""}</span>
+        {release && <span style={{ ...LBL, color: C.muted }}>Release v{release.version} · {fmtDate(release.sentAt)}</span>}
+      </div>
+      {item.filesChanged && (
+        <div style={{ borderLeft: `3px solid ${C.amber}`, background: C.amberBg, padding: "6px 10px", marginBottom: 8, fontSize: 12, color: C.text, lineHeight: 1.5 }}>
+          <div style={{ ...LBL, color: C.amber, marginBottom: 2 }}>Files changed after your PO</div>
+          {after.size > 0 && <div>Use the files marked <b>updated</b> below. They replace what was sent with the PO.</div>}
+          {removed.length > 0 && <div>No longer current: {removed.join(", ")}. Do not print from a copy of these.</div>}
+        </div>
+      )}
+      {files.length === 0 ? (
+        <div style={{ fontSize: 12, color: C.faint }}>No files on this item yet. Check back before printing.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {files.map(f => {
+            const isPrint = f.stage === "print_ready";
+            const updated = after.has(f.id);
+            return (
+              <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 9px", borderRadius: 8, border: `1px solid ${updated ? C.amberBorder : C.border}`, background: updated ? C.amberBg : isPrint ? C.card : C.bg }}>
+                <a href={f.viewUrl} target="_blank" rel="noopener noreferrer" style={{ width: 44, height: 44, flexShrink: 0, borderRadius: 6, overflow: "hidden", background: "#fff", border: `1px solid ${C.border}`, display: "block" }}>
+                  <img src={f.thumbUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} loading="lazy" />
+                </a>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ ...LBL, color: isPrint ? C.text : C.faint }}>{STAGE_LABEL[f.stage]}</span>
+                    {updated && <span style={{ ...LBL, color: C.amber }}>Updated after PO</span>}
+                  </div>
+                  <div style={{ fontSize: 12.5, fontWeight: isPrint ? 700 : 500, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</div>
+                  <div style={{ fontSize: 11, color: C.muted, fontFamily: C.mono }}>{fmtDate(f.createdAt)}{f.size ? ` · ${fmtSize(f.size)}` : ""}</div>
+                </div>
+                <a href={f.downloadUrl} style={{ flexShrink: 0, textDecoration: "none", fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: isPrint ? "#fff" : C.text, background: isPrint ? C.accent : C.surface, padding: "8px 12px", borderRadius: 7 }}>Download</a>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

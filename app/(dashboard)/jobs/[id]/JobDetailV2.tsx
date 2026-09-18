@@ -50,6 +50,7 @@ import { patchJobTypeMeta } from "@/lib/job-type-meta";
 import { useConfirm } from "@/components/useConfirm";
 import { similarClients } from "@/lib/client-match";
 import { calculatePriority } from "@/lib/dates";
+import { PRODUCTION_STAGES, releaseFor, itemDrift } from "@/lib/po-release";
 import { SHIP_METHODS } from "@/lib/ship-methods";
 import { proofCounts, needsProof, proofPdfMissing, carriedApproved, carriedFrom } from "@/lib/proof-gate";
 import { suggestPoField, poSuggestionsFor, type PoFieldKey } from "@/lib/po-suggest";
@@ -1342,6 +1343,22 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     const v = cpFor(item)?.printVendor || item.decorator || "Unassigned";
     (vendorGroups[v] ||= []).push(item);
   }
+  // Art drift: a vendor was sent a PO (release = the exact files handed over)
+  // and an item's production files have changed since. The printer is working
+  // from stale files until the PO is re-sent — HPD-2608-042 printed 52 wrong
+  // shirts this way (Sep 18 2026). Legacy POs (no release) fall back to
+  // "uploaded on a later day than the PO date".
+  const artDrift = Object.entries(vendorGroups).filter(([v]) => poSentVendors.includes(v)).map(([v, its]) => {
+    const rel = releaseFor(tm, v);
+    const date = tm.po_sent_dates?.[v] || null;
+    const changed = its.map((it: any) => {
+      const live = (filesByItem[it.id] || []).filter((f: any) => (PRODUCTION_STAGES as readonly string[]).includes(f.stage))
+        .map((f: any) => ({ id: f.id, itemId: it.id, name: f.file_name, stage: f.stage, createdAt: f.created_at }));
+      const d = itemDrift(it.id, live as any, rel, date);
+      return d.changed ? { item: it, added: d.afterPo, removed: d.removed } : null;
+    }).filter(Boolean) as { item: any; added: any[]; removed: any[] }[];
+    return changed.length ? { vendor: v, version: rel?.version || null, items: changed } : null;
+  }).filter(Boolean) as { vendor: string; version: number | null; items: { item: any; added: any[]; removed: any[] }[] }[];
 
   // ── THE ASSEMBLER (Track-2 core) ──────────────────────────────────────────
   // One place that joins the three homes into the `p` the shared cost engine
@@ -2187,8 +2204,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       ))}
 
       {/* PRODUCTION */}
-      {block("production", phase === "production" ? "now" : beyond(phase, ["receiving", "fulfillment", "complete"]) ? "done" : "todo", "Purchasing & Production",
-        `${blanksOrdered}/${items.length} blanks · ${Object.keys(vendorGroups).filter(v => poSentVendors.includes(v)).length}/${Object.keys(vendorGroups).length} POs sent`, (
+      {block("production", artDrift.length ? "warn" : phase === "production" ? "now" : beyond(phase, ["receiving", "fulfillment", "complete"]) ? "done" : "todo", "Purchasing & Production",
+        `${blanksOrdered}/${items.length} blanks · ${Object.keys(vendorGroups).filter(v => poSentVendors.includes(v)).length}/${Object.keys(vendorGroups).length} POs sent${artDrift.length ? " · ART CHANGED AFTER PO — re-send" : ""}`, (
         <div>
           {tip(<><b style={{ color: T.text }}>Buy blanks, then send POs.</b> The gate strip goes green when the quote is approved, payment is covered for the terms, and all proofs are approved — order nothing before that. Each blanks row is a read-out for the supplier order: PO reference, brand/style/color, and per-size counts to type into the supplier cart, then log the <b style={{ color: T.text }}>total paid</b> (select several rows to split one card charge across them). Below, each vendor card previews and sends the PO email — sending moves the items into production and starts vendor tracking. Item details holds the per-item PO notes and links.</>)}
           {/* GATES — cleared to order? */}
@@ -2198,6 +2215,19 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               <span key={g} style={{ fontSize: 12, color: T.muted }}>{ok ? <b style={{ color: T.green }}>✓</b> : <b style={{ color: T.amber }}>○</b>} {g}</span>
             ))}
           </div>
+          {artDrift.map(d => (
+            <div key={d.vendor} style={{ borderLeft: `3px solid ${T.amber}`, background: `${T.amber}14`, padding: "8px 12px", marginBottom: 14, borderRadius: "0 10px 10px 0" }}>
+              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.amber, marginBottom: 4 }}>Art changed after the PO went to {d.vendor}{d.version ? ` (release v${d.version})` : ""}</div>
+              {d.items.map(({ item, added, removed }) => (
+                <div key={item.id} style={{ fontSize: 12.5, color: T.text, lineHeight: 1.5 }}>
+                  <b>{item.name}</b>
+                  {added.length > 0 && <> — new: {added.map((f: any) => f.name).join(", ")}</>}
+                  {removed.length > 0 && <> — replaced: {removed.map((f: any) => f.file_name).join(", ")}</>}
+                </div>
+              ))}
+              <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>{d.vendor} is printing from the files they were sent. Re-send the PO from the vendor card below so they get the current files.</div>
+            </div>
+          ))}
 
           {/* BLANKS — credit-card purchases. A TABLE: header rails, fixed money/state
               columns, two-line rows (ref · name · blank · color / sizes as one mono

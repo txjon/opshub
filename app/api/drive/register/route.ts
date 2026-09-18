@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { deleteDriveFileIfUnreferenced } from "@/lib/google-drive-refs";
+import { supersedeSameNameFiles } from "@/lib/production-files";
 import { reopenProofApproval } from "@/lib/proof-revision";
 
 // Stages whose upload folder IS the item's art folder — the only uploads
@@ -59,6 +60,11 @@ export async function POST(req: NextRequest) {
         if (old.drive_file_id) await deleteDriveFileIfUnreferenced(old.drive_file_id, old.id);
         await supabase.from("item_files").delete().eq("id", old.id);
       }
+    } else {
+      // print_ready / client_art / vector: same file name = a new VERSION of
+      // that file. Retire the old row so the vendor never sees two same-named
+      // print files (HPD-2608-042 was printed from the stale one).
+      await supersedeSameNameFiles(supabase, itemId, stage, fileName);
     }
 
     const { data, error } = await supabase.from("item_files").insert({

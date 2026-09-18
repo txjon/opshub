@@ -22,7 +22,7 @@ type Order = {
 };
 type OrderItem = {
   id: string; name: string; letter: string; garmentType: string; blankVendor: string;
-  blankSku: string; pipelineStage: string; driveLink: string | null;
+  blankSku: string; pipelineStage: string;
   incomingGoods: string | null; productionNotes: string | null;
   packingNotes: string | null; shipTracking: string | null;
   shipQtys: Record<string, number> | null; sizes: string[]; qtys: Record<string, number>;

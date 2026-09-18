@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { supersedeSameNameFiles } from "@/lib/production-files";
 
 // POST /api/art-briefs/promote-final
 // Body: { brief_file_id, brief_id }
@@ -44,6 +45,9 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (!existing && file.drive_file_id && file.drive_link) {
+      // A re-promoted final with the same name replaces the prior print file
+      // row (the bytes stay — they belong to the brief, not the item).
+      await supersedeSameNameFiles(supabase, brief.item_id, "print_ready", file.file_name, { keepDrive: true });
       const { error: iErr } = await supabase.from("item_files").insert({
         item_id: brief.item_id,
         file_name: file.file_name,
