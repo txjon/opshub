@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
     const sb = admin();
     const { data: jobs, error } = await sb
       .from("jobs")
-      .select("id, job_number, phase, is_internal, financial_closed_at, updated_at, costing_data, costing_summary, items(id, name, is_fleece, archived_at, sell_per_unit, buy_sheet_lines(size, qty_ordered))")
+      .select("id, job_number, phase, is_internal, financial_closed_at, updated_at, costing_data, costing_summary, type_meta, qb_invoice_number, items(id, name, is_fleece, archived_at, sell_per_unit, buy_sheet_lines(size, qty_ordered))")
       .not("costing_summary", "is", null);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -237,7 +237,7 @@ export async function GET(req: NextRequest) {
     //     mig 176 refuses that now). Internal + terminal jobs excluded.
     const poNoInvoice = ((jobs || []) as any[])
       .filter(j => !j.is_internal && ACTIVE_PHASES.has(j.phase))
-      .filter(j => ((j.type_meta?.po_sent_vendors || []) as string[]).length > 0 && !j.type_meta?.qb_invoice_number)
+      .filter(j => ((j.type_meta?.po_sent_vendors || []) as string[]).length > 0 && !j.qb_invoice_number)
       .map(j => `${j.job_number} (${j.phase}) — PO sent to ${(j.type_meta.po_sent_vendors as string[]).join(", ")}`);
 
     // Email the owner ONLY when something is wrong. Silent when clean.

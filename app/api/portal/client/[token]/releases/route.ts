@@ -67,7 +67,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     const cutJobIds = (releases || []).filter((r: any) => r.status === "cut" && r.job_id).map((r: any) => r.job_id);
     const payableByJob: Record<string, any> = {};
     if (cutJobIds.length) {
-      const { data: jobs } = await db.from("jobs").select("id, type_meta").in("id", cutJobIds);
+      const { data: jobs } = await db.from("jobs").select("id, type_meta, qb_invoice_number, qb_invoice_id").in("id", cutJobIds);
       const { data: pays } = await db.from("payment_records").select("job_id, amount, status").in("job_id", cutJobIds);
       for (const j of (jobs || []) as any[]) {
         const tm = j.type_meta || {};
@@ -76,7 +76,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         const paid = jp.filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + Number(p.amount || 0), 0);
         const total = Number(tm.qb_total_with_tax || 0);
         payableByJob[j.id] = {
-          invoiceNumber: sent ? (tm.qb_invoice_number || null) : null,
+          invoiceNumber: sent ? (j.qb_invoice_number || null) : null,
           paymentLink: sent ? (tm.qb_payment_link || null) : null,
           total: sent ? total : null,
           paid,

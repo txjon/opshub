@@ -821,7 +821,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // against orderTotal (also pre-tax) for the "order grew" delta.
   const invoiced = Number(tm.qb_total_with_tax) || (Number(tm.stripe_total_cents) ? Number(tm.stripe_total_cents) / 100 : 0);
   const invoicedSub = Math.max(0, invoiced - (Number(tm.qb_tax_amount) || 0));
-  const invNum = tm.qb_invoice_number || tm.stripe_invoice_number || "";
+  const invNum = job.qb_invoice_number || tm.stripe_invoice_number || "";
   const paid = payments.filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
   const toInvoice = Math.round((orderTotal - invoicedSub) * 100) / 100;
   const route = job?.shipping_route || "";
@@ -855,7 +855,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     if (!manualEmails.includes(v)) setManualEmails(m => [...m, v]);
     setManualInput(""); setActErr("");
   };
-  const refetchTypeMeta = async () => { const { data }: any = await createClient().from("jobs").select("type_meta, quote_approved, quote_approved_at").eq("id", job.id).single(); if (data) setJob((j: any) => ({ ...j, quote_approved: data.quote_approved, quote_approved_at: data.quote_approved_at, type_meta: { ...j.type_meta, ...data.type_meta } })); };
+  const refetchTypeMeta = async () => { const { data }: any = await createClient().from("jobs").select("type_meta, qb_invoice_number, qb_invoice_id, quote_approved, quote_approved_at").eq("id", job.id).single(); if (data) setJob((j: any) => ({ ...j, quote_approved: data.quote_approved, quote_approved_at: data.quote_approved_at, type_meta: { ...j.type_meta, ...data.type_meta } })); };
   const doSendQuote = async () => {
     const emails = selectedEmails(); if (!emails.length) { setActErr("Select a recipient."); return; }
     setActBusy(true); setActErr("");
@@ -1760,7 +1760,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                   else if (job.phase !== "cancelled") rows.push(item("Place on hold", () => setPhase("on_hold")));
                   if (job.phase === "cancelled") rows.push(item("Reactivate", () => setPhase("intake")));
                   rows.push(item("Duplicate project", duplicateJob));
-                  if (job.type_meta?.qb_invoice_number && job.phase !== "cancelled") rows.push(item("Cancel & void invoice", cancelVoid, true));
+                  if (job.qb_invoice_number && job.phase !== "cancelled") rows.push(item("Cancel & void invoice", cancelVoid, true));
                   rows.push(item("Delete project", deleteJob, true));
                   return rows;
                 })()}
@@ -2048,7 +2048,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         : <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.amber }} title={`OpsHub order ${fmtMoney(orderTotal)} vs QB ${fmtMoney(invoicedSub)} (pre-tax). Send invoice re-pushes.`}>⚠ off {fmtMoney(Math.abs(toInvoice))} vs QB</span>}
                     </>
                   ) : "none")}
-                  {tm.qb_invoice_id && row("Pay link", (
+                  {job.qb_invoice_id && row("Pay link", (
                     <>
                       {tm.qb_payment_link
                         ? <a href={tm.qb_payment_link} target="_blank" rel="noreferrer" style={{ fontWeight: 700, color: T.green, textDecoration: "none" }}>Open ↗</a>
@@ -2242,7 +2242,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", minWidth: 0 }}>
                           {/* Purchasing reference = QB invoice number (matches how vendor
                               invoices tie back to invoiced jobs). Job number only pre-invoice. */}
-                          <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 800, color: T.text }}>{(tm.qb_invoice_number || job.job_number)}-{letterOf(item.id)}</span>
+                          <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 800, color: T.text }}>{(job.qb_invoice_number || job.job_number)}-{letterOf(item.id)}</span>
                           <span style={{ fontSize: 12, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{item.name}</span>
                           <span style={{ fontSize: 13.5, fontWeight: 800 }}>
                             {item.blank_vendor || <span style={{ color: T.amber }}>No blank assigned</span>}

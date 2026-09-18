@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
     // Resolve per-line customer via job → client.qb_customer_id (the job-costing link)
     const jobIds = [...new Set(entries.map((e: any) => e.job_id).filter(Boolean))] as string[];
     const { data: jobs } = jobIds.length
-      ? await admin.from("jobs").select("id, job_number, type_meta, clients(name, qb_customer_id)").in("id", jobIds)
+      ? await admin.from("jobs").select("id, job_number, type_meta, qb_invoice_number, qb_invoice_id, clients(name, qb_customer_id)").in("id", jobIds)
       : { data: [] as any[] };
     const jobById: Record<string, any> = Object.fromEntries((jobs || []).map((j: any) => [j.id, j]));
 
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
     // description.
     const lines: QBBillLine[] = entries.map((e: any) => {
       const j = e.job_id ? jobById[e.job_id] : null;
-      const ref = e.po_ref || j?.type_meta?.qb_invoice_number || j?.job_number || "";
+      const ref = e.po_ref || j?.qb_invoice_number || j?.job_number || "";
       const inv = e.vendor_invoice_number ? `${e.vendor_invoice_number} - ` : "";
       return {
         amount: Number(e.amount || 0),
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
     // Bill DocNumber = the HPD Bill Number (OpsHub's own sequential id). Each line
     // carries its vendor invoice # in the description; the bill itself is HPD's number.
     const docNumber = entries.find((e: any) => e.hpd_bill_number)?.hpd_bill_number || undefined;
-    const jobRefs = [...new Set((jobs || []).map((j: any) => j.type_meta?.qb_invoice_number || j.job_number).filter(Boolean))].join(", ");
+    const jobRefs = [...new Set((jobs || []).map((j: any) => j.qb_invoice_number || j.job_number).filter(Boolean))].join(", ");
 
     const result = await createBill({
       vendorId: qbVendorId!,

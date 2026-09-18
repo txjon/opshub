@@ -27,7 +27,7 @@ export async function loadHouseCounts(sb: any, companyId: string, companySlug: s
       .eq("company_id", companyId).in("status", ["quote_requested", "accepted"]).is("job_id", null)
       .then((r: any) => r.count || 0),
     sb.from("jobs")
-      .select("id, phase, shipping_route, payment_terms, quote_approved, target_ship_date, type_meta, costing_data, payment_records(status), items(id, pipeline_stage, artwork_status, blanks_order_cost, blanks_order_number, decorator_assignments(decorators(name, short_code)))")
+      .select("id, phase, shipping_route, payment_terms, quote_approved, target_ship_date, type_meta, qb_invoice_number, costing_data, payment_records(status), items(id, pipeline_stage, artwork_status, blanks_order_cost, blanks_order_number, decorator_assignments(decorators(name, short_code)))")
       .eq("company_id", companyId)
       .in("phase", ["intake", "pending", "ready", "production"])
       .then((r: any) => (r.data || []) as any[]),

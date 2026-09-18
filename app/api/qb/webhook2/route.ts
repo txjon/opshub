@@ -173,18 +173,19 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
 
   for (const { invoiceId: qbInvoiceId, amount } of allocations) {
     // Primary match: by qb_invoice_id
+    // Invoice identity = jobs.qb_invoice_id / qb_invoice_number (mig 182 columns).
     let { data: jobs } = await supabase
       .from("jobs")
-      .select("id, title, type_meta, phase, costing_summary, quote_approved, clients(name)")
-      .filter("type_meta->>qb_invoice_id", "eq", qbInvoiceId);
+      .select("id, title, type_meta, qb_invoice_number, qb_invoice_id, phase, costing_summary, quote_approved, clients(name)")
+      .eq("qb_invoice_id", qbInvoiceId);
 
     // Fallback match: by qb_invoice_number (in case ID wasn't saved)
     if (!jobs?.length) {
       console.log("[QB Webhook2] No match on qb_invoice_id:", qbInvoiceId, "— trying invoice number");
       const { data: fallback } = await supabase
         .from("jobs")
-        .select("id, title, type_meta, phase, costing_summary, quote_approved, clients(name)")
-        .filter("type_meta->>qb_invoice_number", "eq", String(qbInvoiceId));
+        .select("id, title, type_meta, qb_invoice_number, qb_invoice_id, phase, costing_summary, quote_approved, clients(name)")
+        .eq("qb_invoice_number", String(qbInvoiceId));
       if (fallback?.length) jobs = fallback;
     }
 
@@ -266,7 +267,7 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
         amount,
         status: "paid",
         paid_date: today,
-        invoice_number: (job.type_meta as any)?.qb_invoice_number || null,
+        invoice_number: (job as any).qb_invoice_number || null,
       });
       insertErr = error;
     }
@@ -345,7 +346,7 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
           ? `${await appBaseUrl()}/portal/client/${jobClient.portal_token}/orders/${(jobFull as any).id}`
           : (jobFull?.portal_token ? `${await appBaseUrl()}/portal/${jobFull.portal_token}` : "");
         const portalButton = portalUrl ? `<p style="margin:16px 0"><a href="${portalUrl}" style="display:inline-block;padding:10px 24px;background:#f3f3f5;color:#1a1a1a;text-decoration:none;border-radius:6px;font-weight:bold;font-size:13px;border:1px solid #dcdce0">View in Portal</a></p>` : "";
-        const invoiceNum = (job.type_meta as any)?.qb_invoice_number || jobFull?.job_number || "";
+        const invoiceNum = (job as any).qb_invoice_number || jobFull?.job_number || "";
 
         const { error: sendErr } = await resend.emails.send({
           from: process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com",

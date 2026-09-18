@@ -54,7 +54,7 @@ export function JobItemsPeek({ job, stage, items, thumbs, proofStatus, completed
   job: any; stage: { route?: string }; items: any[]; thumbs: Record<string, string>; proofStatus?: Record<string, { state?: string }>;
   completed?: boolean; onClose: () => void; onOpen: () => void;
 }) {
-  const invNo = (job.type_meta as any)?.qb_invoice_number || job.job_number;
+  const invNo = (job as any).qb_invoice_number || job.job_number;
   const firstDue = job.phase === "on_hold" ? null : firstItemDue(job);
   const route = stage?.route || job.shipping_route || "";
   return (

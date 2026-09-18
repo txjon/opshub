@@ -44,11 +44,11 @@ export async function POST(req: NextRequest) {
     if (batch.length > 1) return NextResponse.json({ sent: false, reason: "batch already announced", batch: batch.length });
 
     const jobIds = [...new Set(batch.map(b => b.job_id))];
-    const { data: jobs } = await sb.from("jobs").select("id, job_number, type_meta, clients(name)").in("id", jobIds);
+    const { data: jobs } = await sb.from("jobs").select("id, job_number, type_meta, qb_invoice_number, qb_invoice_id, clients(name)").in("id", jobIds);
     const jobById: Record<string, any> = Object.fromEntries((jobs || []).map((j: any) => [j.id, j]));
     const lines = batch.map(b => {
       const j = jobById[b.job_id];
-      const num = j?.type_meta?.qb_invoice_number || j?.job_number || "";
+      const num = j?.qb_invoice_number || j?.job_number || "";
       return `<li style="margin:3px 0">${b.name}${num ? ` — <strong>${num}</strong>` : ""}${j?.clients?.name ? ` · ${j.clients.name}` : ""}</li>`;
     }).join("");
 

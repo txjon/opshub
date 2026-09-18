@@ -30,9 +30,9 @@ export type InvoiceState = {
 
 export function deriveInvoice(job: any, items: any[] = [], payments: any[] = []): InvoiceState {
   const tm = job?.type_meta || {};
-  const qbInvoiceNumber = tm.qb_invoice_number || null;
+  const qbInvoiceNumber = job?.qb_invoice_number || null;
   const qbPaymentLink = tm.qb_payment_link || null;
-  const qbInvoiceId = tm.qb_invoice_id || null;
+  const qbInvoiceId = job?.qb_invoice_id || null;
   const isManualInvoice = !!qbInvoiceNumber && !qbInvoiceId;
   const variancePushedAt = tm.qb_variance_pushed_at || null;
   const sentAt = tm.invoice_sent_at || null;

@@ -118,7 +118,7 @@ export async function GET(
     // We query all items from active jobs and check costing_data
     let activeJobsQuery = sb
       .from("jobs")
-      .select("id, title, job_number, phase, target_ship_date, type_meta, client_id, costing_data, shipping_route")
+      .select("id, title, job_number, phase, target_ship_date, type_meta, qb_invoice_number, qb_invoice_id, client_id, costing_data, shipping_route")
       .order("target_ship_date", { ascending: true });
     activeJobsQuery = jobIdParam
       ? activeJobsQuery.eq("id", jobIdParam)
@@ -273,7 +273,7 @@ export async function GET(
         // DELIBERATE (Jon): vendors get the QB invoice number as the PO
         // reference — their invoices then match our invoiced jobs 1:1.
         // Do NOT "fix" this to job_number.
-        jobNumber: typeMeta.qb_invoice_number || job.job_number,
+        jobNumber: (job as any).qb_invoice_number || job.job_number,
         jobTitle: job.title,
         clientName: clientMap[job.client_id] || "Client",
         phase: job.phase,
@@ -317,7 +317,7 @@ export async function GET(
     // company-wide, not just the ones sent to this vendor.)
     let allCompletedQuery = sb
       .from("jobs")
-      .select("id, title, job_number, phase, target_ship_date, type_meta, client_id, costing_data, shipping_route")
+      .select("id, title, job_number, phase, target_ship_date, type_meta, qb_invoice_number, qb_invoice_id, client_id, costing_data, shipping_route")
       .in("phase", ["complete"])
       .in("id", candidateIds)
       .order("job_number", { ascending: false });

@@ -16,11 +16,11 @@ import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 export async function maybeAutoFinalizeInvoice(supabase: any, jobId: string): Promise<boolean> {
   const { data: job } = await supabase
     .from("jobs")
-    .select("id, shipping_route, type_meta")
+    .select("id, shipping_route, type_meta, qb_invoice_number, qb_invoice_id")
     .eq("id", jobId)
     .single();
   const tm = (job as any)?.type_meta || {};
-  if (!job || !tm.qb_invoice_number || tm.qb_variance_pushed_at) return false;
+  if (!job || !(job as any).qb_invoice_number || tm.qb_variance_pushed_at) return false;
 
   const [{ data: items }, { data: moves }] = await Promise.all([
     supabase.from("items")

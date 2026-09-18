@@ -139,7 +139,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
   async function loadAll() {
     const [v, j, e, d, m, itm] = await Promise.all([
       supabase.from("ap_vendors").select("id, name, kind, decorator_id, match_keys, default_bill_method").eq("active", true).order("name"),
-      supabase.from("jobs").select("id, job_number, phase, type_meta, client_id, clients(name), costing_data, costing_summary").eq("company_id", companyId).order("created_at", { ascending: false }),
+      supabase.from("jobs").select("id, job_number, phase, type_meta, qb_invoice_number, qb_invoice_id, client_id, clients(name), costing_data, costing_summary").eq("company_id", companyId).order("created_at", { ascending: false }),
       supabase.from("cost_entries").select("*").order("created_at", { ascending: false }),
       supabase.from("decorators").select("id, name, short_code, pricing_data, capabilities, contacts_list"),
       supabase.from("cost_vendor_status").select("job_id, vendor_id, reason"),
@@ -149,7 +149,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
     setVendors((v.data as any) || []);
     const jrows = ((j.data as any) || []);
     const jl: JobLite[] = jrows.map((x: any) => ({
-      id: x.id, job_number: x.job_number, qb_invoice_number: x.type_meta?.qb_invoice_number || null,
+      id: x.id, job_number: x.job_number, qb_invoice_number: x.qb_invoice_number || null,
       client_id: x.client_id, client_name: x.clients?.name || null,
     }));
     setJobs(jl);

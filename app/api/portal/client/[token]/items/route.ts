@@ -36,7 +36,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     //    UI can filter. A "paid to archive" toggle can hide them client-side.)
     const { data: jobs } = await db
       .from("jobs")
-      .select("id, job_number, title, phase, quote_approved, target_ship_date, created_at, shipping_route, phase_timestamps, type_meta")
+      .select("id, job_number, title, phase, quote_approved, target_ship_date, created_at, shipping_route, phase_timestamps, type_meta, qb_invoice_number, qb_invoice_id")
       .eq("client_id", client.id)
       .order("created_at", { ascending: false });
     const jobById: Record<string, any> = {};
@@ -290,7 +290,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         payment_status: paymentByJob[it.job_id]?.status || "none",
         // Invoice number — prefer QB invoice # (HPD), fall back to
         // Stripe invoice # (IHM). Either lives in jobs.type_meta.
-        invoice_number: (job.type_meta as any)?.qb_invoice_number
+        invoice_number: (job as any).qb_invoice_number
           || (job.type_meta as any)?.stripe_invoice_number
           || null,
         job: {

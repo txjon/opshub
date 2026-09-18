@@ -10,6 +10,7 @@ import { loadJobPhasesBatch, type JobPhaseView } from "@/lib/item-state";
 import { LEGACY_TO_NEW_PHASE } from "@/lib/phase-model";
 
 type Job = {
+  qb_invoice_number?: string | null; qb_invoice_id?: string | null; // real columns (mig 182)
   id: string; title: string; job_type: string; phase: string; priority: string;
   target_ship_date: string|null; job_number: string; created_at: string;
   type_meta?: Record<string, any>|null;
@@ -149,7 +150,7 @@ export default function JobsPage() {
     setLoading(true);
     const { data } = await supabase
       .from("jobs")
-      .select("*, clients(name), costing_summary, costing_data, type_meta, payment_records(amount, status), items(id, name, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, garment_type, received_at_hpd, forwarded_at, sort_order, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
+      .select("*, clients(name), costing_summary, costing_data, type_meta, qb_invoice_number, qb_invoice_id, payment_records(amount, status), items(id, name, sell_per_unit, cost_per_unit, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, garment_type, received_at_hpd, forwarded_at, sort_order, buy_sheet_lines(qty_ordered), decorator_assignments(pipeline_stage))")
       .order("created_at", { ascending: false });
     if (data) setJobs(data as Job[]);
     setLoading(false);
@@ -287,7 +288,7 @@ export default function JobsPage() {
         (j.clients?.name || "").toLowerCase().includes(q) ||
         j.title.toLowerCase().includes(q) ||
         j.job_number.toLowerCase().includes(q) ||
-        (j.type_meta?.qb_invoice_number || "").toLowerCase().includes(q)
+        (j.qb_invoice_number || "").toLowerCase().includes(q)
       )) return false;
       return true;
     });
@@ -316,8 +317,8 @@ export default function JobsPage() {
       // Numeric-aware: QB returns invoice numbers as strings ("4170")
       // but they're naturally numeric. Coerce when possible; rows
       // without an invoice number sort to the bottom.
-      const ai = a.type_meta?.qb_invoice_number;
-      const bi = b.type_meta?.qb_invoice_number;
+      const ai = a.qb_invoice_number;
+      const bi = b.qb_invoice_number;
       av = ai ? (Number(ai) || ai) : Infinity;
       bv = bi ? (Number(bi) || bi) : Infinity;
     } else if (sortKey === "pct") {
@@ -448,7 +449,7 @@ export default function JobsPage() {
           const totalUnits = (job.items||[]).reduce((a:number,it:any) =>
             a + (it.buy_sheet_lines||[]).reduce((b:number,l:any) => b+(l.qty_ordered||0), 0), 0);
 
-          const invNum = job.type_meta?.qb_invoice_number;
+          const invNum = job.qb_invoice_number;
           const invoiceSentAt = (job as any).type_meta?.invoice_sent_at;
           const progress = getItemProgress(job);
 

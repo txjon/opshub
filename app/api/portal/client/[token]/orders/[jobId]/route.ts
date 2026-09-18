@@ -52,7 +52,7 @@ export async function GET(
     if (job.client_id) {
       const { data: allJobs } = await sb
         .from("jobs")
-        .select("id, title, job_number, phase, target_ship_date, portal_token, type_meta, quote_approved, costing_data")
+        .select("id, title, job_number, phase, target_ship_date, portal_token, type_meta, qb_invoice_number, qb_invoice_id, quote_approved, costing_data")
         .eq("client_id", job.client_id)
         .not("phase", "eq", "cancelled")
         .order("target_ship_date", { ascending: true, nullsFirst: false });
@@ -198,7 +198,7 @@ export async function GET(
       else if (/invoice sent to client/i.test(msg)) {
         const provider = ((client as any).companies?.default_payment_provider || "quickbooks") as string;
         const tmInv = (job.type_meta as any) || {};
-        const invNum = provider === "stripe" ? tmInv.stripe_invoice_number : tmInv.qb_invoice_number;
+        const invNum = provider === "stripe" ? tmInv.stripe_invoice_number : (job as any).qb_invoice_number;
         clientMsg = invNum ? `Invoice #${invNum} delivered` : "Invoice delivered";
       }
       else if (/invoice \+ proofs sent/i.test(msg)) clientMsg = "Invoice and proofs delivered";
@@ -458,7 +458,7 @@ export async function GET(
     // so the total must show even if OpsHub never emailed the quote/invoice
     // itself — otherwise the Payment block reads Total: $0 on a billed order
     // (e.g. invoice created + sent directly from QuickBooks).
-    const showTotals = isQuoteSent || isInvoiceSent || !!typeMeta.qb_invoice_id || !!typeMeta.stripe_invoice_number;
+    const showTotals = isQuoteSent || isInvoiceSent || !!(job as any).qb_invoice_id || !!typeMeta.stripe_invoice_number;
     const portalQuoteItems = isQuoteSent ? [...quoteItems, ...extraQuoteItems] : [];
 
     return NextResponse.json({
@@ -520,7 +520,7 @@ export async function GET(
         // Only "stale" when OpsHub actually pushed an invoice to QB.
         // Manually-entered invoice numbers have no OpsHub-side QB totals
         // to compare against, so the staleness check would always fire.
-        if (!typeMeta.qb_invoice_id) return false;
+        if (!(job as any).qb_invoice_id) return false;
         const quoteSubtotal = quoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0) + extraTotal;
         const qbSubtotal = (typeMeta.qb_total_with_tax || 0) - (typeMeta.qb_tax_amount || 0);
         return Math.abs(quoteSubtotal - qbSubtotal) > 0.01;
@@ -554,7 +554,7 @@ export async function GET(
       invoiceNumber: ((typeMeta.invoice_sent_at || (payments || []).some((p: any) => p.status && !["draft","void"].includes(p.status)))
         ? (((client as any).companies?.default_payment_provider === "stripe"
             ? typeMeta.stripe_invoice_number
-            : typeMeta.qb_invoice_number) || null)
+            : (job as any).qb_invoice_number) || null)
         : null),
       activity: (activity || []).map((a: any) => ({
         message: a.message,

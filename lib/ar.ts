@@ -86,7 +86,7 @@ export function buildAr(opts: {
   for (const j of pnlJobs(opts.jobs || [])) {
     if (j.phase === "cancelled") continue;
     const tm = j.type_meta || {};
-    if (!tm.qb_invoice_number) continue; // uninvoiced jobs are alerts, not rows
+    if (!j.qb_invoice_number) continue; // uninvoiced jobs are alerts, not rows
     const payments = opts.paymentsByJob[j.id] || [];
     const d = deriveInvoice(j, opts.itemsByJob[j.id] || [], payments);
 

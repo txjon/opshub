@@ -21,10 +21,10 @@ export async function POST(req: NextRequest) {
 
     const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-    const { data: job } = await admin.from("jobs").select("id, type_meta").eq("id", jobId).single();
+    const { data: job } = await admin.from("jobs").select("id, type_meta, qb_invoice_number, qb_invoice_id").eq("id", jobId).single();
     if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
 
-    const invoiceId = (job.type_meta as any)?.qb_invoice_id;
+    const invoiceId = (job as any).qb_invoice_id;
     if (!invoiceId) {
       return NextResponse.json({ error: "No QB invoice on this job — create the invoice first" }, { status: 400 });
     }

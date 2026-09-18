@@ -218,7 +218,7 @@ export type BoardStrip = {
 export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
   const { data: allJobs } = await sb
     .from("jobs")
-    .select("id, job_number, title, phase, priority, target_ship_date, shipping_route, type_meta, costing_data, client_id, ship_to_location_id, clients(name)")
+    .select("id, job_number, title, phase, priority, target_ship_date, shipping_route, type_meta, qb_invoice_number, qb_invoice_id, costing_data, client_id, ship_to_location_id, clients(name)")
     .not("phase", "in", '("complete","cancelled","on_hold")');
   const jobs = (allJobs || []).filter((j: any) => ((j.type_meta?.po_sent_vendors || []) as string[]).length > 0);
   const jobById = new Map<string, any>((jobs || []).map((j: any) => [j.id, j]));
@@ -351,7 +351,7 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
       const live: string | null = liveKey ? tm.po_ship_live[liveKey]?.date || null : null;
       strips.set(key, {
         key, jobId: job.id, jobNumber: job.job_number, jobTitle: job.title,
-        clientName: job.clients?.name || "—", invoiceNumber: job.type_meta?.qb_invoice_number || null,
+        clientName: job.clients?.name || "—", invoiceNumber: job.qb_invoice_number || null,
         jobRoute, phase: job.phase,
         priority: job.priority,
         shipDate: (live && live !== "ASAP") ? live : agreed,
@@ -420,7 +420,7 @@ export async function loadRecentShipments(sb: Sb): Promise<ShippedBox[]> {
   if (!active.length) return [];
   const ids = active.map((s: any) => s.id);
   const { data: lines } = await sb.from("shipment_lines")
-    .select("shipment_id, item_id, job_id, description, ship_qtys, items(name, shipping_route, ship_qtys, buy_sheet_lines(qty_ordered), jobs(shipping_route, type_meta, clients(name)))").in("shipment_id", ids);
+    .select("shipment_id, item_id, job_id, description, ship_qtys, items(name, shipping_route, ship_qtys, buy_sheet_lines(qty_ordered), jobs(shipping_route, type_meta, qb_invoice_number, qb_invoice_id, clients(name)))").in("shipment_id", ids);
   const itemIds = Array.from(new Set((lines || []).map((l: any) => l.item_id).filter(Boolean)));
   const { data: slips } = itemIds.length
     ? await sb.from("item_files").select("item_id").eq("stage", "packing_slip").not("drive_link", "is", null).in("item_id", itemIds)
@@ -443,7 +443,7 @@ export async function loadRecentShipments(sb: Sb): Promise<ShippedBox[]> {
       const ordered = (l.items?.buy_sheet_lines || []).reduce((a: number, b: any) => a + (Number(b.qty_ordered) || 0), 0);
       return {
         client: l.items?.jobs?.clients?.name || "—",
-        invoiceNumber: l.items?.jobs?.type_meta?.qb_invoice_number || null,
+        invoiceNumber: l.items?.jobs?.qb_invoice_number || null,
         itemName: l.items?.name || l.description || "Item",
         qty: sumQ(l.ship_qtys), qtys: l.ship_qtys || {}, mockupFileId: mockById.get(l.item_id) || null,
         overShippedTotal: ordered > 0 ? Math.max(0, sumQ(l.items?.ship_qtys || {}) - ordered) : 0,
@@ -517,7 +517,7 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
   if (!open.length) return [];
   const ids = open.map((s: any) => s.id);
   const { data: lines } = await sb.from("shipment_lines")
-    .select("shipment_id, item_id, job_id, description, ship_qtys, received_qtys, received, items(name, mockup_color, shipping_route, ship_final, received_qtys, ship_qtys, expected_arrival, buy_sheet_lines(qty_ordered), jobs(shipping_route, type_meta, clients(name)))").in("shipment_id", ids);
+    .select("shipment_id, item_id, job_id, description, ship_qtys, received_qtys, received, items(name, mockup_color, shipping_route, ship_final, received_qtys, ship_qtys, expected_arrival, buy_sheet_lines(qty_ordered), jobs(shipping_route, type_meta, qb_invoice_number, qb_invoice_id, clients(name)))").in("shipment_id", ids);
   const itemIds = Array.from(new Set((lines || []).map((l: any) => l.item_id).filter(Boolean)));
 
   // pending production-declared pulls per item, to fulfil at receiving
@@ -585,7 +585,7 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
       const orderedTotal = (l.items?.buy_sheet_lines || []).reduce((a: number, b: any) => a + (Number(b.qty_ordered) || 0), 0);
       return {
         itemId: l.item_id, jobId: l.job_id, itemName: l.items?.name || l.description || "Item", mockupFileId: mockById.get(l.item_id) || null,
-        client: l.items?.jobs?.clients?.name || "—", invoiceNumber: l.items?.jobs?.type_meta?.qb_invoice_number || null,
+        client: l.items?.jobs?.clients?.name || "—", invoiceNumber: l.items?.jobs?.qb_invoice_number || null,
         route: resolveRoute(l.items?.shipping_route, l.items?.jobs?.shipping_route),
         shipQtys: l.ship_qtys || {}, receivedQtys: l.received_qtys || {}, cumReceived: l.items?.received_qtys || {},
         orderedTotal,
@@ -753,7 +753,7 @@ export type ShippingJob = {
 
 export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
   const { data: jobs } = await sb.from("jobs")
-    .select("id, job_number, title, phase, shipping_route, type_meta, client_id, ship_to_location_id, clients(name)")
+    .select("id, job_number, title, phase, shipping_route, type_meta, qb_invoice_number, qb_invoice_id, client_id, ship_to_location_id, clients(name)")
     .in("phase", ["receiving", "shipping", "fulfillment"]);
   if (!jobs?.length) return [];
   const jobById = new Map<string, any>((jobs as any[]).map(j => [j.id, j]));
@@ -825,7 +825,7 @@ export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
     let c = cards.get(key);
     if (!c) {
       c = { key, jobId: job.id, jobNumber: job.job_number, jobTitle: job.title,
-        clientName: job.clients?.name || "—", invoiceNumber: job.type_meta?.qb_invoice_number || null,
+        clientName: job.clients?.name || "—", invoiceNumber: job.qb_invoice_number || null,
         shipTo: dest?.address || null, destination: dest, items: [], status: "ready", readyUnits: 0, comingUnits: 0 };
       cards.set(key, c);
     }
@@ -900,7 +900,7 @@ export async function loadForwardedShipments(sb: Sb): Promise<ForwardedShipment[
   if (!ships?.length) return [];
   const ids = (ships as any[]).map(s => s.id);
   const { data: lines } = await sb.from("shipment_lines")
-    .select("shipment_id, item_id, job_id, description, ship_qtys, items(name, mockup_color, shipping_route, jobs(job_number, shipping_route, type_meta, clients(name)))").in("shipment_id", ids);
+    .select("shipment_id, item_id, job_id, description, ship_qtys, items(name, mockup_color, shipping_route, jobs(job_number, shipping_route, type_meta, qb_invoice_number, qb_invoice_id, clients(name)))").in("shipment_id", ids);
   const itemIds = Array.from(new Set((lines || []).map((l: any) => l.item_id).filter(Boolean)));
   const { data: mockups } = itemIds.length
     ? await sb.from("item_files").select("item_id, drive_file_id, stage, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", itemIds).order("created_at", { ascending: false })
@@ -917,7 +917,7 @@ export async function loadForwardedShipments(sb: Sb): Promise<ForwardedShipment[
     if (!ls.length) continue;
     const fLines: ForwardedLine[] = ls.map((l: any) => ({
       itemId: l.item_id, jobId: l.job_id, itemName: l.items?.name || l.description || "Item", mockupFileId: mockById.get(l.item_id) || null,
-      client: l.items?.jobs?.clients?.name || "—", invoiceNumber: l.items?.jobs?.type_meta?.qb_invoice_number || null,
+      client: l.items?.jobs?.clients?.name || "—", invoiceNumber: l.items?.jobs?.qb_invoice_number || null,
       route: resolveRoute(l.items?.shipping_route, l.items?.jobs?.shipping_route), qtys: l.ship_qtys || {},
     }));
     out.push({
@@ -950,7 +950,7 @@ export async function loadStagingBoard(sb: Sb): Promise<StagingItem[]> {
   // the Entered tab (KYS tee / Overpass, Jul 28). The availableToEnter/entered
   // guard below keeps anything without staged history off the board.
   const { data: jobs } = await sb.from("jobs")
-    .select("id, job_number, phase, shipping_route, type_meta, costing_data, clients(name)")
+    .select("id, job_number, phase, shipping_route, type_meta, qb_invoice_number, qb_invoice_id, costing_data, clients(name)")
     .or("phase.in.(receiving,shipping,fulfillment),and(phase.eq.complete,shipping_route.eq.stage)");
   if (!jobs?.length) return [];
   const jobById = new Map<string, any>((jobs as any[]).map(j => [j.id, j]));
@@ -997,7 +997,7 @@ export async function loadStagingBoard(sb: Sb): Promise<StagingItem[]> {
     if (color && color.startsWith("#")) color = null;   // a raw hex mockup color isn't a real blank color name
     out.push({
       itemId: item.id, jobId: item.job_id, jobNumber: job.job_number, name: item.name, mockupFileId: mockById.get(item.id) || null,
-      client: job.clients?.name || "—", invoiceNumber: job.type_meta?.qb_invoice_number || null,
+      client: job.clients?.name || "—", invoiceNumber: job.qb_invoice_number || null,
       blankVendor: (item.blank_vendor || "").trim() || null, blankSku: (item.blank_sku || "").trim() || null, color,
       available: st.availableToEnter, availableTotal: st.availableToEnterTotal,
       entered: st.entered, enteredTotal: st.enteredTotal, status: st.status,
@@ -1014,11 +1014,11 @@ export type HeldPull = {
 };
 export async function loadPulls(sb: Sb): Promise<HeldPull[]> {
   const { data } = await sb.from("pulled_inventory")
-    .select("id, item_id, job_id, item_name, qtys, location, notes, created_at, items(name, jobs(type_meta, clients(name)))")
+    .select("id, item_id, job_id, item_name, qtys, location, notes, created_at, items(name, jobs(type_meta, qb_invoice_number, qb_invoice_id, clients(name)))")
     .eq("status", "held").order("created_at", { ascending: false }).limit(300);
   return (data || []).map((r: any) => ({
     id: r.id, itemId: r.item_id, jobId: r.job_id, itemName: r.items?.name || r.item_name || "Item",
-    client: r.items?.jobs?.clients?.name || "—", invoiceNumber: r.items?.jobs?.type_meta?.qb_invoice_number || null,
+    client: r.items?.jobs?.clients?.name || "—", invoiceNumber: r.items?.jobs?.qb_invoice_number || null,
     qtys: r.qtys || {}, action: r.notes || "", location: r.location || null, createdAt: r.created_at,
   }));
 }

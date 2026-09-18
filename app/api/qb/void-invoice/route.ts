@@ -21,12 +21,12 @@ export async function POST(req: NextRequest) {
 
     const admin = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-    const { data: job } = await admin.from("jobs").select("id, title, job_number, phase, type_meta, phase_timestamps").eq("id", jobId).single();
+    const { data: job } = await admin.from("jobs").select("id, title, job_number, phase, type_meta, qb_invoice_number, qb_invoice_id, phase_timestamps").eq("id", jobId).single();
     if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
 
     const tm = (job.type_meta as any) || {};
-    const qbInvoiceId = tm.qb_invoice_id || null;
-    const qbInvoiceNumber = tm.qb_invoice_number || null;
+    const qbInvoiceId = (job as any).qb_invoice_id || null;
+    const qbInvoiceNumber = (job as any).qb_invoice_number || null;
 
     // OpsHub-side payment gate: a real payment is a paid/partial record with
     // a non-zero amount. The "sent" placeholder row (created on invoice push)

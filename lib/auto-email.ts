@@ -43,7 +43,7 @@ export async function sendClientNotification(params: NotifyParams) {
     // Resend key + from-address pick the right brand.
     const { data: job } = await sb
       .from("jobs")
-      .select("id, title, job_number, type_meta, portal_token, client_id, companies:company_id(slug, name)")
+      .select("id, title, job_number, type_meta, qb_invoice_number, qb_invoice_id, portal_token, client_id, companies:company_id(slug, name)")
       .eq("id", params.jobId)
       .single();
     if (!job) return;
@@ -107,7 +107,7 @@ export async function sendClientNotification(params: NotifyParams) {
     let html = "";
     const from = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
     // Prefer QB invoice # when available; fall back to job number for pre-invoice sends.
-    const qbInvoiceNum = (job as any).type_meta?.qb_invoice_number || "";
+    const qbInvoiceNum = (job as any).qb_invoice_number || "";
     const hasQbInvoice = !!qbInvoiceNum;
     const invoiceNum = qbInvoiceNum || job.job_number || "";
     const invoiceSuffix = hasQbInvoice ? ` · Invoice ${qbInvoiceNum}` : "";
