@@ -337,7 +337,15 @@ export async function GET(
       .order("job_number", { ascending: false });
 
     if (completedSearch) {
-      allCompletedQuery = allCompletedQuery.or(`job_number.ilike.%${completedSearch}%,title.ilike.%${completedSearch}%`);
+      // Vendors search by what THEY see: the PO number (= QB invoice number on
+      // invoiced jobs), the client, or the title. "Illicit" and "4462" both
+      // returned nothing when this matched job_number + title only (Sep 18).
+      const term = completedSearch.replace(/[%,()]/g, "");
+      const { data: matchingClients } = await sb.from("clients").select("id").ilike("name", `%${term}%`).limit(50);
+      const clientIds = (matchingClients || []).map((c: any) => c.id);
+      const ors = [`job_number.ilike.%${term}%`, `title.ilike.%${term}%`, `qb_invoice_number.ilike.%${term}%`];
+      if (clientIds.length) ors.push(`client_id.in.(${clientIds.join(",")})`);
+      allCompletedQuery = allCompletedQuery.or(ors.join(","));
     }
 
     // job_id fast path / skip_completed: don't scan the whole completed
@@ -486,7 +494,8 @@ export async function GET(
     const completedFromActive = completedSearch
       ? completed.filter(o =>
           (o.jobNumber || "").toLowerCase().includes(completedSearchLower) ||
-          (o.jobTitle || "").toLowerCase().includes(completedSearchLower))
+          (o.jobTitle || "").toLowerCase().includes(completedSearchLower) ||
+          (o.clientName || "").toLowerCase().includes(completedSearchLower))
       : completed;
     const mergedCompleted = completedOffset === 0
       ? [...completedFromActive, ...completedOrders]
