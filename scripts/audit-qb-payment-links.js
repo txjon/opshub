@@ -52,7 +52,7 @@ async function qb(access, realm, path, init = {}) {
 }
 
 async function regenerateFor(access, realm, job) {
-  const invoiceId = job.type_meta?.qb_invoice_id;
+  const invoiceId = job.qb_invoice_id;
   if (!invoiceId) return { ok: false, reason: "no qb_invoice_id" };
 
   const inv = (await qb(access, realm, `/invoice/${invoiceId}`)).Invoice;
@@ -79,7 +79,7 @@ async function regenerateFor(access, realm, job) {
 }
 
 (async () => {
-  const { data: jobs } = await supabase.from("jobs").select("id, job_number, title, type_meta").filter("type_meta->>qb_payment_link", "like", `${BROKEN_PREFIX}%`);
+  const { data: jobs } = await supabase.from("jobs").select("id, job_number, title, type_meta, qb_invoice_number, qb_invoice_id").filter("type_meta->>qb_payment_link", "like", `${BROKEN_PREFIX}%`);
   if (!jobs?.length) { console.log("No jobs with broken payment links. Clean."); return; }
 
   console.log(`Found ${jobs.length} job(s) with broken QB payment link:\n`);

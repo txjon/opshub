@@ -40,7 +40,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       .from("jobs")
       .select(`
         id, job_number, title, phase, quote_approved, target_ship_date,
-        created_at, updated_at, payment_terms, type_meta,
+        created_at, updated_at, payment_terms, type_meta, qb_invoice_number, qb_invoice_id,
         portal_token, costing_summary,
         shipping_route, phase_timestamps
       `)

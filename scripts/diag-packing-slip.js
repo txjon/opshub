@@ -24,14 +24,14 @@ const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABA
 (async () => {
   let { data: jobs } = await sb
     .from("jobs")
-    .select("id, title, job_number, type_meta, shipping_route, fulfillment_tracking, fulfillment_status, phase, clients(name)")
+    .select("id, title, job_number, type_meta, qb_invoice_number, qb_invoice_id, shipping_route, fulfillment_tracking, fulfillment_status, phase, clients(name)")
     .eq("job_number", arg);
 
   if (!jobs || jobs.length === 0) {
     const { data: all } = await sb
       .from("jobs")
-      .select("id, title, job_number, type_meta, shipping_route, fulfillment_tracking, fulfillment_status, phase, clients(name)");
-    jobs = (all || []).filter(j => (j.type_meta || {}).qb_invoice_number === arg);
+      .select("id, title, job_number, type_meta, qb_invoice_number, qb_invoice_id, shipping_route, fulfillment_tracking, fulfillment_status, phase, clients(name)");
+    jobs = (all || []).filter(j => j.qb_invoice_number === arg);
   }
   if (!jobs || jobs.length === 0) {
     console.error(`No job matching "${arg}".`);
@@ -41,7 +41,7 @@ const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABA
   for (const job of jobs) {
     const tm = job.type_meta || {};
     console.log("=".repeat(80));
-    console.log(`Job: ${job.job_number}  Invoice: ${tm.qb_invoice_number || "—"}`);
+    console.log(`Job: ${job.job_number}  Invoice: ${job.qb_invoice_number || "—"}`);
     console.log(`Title: ${job.title}`);
     console.log(`Client: ${(job.clients || {}).name || "—"}`);
     console.log(`Route: ${job.shipping_route || "—"}`);

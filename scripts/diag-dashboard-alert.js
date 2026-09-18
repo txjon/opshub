@@ -18,8 +18,8 @@ const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.
   // Match dashboard's query exactly
   const { data: jobs } = await supabase
     .from("jobs")
-    .select("*, clients(name), quote_approved, quote_approved_at, type_meta, costing_data, costing_summary, payment_terms, shipping_route, fulfillment_status, quote_rejection_notes, items(id, name, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, artwork_status, garment_type, received_at_hpd, pipeline_timestamps, buy_sheet_lines(qty_ordered), decorator_assignments(decorators(name, short_code)))")
-    .filter("type_meta->>qb_invoice_number", "eq", inv);
+    .select("*, clients(name), quote_approved, quote_approved_at, type_meta, qb_invoice_number, qb_invoice_id, costing_data, costing_summary, payment_terms, shipping_route, fulfillment_status, quote_rejection_notes, items(id, name, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, artwork_status, garment_type, received_at_hpd, pipeline_timestamps, buy_sheet_lines(qty_ordered), decorator_assignments(decorators(name, short_code)))")
+    .filter("qb_invoice_number", "eq", inv);
 
   const j = jobs?.[0];
   if (!j) { console.log(`#${inv} not found`); process.exit(0); }

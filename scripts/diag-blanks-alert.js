@@ -17,8 +17,8 @@ const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.
   for (const inv of invNums) {
     const { data: jobs } = await supabase
       .from("jobs")
-      .select("id, title, job_number, type_meta, items(id, name, garment_type, blanks_order_number, blanks_order_cost)")
-      .filter("type_meta->>qb_invoice_number", "eq", inv);
+      .select("id, title, job_number, type_meta, qb_invoice_number, qb_invoice_id, items(id, name, garment_type, blanks_order_number, blanks_order_cost)")
+      .filter("qb_invoice_number", "eq", inv);
     const job = jobs?.[0];
     if (!job) { console.log(`#${inv} — not found\n`); continue; }
     console.log(`─── #${inv} · ${job.job_number} · ${job.title} ───`);

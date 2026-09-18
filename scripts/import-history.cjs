@@ -165,9 +165,9 @@ async function insertBatched(table, rows) {
     // BOTH worlds — stamp it so aggregates read history OR live, never both.
     const jobMap = new Map();
     for (let from = 0; ; from += 1000) {
-      const { data } = await db.from("jobs").select("id, type_meta").range(from, from + 999);
+      const { data } = await db.from("jobs").select("id, type_meta, qb_invoice_number, qb_invoice_id").range(from, from + 999);
       for (const j of data || []) {
-        const n = j.type_meta && j.type_meta.qb_invoice_number;
+        const n = j.type_meta && j.qb_invoice_number;
         if (n) jobMap.set(String(n).trim(), j.id);
       }
       if (!data || data.length < 1000) break;

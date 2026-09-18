@@ -56,10 +56,10 @@ async function qb(access, realm, path, init = {}) {
   // Collect all jobs that point at a QB invoice
   const { data: jobs } = await supabase
     .from("jobs")
-    .select("id, job_number, title, type_meta")
-    .not("type_meta->>qb_invoice_id", "is", null);
+    .select("id, job_number, title, type_meta, qb_invoice_number, qb_invoice_id")
+    .not("qb_invoice_id", "is", null);
 
-  const candidates = (jobs || []).filter(j => j.type_meta?.qb_invoice_id).sort((a, b) => (a.job_number || "").localeCompare(b.job_number || ""));
+  const candidates = (jobs || []).filter(j => j.qb_invoice_id).sort((a, b) => (a.job_number || "").localeCompare(b.job_number || ""));
   if (!candidates.length) { console.log("No jobs with qb_invoice_id. Nothing to do."); return; }
 
   console.log(`Found ${candidates.length} jobs with QB invoices.\n`);
@@ -70,7 +70,7 @@ async function qb(access, realm, path, init = {}) {
   let withEmail = 0, cleared = 0, already = 0, errors = 0;
 
   for (const j of candidates) {
-    const invId = j.type_meta.qb_invoice_id;
+    const invId = j.qb_invoice_id;
     try {
       const fetched = await qb(access, realm, `/invoice/${invId}`);
       const inv = fetched.Invoice;
