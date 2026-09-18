@@ -589,9 +589,9 @@ function AddLines({ releaseId, onAdd }: { releaseId: string; onAdd: (body: any) 
       ) : (
         <>
           {cands.pipeItems.length > 0 && group("From their pipeline")}
-          {cands.pipeItems.map((it: any) => row(it.id, { itemId: it.id }, null, it.name, it.qty ? `${it.qty.toLocaleString()} pcs` : ""))}
+          {cands.pipeItems.map((it: any) => row(it.id, { itemId: it.id }, it.thumbId || null, it.name, it.qty ? `${it.qty.toLocaleString()} pcs` : ""))}
           {cands.rerunItems.length > 0 && group("From their catalog · run it back")}
-          {cands.rerunItems.map((it: any) => row(it.id, { itemId: it.id, rerun: true }, null, it.name, it.qty ? `last run ${it.qty.toLocaleString()} pcs` : "past run"))}
+          {cands.rerunItems.map((it: any) => row(it.id, { itemId: it.id, rerun: true }, it.thumbId || null, it.name, it.qty ? `last run ${it.qty.toLocaleString()} pcs` : "past run"))}
           {(cands.products || []).length > 0 && group("From their catalog · never run")}
           {(cands.products || []).map((p: any) => row(p.id, { productId: p.id }, p.thumbId, p.title, p.format || "mockup"))}
           {cands.briefs.length > 0 && group("From the studio · not yet ordered")}
