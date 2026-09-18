@@ -96,23 +96,27 @@ export default function VendorPortalPage({ params }: { params: { token: string }
     if (!data) return { openPos: 0, items: 0, units: 0, impressions: 0, shippingThisWeek: 0, late: 0 };
     let items = 0, units = 0, impressions = 0, shippingThisWeek = 0, late = 0;
     for (const o of data.orders) {
+      let open = false;
       for (const it of o.items) {
         const s = vendorStageFor(it.pipelineStage);
         items++;
         units += it.totalQty || 0;
         impressions += it.impressions || 0;
-        if (s !== "shipped" && s !== "complete" && o.shipDate) {
-          if (o.shipDate === "ASAP") {
-            // ASAP counts as "shipping this week" so it shows in the
-            // urgent bucket; not "late" since it has no calendar miss.
-            shippingThisWeek++;
-          } else {
-            // calendar-day bucketing — a date-only ship date parsed bare is UTC
-            // midnight (= "late" from 5 PM the prior Vegas evening)
-            const d = daysUntilDay(o.shipDate);
-            if (d !== null && d < 0) late++;
-            else if (d !== null && d <= 7) shippingThisWeek++;
-          }
+        if (s !== "shipped" && s !== "complete") open = true;
+      }
+      // Late / shipping-this-week count ORDERS (the rows below), not items —
+      // one 4-item PO used to read "4 late" against a single late row.
+      if (open && o.shipDate) {
+        if (o.shipDate === "ASAP") {
+          // ASAP counts as "shipping this week" so it shows in the
+          // urgent bucket; not "late" since it has no calendar miss.
+          shippingThisWeek++;
+        } else {
+          // calendar-day bucketing — a date-only ship date parsed bare is UTC
+          // midnight (= "late" from 5 PM the prior Vegas evening)
+          const d = daysUntilDay(o.shipDate);
+          if (d !== null && d < 0) late++;
+          else if (d !== null && d <= 7) shippingThisWeek++;
         }
       }
     }
