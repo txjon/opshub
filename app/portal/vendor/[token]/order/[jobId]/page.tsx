@@ -9,6 +9,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { sortSizes } from "@/lib/theme";
 import SizeGrid from "@/components/SizeGrid";
+import { PO_STANDING_PRODUCTION_NOTES } from "@/lib/po-standing-notes";
 import { C, fmtDate, fmtDateLong, fmtMoney, daysUntil } from "../../_shared/theme";
 import { StatusPill, vendorStageFor, rollupOrderStatus } from "../../_shared/StatusPill";
 
@@ -285,7 +286,7 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
               </div>
 
               {/* Notes — left accent rails */}
-              {(item.incomingGoods || item.productionNotes || item.packingNotes) && (
+              {(
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12 }}>
                   {item.incomingGoods && (
                     <div style={{ borderLeft: `3px solid ${C.border}`, padding: "4px 12px" }}>
@@ -293,12 +294,15 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
                       <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{item.incomingGoods}</div>
                     </div>
                   )}
-                  {item.productionNotes && (
-                    <div style={{ borderLeft: `3px solid ${C.amber}`, padding: "4px 12px" }}>
-                      <div style={{ ...LBL, color: C.amber, marginBottom: 2 }}>Production notes</div>
-                      <div style={{ fontSize: 12, color: C.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{item.productionNotes}</div>
-                    </div>
-                  )}
+                  {/* Standing notes (lib/po-standing-notes) print on every PO,
+                      above the item's own notes. */}
+                  <div style={{ borderLeft: `3px solid ${C.amber}`, padding: "4px 12px" }}>
+                    <div style={{ ...LBL, color: C.amber, marginBottom: 2 }}>Production notes</div>
+                    {PO_STANDING_PRODUCTION_NOTES.map(n => (
+                      <div key={n} style={{ fontSize: 12, fontWeight: 700, color: C.text, lineHeight: 1.5 }}>{n}</div>
+                    ))}
+                    {item.productionNotes && <div style={{ fontSize: 12, color: C.text, lineHeight: 1.5, whiteSpace: "pre-wrap", marginTop: 2 }}>{item.productionNotes}</div>}
+                  </div>
                   {item.packingNotes && (
                     <div style={{ borderLeft: `3px solid ${C.accent}`, padding: "4px 12px" }}>
                       <div style={{ ...LBL, color: C.accent, marginBottom: 2 }}>Packing / shipping</div>

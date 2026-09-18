@@ -12,6 +12,7 @@ import { getPdfBranding } from "@/lib/branding";
 import { vendorPaperShipTo, splitShipToHtml } from "@/lib/destinations";
 import { sizeMatrixHtml } from "@/lib/size-grid";
 import { loadProductionFiles, releaseFor } from "@/lib/production-files";
+import { PO_STANDING_PRODUCTION_NOTES } from "@/lib/po-standing-notes";
 import { appBaseUrl } from "@/lib/public-url";
 
 const SIZE_ORDER = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
@@ -385,10 +386,11 @@ function renderPOHTML(data: any): string {
           <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#bbb;margin-bottom:3px">Incoming goods</div>
           <div style="font-size:9.5px;color:#444;line-height:1.5">${incoming}</div>
         </div>` : "<div></div>"}
-        ${item.production_notes_po ? `<div style="background:#f9f9f9;padding:4px 8px;border-radius:3px">
+        <div style="background:#f9f9f9;padding:4px 8px;border-radius:3px">
           <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#bbb;margin-bottom:3px">Production notes</div>
-          <div style="font-size:9.5px;color:#444;line-height:1.5;white-space:pre-wrap">${item.production_notes_po}</div>
-        </div>` : "<div></div>"}
+          ${PO_STANDING_PRODUCTION_NOTES.map((n: string) => `<div style="font-size:9.5px;color:#1a1a1a;font-weight:700;line-height:1.5">${n}</div>`).join("")}
+          ${item.production_notes_po ? `<div style="font-size:9.5px;color:#444;line-height:1.5;white-space:pre-wrap;margin-top:2px">${item.production_notes_po}</div>` : ""}
+        </div>
         ${item.packing_notes ? `<div style="background:#f9f9f9;padding:4px 8px;border-radius:3px">
           <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#bbb;margin-bottom:3px">Packing / shipping</div>
           <div style="font-size:9.5px;color:#444;line-height:1.5;white-space:pre-wrap">${item.packing_notes}</div>
