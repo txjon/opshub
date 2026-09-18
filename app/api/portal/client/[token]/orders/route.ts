@@ -396,10 +396,30 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       };
     });
 
-    // Merge fulfillment invoices with project orders, newest first.
-    const combined = [...orders, ...fulfillmentOrders].sort((a, b) =>
-      (b.updated_at || "").localeCompare(a.updated_at || "")
-    );
+    // Merge fulfillment invoices with project orders. Order = INVOICE NUMBER,
+    // newest first (Jon, Sep 18 2026). The old sort was updated_at, so any
+    // edit to an order jumped it to the top and the list read as random.
+    // Orders not invoiced yet are the newest work in flight: they sit above
+    // the invoiced ones, newest created first. The sort key reads the raw
+    // invoice number (the display field is blanked until the invoice is sent)
+    // and never leaves the server.
+    const invKey = new Map<string, number | null>();
+    for (const j of jobs as any[]) {
+      const raw = tenantProvider === "stripe" ? (j.type_meta?.stripe_invoice_number || null) : (j.qb_invoice_number || null);
+      const n = raw ? parseInt(String(raw).replace(/\D/g, ""), 10) : NaN;
+      invKey.set(j.id, Number.isFinite(n) ? n : null);
+    }
+    for (const f of fulfillmentOrders as any[]) {
+      const n = f.qb_invoice_number ? parseInt(String(f.qb_invoice_number).replace(/\D/g, ""), 10) : NaN;
+      invKey.set(f.id, Number.isFinite(n) ? n : null);
+    }
+    const combined = [...orders, ...fulfillmentOrders].sort((a: any, b: any) => {
+      const ka = invKey.get(a.id) ?? null, kb = invKey.get(b.id) ?? null;
+      if (ka == null && kb == null) return (b.created_at || "").localeCompare(a.created_at || "");
+      if (ka == null) return -1;
+      if (kb == null) return 1;
+      return kb - ka;
+    });
 
     return NextResponse.json({
       client: { name: client.name },
