@@ -377,7 +377,7 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
     try { const r = await fetch(`/api/studio/lineups/${lineup.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ send: true }) }).then(x => x.json()); if (r.error) alert(r.error); await onRefresh(); } finally { setLineupBusy(false); }
   }
   async function discardLineup() {
-    if (!confirm("Discard this lineup draft? Uploaded options come out (files stay in Drive if referenced elsewhere).")) return;
+    if (!await confirmTab({ title: "Discard this lineup draft?", message: "Uploaded options come out. Files stay in Drive if referenced elsewhere.", confirmLabel: "Discard" })) return;
     await fetch(`/api/studio/lineups/${lineup.id}`, { method: "DELETE" });
     await onRefresh();
   }
@@ -503,7 +503,7 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
     if (!await confirmTab({ title: `Delete the design "${b.title}"?`, message: "It leaves the studio and the client's hub. Files, the conversation and designer orders stay with it, and you can restore it from the Deleted fold at the bottom of the studio.", confirmLabel: "Delete the design" })) return;
     await fetch(`/api/studio/briefs/${b.id}`, { method: "DELETE" }); onClose(); await onRefresh();
   }
-  async function delFile(fileId: string) { if (!confirm("Delete this version? It comes out of the thread. Can't be undone.")) return; setBusy(true); try { await fetch(`/api/studio/files/${fileId}`, { method: "DELETE" }); setHeroId(null); await onRefresh(); } finally { setBusy(false); } }
+  async function delFile(fileId: string) { if (!await confirmTab({ title: "Delete this version?", message: "It comes out of the thread. Can't be undone.", confirmLabel: "Delete version" })) return; setBusy(true); try { await fetch(`/api/studio/files/${fileId}`, { method: "DELETE" }); setHeroId(null); await onRefresh(); } finally { setBusy(false); } }
   // Flip a version across the wall after the fact (Jon: "make an internal
   // upload visible on client side"). No state move — sharing isn't the ball.
   async function shareFile(fileId: string, share: boolean) { setBusy(true); try { await fetch(`/api/studio/files/${fileId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ share }) }); await onRefresh(); } finally { setBusy(false); } }
