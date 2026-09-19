@@ -82,7 +82,15 @@ export async function loadProductionFiles(sb: any, itemIds: string[]): Promise<R
 // stages that used to just pile up (print_ready, client_art, vector).
 // keepDrive: retire the row but leave the Drive file alone — for files whose
 // bytes belong to another record (a designer brief's final).
+// Only ART stages version by name. Packing slips are photos/scans named by
+// cameras and scanners (IMG_0001.jpg): the same name on a later box is a
+// DIFFERENT document, and one slip file is registered on every item in its
+// box. Superseding them by name retired other boxes' slips (caught in review
+// the same day it shipped, Sep 18 2026; no slips were hit).
+export const NAME_VERSIONED_STAGES = new Set(["print_ready", "vector", "client_art"]);
+
 export async function supersedeSameNameFiles(sb: any, itemId: string, stage: string, fileName: string, opts?: { excludeId?: string; keepDrive?: boolean }): Promise<string[]> {
+  if (!NAME_VERSIONED_STAGES.has(stage)) return [];
   const target = (fileName || "").trim().toLowerCase();
   if (!target) return [];
   const { data: existing } = await sb.from("item_files").select("id, file_name, drive_file_id")
