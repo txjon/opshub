@@ -115,8 +115,9 @@ export async function GET(req: NextRequest) {
       const cps: any[] = (j.costing_data as any)?.costProds || [];
       if (!cps.length) continue;
       const linesById: Record<string, Record<string, number>> = {};
+      const archivedIds = new Set<string>();
       for (const it of (j.items as any[]) || []) {
-        if (it.archived_at) continue;
+        if (it.archived_at) { archivedIds.add(it.id); continue; }
         const q: Record<string, number> = {};
         for (const l of it.buy_sheet_lines || []) if (l.size) q[l.size] = (q[l.size] || 0) + (Number(l.qty_ordered) || 0);
         if (Object.keys(q).length) linesById[it.id] = q;
@@ -125,7 +126,12 @@ export async function GET(req: NextRequest) {
       // copies are the clean single-sourced state, not drift. Only costProds
       // still CARRYING a qtys map can be stale; compare (and heal) those
       // alone, and never re-seed a stripped one.
-      const carriers = cps.filter((p) => p.qtys && Object.keys(p.qtys).length > 0);
+      // Archived items are closed out: their buy-sheet lines are skipped
+      // above, so their costing copies must be skipped too or the check
+      // compares all items against the live ones (HPD-2608-032, Sep 18:
+      // 5 of 6 items archived read as "11990u vs 2620u" with every item
+      // matching its buy sheet exactly).
+      const carriers = cps.filter((p) => p.qtys && Object.keys(p.qtys).length > 0 && !archivedIds.has(p.id));
       if (!carriers.length) continue;
       const carrierIds = new Set(carriers.map((p) => p.id));
       const cpQty = carriers.reduce((a, p) => a + Object.values(p.qtys || {}).reduce((x: number, y: any) => x + (Number(y) || 0), 0), 0);
