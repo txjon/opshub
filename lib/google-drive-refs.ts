@@ -44,7 +44,10 @@ export async function otherRefsToDriveFile(
     let q = db.from(table).select("id").eq(column, driveFileId).limit(5);
     // item_files: only ACTIVE rows count, and never the row being removed.
     if (table === "item_files") {
-      q = q.is("superseded_at", null);
+      // Active rows count — and so do SUPERSEDED APPROVED PROOFS: that file is
+      // the evidence of what a client signed off, so archiving a project must
+      // never trash it (Sep 2026 review).
+      q = q.or("superseded_at.is.null,and(stage.eq.proof,approval.eq.approved)");
       if (excludeItemFileId) q = q.neq("id", excludeItemFileId);
       // Rows on items that are being removed right now don't count as users
       // of the file — they are about to go.
@@ -110,7 +113,7 @@ export async function referencedDriveFileIds(
     for (const { table, column } of REF_TABLES) {
       let q = db.from(table).select(`${column}`).in(column, slice);
       if (table === "item_files") {
-        q = q.is("superseded_at", null);
+        q = q.or("superseded_at.is.null,and(stage.eq.proof,approval.eq.approved)");
         const ex = opts?.excludeItemIds || [];
         if (ex.length) q = q.not("item_id", "in", `(${ex.join(",")})`);
       }

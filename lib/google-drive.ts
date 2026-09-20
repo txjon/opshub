@@ -121,6 +121,40 @@ export async function uploadFile(
   };
 }
 
+
+/**
+ * Copy a Drive file into a folder, server-side. Google does the copying, so
+ * no bytes cross our servers and a 500MB PSD copies in seconds.
+ *
+ * Phase 2 (Sep 2026): duplicates, re-orders and drops used to point the new
+ * item at the SAME physical file. That is how replacing one product's art
+ * destroyed another's, and how 45 files went missing. Every item owns its
+ * files now. Returns null if the copy fails — the caller decides whether to
+ * fall back to sharing the id rather than lose the row entirely.
+ */
+export async function copyFileTo(
+  sourceFileId: string,
+  folderId: string,
+  name?: string
+): Promise<{ fileId: string; webViewLink: string } | null> {
+  try {
+    const drive = getDrive();
+    const res = await drive.files.copy({
+      fileId: sourceFileId,
+      requestBody: { parents: [folderId], ...(name ? { name } : {}) },
+      fields: "id,webViewLink",
+      supportsAllDrives: true,
+    });
+    if (!res.data.id) return null;
+    // Match the sharing of the file it came from (Phase 5 removes this default).
+    try { await drive.permissions.create({ fileId: res.data.id, requestBody: { role: "reader", type: "anyone" } }); } catch { /* inherited is fine */ }
+    return { fileId: res.data.id, webViewLink: res.data.webViewLink || `https://drive.google.com/file/d/${res.data.id}/view` };
+  } catch (e: any) {
+    console.error("[drive] copy failed:", e?.message || e);
+    return null;
+  }
+}
+
 // Delete a file from Drive
 export async function deleteFile(fileId: string): Promise<void> {
   const drive = getDrive();

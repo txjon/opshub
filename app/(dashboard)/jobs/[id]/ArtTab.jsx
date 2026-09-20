@@ -609,13 +609,34 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     blankVendor: item.blank_vendor || "",
     blankColor: item.blank_sku || "", // shirt color lives in blank_sku (no items.color column)
   });
+  // What was actually baked, remembered as a content hash.
+  //
+  // The renderer-version stamp alone could not tell "unchanged, renderer bumped"
+  // from "edited since the last bake", because every autosave wiped it. With an
+  // approved proof frozen, that gap meant an EDIT could silently never reach
+  // Drive: the editor showed new art while the vendor's file stayed old
+  // (caught in review, Sep 2026). The hash is the truth, and it survives saves.
+  const specHash = (str) => {
+    let h = 5381;
+    for (let i = 0; i < str.length; i++) h = ((h * 33) ^ str.charCodeAt(i)) >>> 0;
+    return `h${h.toString(36)}`;
+  };
+  // Stamps live alongside the spec and are carried through every save, so an
+  // edit changes the CONTENT hash rather than erasing the record of the bake.
+  const withStamps = (spec, extra) => ({
+    ...spec,
+    bakedRendererVersion: extra?.bakedRendererVersion ?? item.proof_spec?.bakedRendererVersion ?? null,
+    bakedSpecHash: extra?.bakedSpecHash ?? item.proof_spec?.bakedSpecHash ?? null,
+    ...(item.proof_spec?.carriedFrom ? { carriedFrom: item.proof_spec.carriedFrom } : {}),
+  });
+
   useEffect(() => {
     if (!specLoaded) return;
     const snapshot = JSON.stringify(buildSpec());
     if (snapshot === lastSavedSpecRef.current) return;
     const t = setTimeout(async () => {
       try {
-        const spec = JSON.parse(snapshot);
+        const spec = withStamps(JSON.parse(snapshot));
         const { error: err } = await createClient().from("items").update({ proof_spec: spec }).eq("id", item.id);
         if (err) throw err;
         lastSavedSpecRef.current = snapshot;
@@ -637,7 +658,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     const snapshot = JSON.stringify(buildSpec());
     if (snapshot === lastSavedSpecRef.current) return;
     lastSavedSpecRef.current = snapshot;
-    const spec = JSON.parse(snapshot);
+    const spec = withStamps(JSON.parse(snapshot));
     createClient().from("items").update({ proof_spec: spec }).eq("id", item.id)
       .then(({ error: err }) => {
         if (err) { console.error("Proof spec save error:", err); return; }
@@ -744,7 +765,23 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   }
 
   // Set once the spec is loaded — assume the Drive PDF matches the loaded spec.
-  useEffect(() => { if (specLoaded && driveBakedSpecRef.current === null) driveBakedSpecRef.current = JSON.stringify(buildSpec()); }, [specLoaded]);
+  useEffect(() => {
+    if (!specLoaded) return;
+    if (driveBakedSpecRef.current === null) driveBakedSpecRef.current = JSON.stringify(buildSpec());
+    // Legacy approved proofs (119 of them) carry no record of what was baked.
+    // Assume the file in Drive matches the spec as loaded — the same assumption
+    // the line above has always made — and write it down, so the NEXT edit is
+    // recognised as a change and produces a new version instead of being
+    // silently skipped.
+    const approvedOnFile = (files || []).some(f => f.stage === "proof" && !f.superseded_at && f.approval === "approved");
+    if (approvedOnFile && !item.proof_spec?.bakedSpecHash) {
+      const snap = JSON.stringify(buildSpec());
+      const stamped = withStamps(JSON.parse(snap), { bakedSpecHash: specHash(snap) });
+      createClient().from("items").update({ proof_spec: stamped }).eq("id", item.id)
+        .then(({ error: err }) => { if (!err && onUpdateItem) onUpdateItem(item.id, { proof_spec: stamped }); });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [specLoaded]);
   // Bake the current live PDF into the Drive art folder (supersede-safe via the
   // ref-counted delete). Does NOT close — exit/Download call it. One file: the
   // Drive PDF, the client, the vendor, and Download all read this.
@@ -755,13 +792,20 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     // Renderer-forced re-bake of an UNCHANGED proof (layout version bump only):
     // the document's content is identical, so the client's approval must
     // survive — only a real edit resets it to pending.
-    const preserveApproval = forceRebakeRef.current && driveBakedSpecRef.current !== null && specSnap === driveBakedSpecRef.current;
+    // UNCHANGED means the content hashes to what was last baked. Falling back
+    // to the in-session ref only covers this editor session.
+    const hash = specHash(specSnap);
+    const unchanged = item.proof_spec?.bakedSpecHash
+      ? item.proof_spec.bakedSpecHash === hash
+      : (driveBakedSpecRef.current !== null && specSnap === driveBakedSpecRef.current);
+    const preserveApproval = forceRebakeRef.current && unchanged;
     // An approved proof is FROZEN: the document the client signed off is never
-    // rebuilt, so an unchanged re-bake stops here instead of uploading a file
+    // rebuilt, so an UNCHANGED re-bake stops here instead of uploading a file
     // the server would refuse (Sep 2026 — 21 approved proofs had been silently
-    // replaced). A real edit falls through and makes a new, unapproved version.
+    // replaced). An EDIT falls through and makes a new, unapproved version —
+    // the art in Drive must always match the art in the editor.
     const approvedOnFile = (files || []).some(f => f.stage === "proof" && !f.superseded_at && f.approval === "approved");
-    if (approvedOnFile && preserveApproval) {
+    if (approvedOnFile && unchanged) {
       forceRebakeRef.current = false;
       driveBakedSpecRef.current = specSnap;
       return null;
@@ -779,7 +823,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
       // re-bakes exactly once. (An edit afterward drops the stamp via autosave,
       // which is fine — an edit makes the proof dirty and re-bakes anyway.)
       try {
-        const stamped = { ...JSON.parse(specSnap), bakedRendererVersion: PROOF_RENDERER_VERSION };
+        const stamped = withStamps(JSON.parse(specSnap), { bakedRendererVersion: PROOF_RENDERER_VERSION, bakedSpecHash: specHash(specSnap) });
         await createClient().from("items").update({ proof_spec: stamped }).eq("id", item.id);
         if (onUpdateItem) onUpdateItem(item.id, { proof_spec: stamped });
       } catch (e) { /* stamp is best-effort */ }

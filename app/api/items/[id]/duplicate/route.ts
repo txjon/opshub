@@ -1,3 +1,8 @@
+export const runtime = "nodejs";
+// Copying a duplicate's files can take a few seconds each (Google does the
+// copying, but a job can carry a dozen large PSDs).
+export const maxDuration = 120;
+
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
@@ -49,7 +54,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
     const { data: job } = await db
       .from("jobs")
-      .select("id, costing_data")
+      .select("id, title, job_number, costing_data, clients:client_id(name)")
       .eq("id", jobId)
       .single();
 
@@ -126,19 +131,47 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       .eq("item_id", (srcItem as any).id)
       .is("superseded_at", null);
     if ((srcFiles || []).length > 0) {
-      const { error: filesErr } = await db.from("item_files").insert(
-        (srcFiles || []).map((f: any) => ({
+      // The copy gets its OWN physical files. Pointing both items at one file
+      // is how replacing art on a duplicate destroyed the original's (Phase 2,
+      // Sep 2026). Google copies server-side, so a 500MB PSD takes seconds and
+      // no bytes pass through us. Packing slips stay shared: one slip belongs
+      // to a box, not to a product. If a copy fails we fall back to sharing the
+      // id rather than lose the file reference — the reference-counted delete
+      // still protects it.
+      const { copyFileTo, getItemFolderId } = await import("@/lib/google-drive");
+      let folderId: string | null = null;
+      try {
+        const clientName = (job as any)?.clients?.name || "Unknown Client";
+        const projectTitle = (job as any)?.title || (job as any)?.job_number || "Untitled Project";
+        folderId = await getItemFolderId(clientName, projectTitle, (newItem as any).name);
+      } catch (e: any) { console.error("[item duplicate] folder resolve failed:", e?.message || e); }
+
+      // Copy in parallel — a dozen files would otherwise be a dozen round trips.
+      const copies = await Promise.all(((srcFiles || []) as any[]).map(async (f) => {
+        if (folderId && f.drive_file_id && f.stage !== "packing_slip") {
+          return { f, copied: await copyFileTo(f.drive_file_id, folderId, f.file_name || undefined) };
+        }
+        return { f, copied: null };
+      }));
+
+      const rows: any[] = [];
+      for (const { f, copied } of copies) {
+        let driveId = f.drive_file_id, link = f.drive_link;
+        if (copied) { driveId = copied.fileId; link = copied.webViewLink; }
+        rows.push({
           item_id: (newItem as any).id,
           file_name: f.file_name,
           stage: f.stage,
-          drive_file_id: f.drive_file_id,
-          drive_link: f.drive_link || `https://drive.google.com/file/d/${f.drive_file_id}/view`,
+          drive_file_id: driveId,
+          drive_link: link || `https://drive.google.com/file/d/${driveId}/view`,
           mime_type: f.mime_type || null,
           file_size: f.file_size || null,
           approval: "none",
-        }))
-      );
+        });
+      }
+      const { error: filesErr } = await db.from("item_files").insert(rows);
       if (filesErr) console.error("[item duplicate] item_files insert failed:", filesErr.message);
+      if (folderId) await db.from("items").update({ drive_folder_id: folderId, drive_link: `https://drive.google.com/drive/folders/${folderId}` }).eq("id", (newItem as any).id);
     }
 
     // Mirror the costProd entry for the new item id so CostingTab

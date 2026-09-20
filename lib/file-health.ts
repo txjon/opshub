@@ -30,7 +30,10 @@ async function referencedFileIds(db: any): Promise<Map<string, { file_name: stri
   for (;;) {
     const { data, error } = await db.from("item_files")
       .select("drive_file_id, file_name, stage, item_id")
-      .is("superseded_at", null).not("drive_file_id", "is", null)
+      // Approved proofs stay monitored after they are superseded — they are
+      // the record of a client sign-off (Sep 2026 review).
+      .or("superseded_at.is.null,and(stage.eq.proof,approval.eq.approved)")
+      .not("drive_file_id", "is", null)
       .range(from, from + 999);
     if (error) break;
     for (const r of (data || [])) if (!out.has(r.drive_file_id)) out.set(r.drive_file_id, { file_name: r.file_name, stage: r.stage, item_id: r.item_id });
