@@ -3,8 +3,9 @@ import { createClient } from "@supabase/supabase-js";
 import { resendForSlug } from "@/lib/resend-client";
 import { recalcJobPhase } from "@/lib/job-phase-recalc";
 import { refreshJobFinancials } from "@/lib/costing-summary";
+import { scanFileHealth, missingFiles } from "@/lib/file-health";
 
-export const maxDuration = 60; // per-job phase recompute over the active jobs
+export const maxDuration = 120; // per-job phase recompute over the active jobs
 
 const admin = () =>
   createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -246,9 +247,21 @@ export async function GET(req: NextRequest) {
       .filter(j => ((j.type_meta?.po_sent_vendors || []) as string[]).length > 0 && !j.qb_invoice_number)
       .map(j => `${j.job_number} (${j.phase}) — PO sent to ${(j.type_meta.po_sent_vendors as string[]).join(", ")}`);
 
+    // ── Missing-file tripwire: does the file we point at still exist? ──
+    // A slice of the library each run (oldest-checked first), inside a time
+    // budget, so the whole set is covered daily without a long job. 45 files
+    // had been gone for months before anyone noticed (Sep 2026).
+    let fileHealth = { checked: 0, missing: 0, newlyMissing: 0 };
+    let missing: Awaited<ReturnType<typeof missingFiles>> = [];
+    try {
+      fileHealth = await scanFileHealth({ budgetMs: 25_000 });
+      if (fileHealth.missing) missing = await missingFiles(sb, 20);
+    } catch (e) { console.error("[costing-health] file scan failed", e); }
+
     // Email the owner ONLY when something is wrong. Silent when clean.
     const sep11Count = badLinks.length + forbiddenPushes.length + poNoInvoice.length;
-    if ((drift.length || healed.length || fleeceGaps.length || phaseDrift.length || qtyHealed.length || qtyDrift.length || sep11Count) && process.env.OWNER_EMAIL) {
+    const missingCount = fileHealth.missing;
+    if ((drift.length || healed.length || fleeceGaps.length || phaseDrift.length || qtyHealed.length || qtyDrift.length || sep11Count || missingCount) && process.env.OWNER_EMAIL) {
       try {
         const resend = resendForSlug("hpd");
         const driftRows = drift.map(d =>
@@ -259,7 +272,7 @@ export async function GET(req: NextRequest) {
         const html = `
 <div style="font-family:sans-serif;max-width:600px">
   <h2 style="margin:0 0 8px">OpsHub · Ops Health</h2>
-  <p style="color:#666;margin:0 0 16px">${consistent} costing-consistent · ${drift.length} revenue drift · ${fleeceGaps.length} fleece · ${phaseDrift.length} phase drift</p>
+  <p style="color:#666;margin:0 0 16px">${consistent} costing-consistent · ${drift.length} revenue drift · ${fleeceGaps.length} fleece · ${phaseDrift.length} phase drift · ${missingCount} files missing</p>
   ${healed.length ? `<h3 style="color:#16a34a;margin:16px 0 8px">Revenue drift healed on sight (${healed.length})</h3><ul style="margin:0;padding-left:20px">${healed.map(h => `<li style="margin:4px 0;font-size:14px"><b>${h.job}</b> (${h.phase}) — was $${h.from.toLocaleString()}, now $${h.to.toLocaleString()} · a price edit skipped the summary refresh</li>`).join("")}</ul>` : ""}
   ${drift.length ? `<h3 style="color:#ef4444;margin:16px 0 8px">Revenue drift — summary out of step with item prices (${drift.length})</h3><ul style="margin:0;padding-left:20px">${driftRows}</ul>` : ""}
   ${fleeceGaps.length ? `<h3 style="color:#d97706;margin:16px 0 8px">Fleece not applied in costing (${fleeceGaps.length})</h3><ul style="margin:0;padding-left:20px">${fleeceRows}</ul>` : ""}
@@ -269,6 +282,7 @@ export async function GET(req: NextRequest) {
   ${badLinks.length ? `<h3 style="color:#ef4444;margin:16px 0 8px">PO art link points away from the item's folder (${badLinks.length})</h3><ul style="margin:0;padding-left:20px">${badLinks.map(t => `<li style="margin:4px 0;font-size:14px">${t}</li>`).join("")}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">The printer's "Production Files" button opens this link. Re-pull the proof or set the folder link on the item.</p>` : ""}
   ${forbiddenPushes.length ? `<h3 style="color:#ef4444;margin:16px 0 8px">Cost entries in QB that should never be (${forbiddenPushes.length})</h3><ul style="margin:0;padding-left:20px">${forbiddenPushes.map(t => `<li style="margin:4px 0;font-size:14px">${t}</li>`).join("")}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">Delete the QB Bill, then clear the entry's pushed stamp.</p>` : ""}
   ${poNoInvoice.length ? `<h3 style="color:#d97706;margin:16px 0 8px">PO sent, no invoice on the job (${poNoInvoice.length})</h3><ul style="margin:0;padding-left:20px">${poNoInvoice.map(t => `<li style="margin:4px 0;font-size:14px">${t}</li>`).join("")}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">Draft the invoice, or the job lost its QB link — check job_type_meta_history.</p>` : ""}
+  ${missingCount ? `<h3 style="color:#ef4444;margin:16px 0 8px">Files missing from Google Drive (${missingCount}${fileHealth.newlyMissing ? `, ${fileHealth.newlyMissing} new` : ""})</h3><ul style="margin:0;padding-left:20px">${missing.map(m => `<li style="margin:4px 0;font-size:14px"><b>${m.itemName || m.fileName || "—"}</b>${m.jobNumber ? ` · ${m.jobNumber}` : ""}${m.clientName ? ` · ${m.clientName}` : ""} — ${m.stage || "file"} "${m.fileName || ""}" is gone${m.firstMissingAt ? ` (first seen missing ${m.firstMissingAt.slice(0, 10)})` : ""}</li>`).join("")}${missingCount > missing.length ? `<li style="margin:4px 0;font-size:14px;color:#666">…and ${missingCount - missing.length} more</li>` : ""}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">The record points at a Drive file that no longer exists. Check Drive trash first (restorable for 30 days), then re-upload. Deletes have gone to the trash with a reference check since Sep 19 2026.</p>` : ""}
   <p style="margin:20px 0 0;font-size:12px;color:#999">Costing: re-save the job's costing tab. Phase: open the job (V2 heals on load). — OpsHub tripwire</p>
 </div>`;
         await resend.emails.send({
@@ -282,7 +296,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ consistent, inFlight, drifted: drift.length, healed: healed.length, fleeceGaps: fleeceGaps.length, phaseDrift: phaseDrift.length, qtyHealed: qtyHealed.length, qtyDrift: qtyDrift.length, jobs: drift.map(d => d.job), healedJobs: healed.map(h => h.job), phaseJobs: phaseDrift.map(p => p.job), qtyHealedJobs: qtyHealed.map(h => h.job), qtyDriftJobs: qtyDrift.map(d => d.job), badLinks, forbiddenPushes, poNoInvoice });
+    return NextResponse.json({ consistent, inFlight, fileHealth, drifted: drift.length, healed: healed.length, fleeceGaps: fleeceGaps.length, phaseDrift: phaseDrift.length, qtyHealed: qtyHealed.length, qtyDrift: qtyDrift.length, jobs: drift.map(d => d.job), healedJobs: healed.map(h => h.job), phaseJobs: phaseDrift.map(p => p.job), qtyHealedJobs: qtyHealed.map(h => h.job), qtyDriftJobs: qtyDrift.map(d => d.job), badLinks, forbiddenPushes, poNoInvoice });
   } catch (e: any) {
     console.error("Costing-health cron error:", e);
     return NextResponse.json({ error: e.message }, { status: 500 });

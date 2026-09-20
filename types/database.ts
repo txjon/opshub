@@ -1787,6 +1787,41 @@ export type Database = {
 
         ];
       };
+      file_health: {
+        Row: {
+          drive_file_id: string;
+          last_checked_at: string;
+          missing: boolean;
+          first_missing_at: string | null;
+          file_name: string | null;
+          stage: string | null;
+          item_id: string | null;
+          note: string | null;
+        };
+        Insert: {
+          drive_file_id: string;
+          last_checked_at?: string;
+          missing?: boolean;
+          first_missing_at?: string | null;
+          file_name?: string | null;
+          stage?: string | null;
+          item_id?: string | null;
+          note?: string | null;
+        };
+        Update: {
+          drive_file_id?: string;
+          last_checked_at?: string;
+          missing?: boolean;
+          first_missing_at?: string | null;
+          file_name?: string | null;
+          stage?: string | null;
+          item_id?: string | null;
+          note?: string | null;
+        };
+        Relationships: [
+
+        ];
+      };
       fulfillment_daily_logs: {
         Row: {
           id: string;
