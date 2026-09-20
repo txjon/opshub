@@ -3319,7 +3319,25 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                   files={pFiles}
                   costingData={{ ...(job.costing_data || {}), costProds: allAssembled }} /* live overlay — proofs read current costing, not the page-load baseline (Taylor, Jul 28) */
                   initialMode={pItem.id === proofItemId ? proofMode : (pItem.proof_spec ? "preview" : "edit")}
-                  onClose={() => setProofItemId(null)}
+                  onClose={async () => {
+                    const id = pItem.id;
+                    setProofItemId(null);
+                    // Closing the editor may have frozen a new version. Pull it
+                    // straight back so the strip shows what you just made,
+                    // instead of the previous one until a page reload.
+                    try {
+                      const sb = createClient();
+                      const [{ data: v }, { data: fresh }]: any = await Promise.all([
+                        sb.from("proof_versions").select("id, item_id, version, state, approved_at")
+                          .eq("item_id", id).is("superseded_at", null).order("version", { ascending: false }).limit(1),
+                        sb.from("item_files").select(FILE_COLS).eq("item_id", id).is("superseded_at", null).order("created_at"),
+                      ]);
+                      if (v?.[0]) setProofByItem(m => ({ ...m, [id]: v[0] }));
+                      if (fresh) setFilesByItem(m => ({ ...m, [id]: fresh }));
+                      const { data: it2 }: any = await sb.from("items").select("proof_spec, artwork_status").eq("id", id).maybeSingle();
+                      if (it2) setItems(prev => prev.map((x: any) => x.id === id ? { ...x, proof_spec: it2.proof_spec, artwork_status: it2.artwork_status } : x));
+                    } catch { /* the version is saved either way */ }
+                  }}
                   onSaved={reloadAllFiles}
                   onUpdateItem={(id: string, updates: any) => setItems(prev => prev.map((x: any) => x.id === id ? { ...x, ...updates } : x))}
                 />
