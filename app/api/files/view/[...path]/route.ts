@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAccessToken } from "@/lib/drive-auth";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { createClient as createServerClient } from "@/lib/supabase/server";
-import { judgeFileRequest, ALL_PORTAL_COOKIES } from "@/lib/file-access";
+import { judgeFileRequest, ALL_PORTAL_COOKIES, isStaffOnlyFile } from "@/lib/file-access";
 
 // URL: /api/files/view/My-Proof-File.pdf?id=driveFileId[&download=1]
 // The filename is in the URL path so browsers use it for Save As.
@@ -31,20 +31,6 @@ export async function GET(req: NextRequest, { params }: { params: { path: string
 
 export async function HEAD(req: NextRequest, { params }: { params: { path: string[] } }) {
   return serve(req, params, true);
-}
-
-// Files that are NEVER public, whoever holds the link: client paperwork (tax
-// exemption, W9, MSA). This route is otherwise deliberately open, because
-// vendors and clients read production files from token pages that carry no
-// session. Phase 1 replaces it with audience-scoped routes; until then these
-// rows get an explicit staff-session check (Phase 0 review, Sep 2026).
-async function isStaffOnlyFile(fileId: string): Promise<boolean> {
-  try {
-    const db = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-    const { data, error } = await db.from("client_files").select("id").eq("drive_file_id", fileId).limit(1);
-    if (error) return true;           // can't tell → treat as protected
-    return (data || []).length > 0;
-  } catch { return true; }
 }
 
 async function serve(req: NextRequest, params: { path: string[] }, headOnly: boolean): Promise<Response> {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { proxyDriveFile } from "@/lib/drive-proxy";
 import { createClient as createServerClient } from "@/lib/supabase/server";
-import { judgeFileRequest, ALL_PORTAL_COOKIES } from "@/lib/file-access";
+import { judgeFileRequest, ALL_PORTAL_COOKIES, isStaffOnlyFile } from "@/lib/file-access";
 
 // Streams a Google Drive file (or its thumbnail) through the service account.
 // Core proxy logic lives in lib/drive-proxy.ts (shared with the token-scoped
@@ -19,6 +19,11 @@ export async function GET(req: NextRequest) {
     const { data: { user } } = await session.auth.getUser();
     userId = user?.id || null;
   } catch { userId = null; }
+
+  // Client paperwork is staff-only on EVERY route, enforced now — not in
+  // shadow. This route was missing the guard the download route has had.
+  if (!userId && await isStaffOnlyFile(fileId)) return new NextResponse("Not found", { status: 404 });
+
   const verdict = await judgeFileRequest({
     driveFileId: fileId,
     tokens: [req.nextUrl.searchParams.get("t"), ...ALL_PORTAL_COOKIES.map(c => req.cookies.get(c)?.value)],

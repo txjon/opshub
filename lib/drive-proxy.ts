@@ -57,7 +57,10 @@ export async function proxyDriveFile(fileId: string, opts: DriveProxyOpts = {}):
       return new Response(buf, {
         headers: {
           "Content-Type": thumbRes.headers.get("content-type") || "image/jpeg",
-          "Cache-Control": "public, max-age=86400, s-maxage=86400",
+          // PRIVATE: these bytes are authorized per viewer (lib/file-access). A
+          // shared CDN cache keyed on the URL alone would hand a cached image
+          // to anyone and skip the check entirely (production review, Sep 2026).
+          "Cache-Control": "private, max-age=86400",
         },
       });
     }
@@ -68,7 +71,7 @@ export async function proxyDriveFile(fileId: string, opts: DriveProxyOpts = {}):
   // so, small. Serving the raw file here blew Vercel's 4.5MB response cap and
   // took the designer page's PDF/ZIP down with it (Aug 26).
   if ((useThumbnail || mustUseThumbnail) && !forceDownload) {
-    return new Response("No preview", { status: 404, headers: { "Cache-Control": "public, max-age=3600" } });
+    return new Response("No preview", { status: 404, headers: { "Cache-Control": "private, max-age=600" } });
   }
 
   const res = await fetch(
@@ -87,7 +90,7 @@ export async function proxyDriveFile(fileId: string, opts: DriveProxyOpts = {}):
   const headers: Record<string, string> = {
     "Content-Type": contentType,
     "Content-Disposition": `${disposition}; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
-    "Cache-Control": forceDownload ? "no-store" : "public, max-age=3600, s-maxage=3600",
+    "Cache-Control": forceDownload ? "no-store" : "private, max-age=3600",
   };
   const len = res.headers.get("content-length"); if (len) headers["Content-Length"] = len;
   return new Response(res.body, { headers });

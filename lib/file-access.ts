@@ -378,6 +378,22 @@ export function portalCookie(kind: PortalKind, token: string): string {
   return `${PORTAL_COOKIES[kind]}=${encodeURIComponent(token)}; Path=/; Max-Age=${oneDay}; HttpOnly; SameSite=Lax${secure}`;
 }
 
+/**
+ * Files that are NEVER public, whoever holds the link: client paperwork (tax
+ * exemption, W9, MSA). Enforced on every file route today, ahead of the rest
+ * of the rules. The download route had this from Phase 0; the THUMBNAIL route
+ * did not, so the same documents were readable as a full-page render by anyone
+ * with the id (found in production review, Sep 2026).
+ */
+export async function isStaffOnlyFile(fileId: string): Promise<boolean> {
+  try {
+    const db = admin();
+    const { data, error } = await db.from("client_files").select("id").eq("drive_file_id", fileId).limit(1);
+    if (error) return true;            // can't tell → treat as protected
+    return (data || []).length > 0;
+  } catch { return true; }
+}
+
 /** Attach a portal identity cookie to a response. */
 export function withPortalCookie<T extends Response>(res: T, kind: PortalKind, token: string | null | undefined): T {
   if (token) res.headers.append("Set-Cookie", portalCookie(kind, token));
