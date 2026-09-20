@@ -890,8 +890,19 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   // Exit = save the DRAFT and close. No bake — drafting never touches Drive; the
   // proof PDF bakes only at Send. (This is what stopped an unsent proof from
   // silently landing in Drive and reading as "Pending client".)
-  function handleClose() {
+  // Closing the editor REBUILDS the PDF when the art changed. Saving the spec
+  // without rebuilding is what let the file a client and a printer see drift
+  // from what the editor shows — the whole reason this work exists (Jon,
+  // Sep 2026: "shouldn't edit proof serve as rebuilding?"). Yes.
+  const [closingBake, setClosingBake] = useState(false);
+  async function handleClose() {
     flushSpecSave();
+    if (specLoaded && isDriveDirty()) {
+      setClosingBake(true);
+      try { await bakeToDrive(); }
+      catch (e) { console.error("[ProofModal close bake]", e); }
+      finally { setClosingBake(false); }
+    }
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     onClose(false);
   }
@@ -990,8 +1001,8 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
               <button onClick={() => setPreviewMode(false)} title="Edit this proof"
                 style={{ border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 12, fontWeight: 600, padding: "7px 14px", borderRadius: 8, cursor: "pointer", fontFamily: font }}>Edit</button>
             )}
-            <button onClick={handleClose} title="Exit — saves your work"
-              style={{ border: "none", background: T.text, color: "#0a0a0a", fontSize: 12, fontWeight: 700, padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontFamily: font }}>Exit</button>
+            <button onClick={handleClose} disabled={closingBake} title="Exit — saves your work and rebuilds the PDF if the art changed"
+              style={{ border: "none", background: T.text, color: "#0a0a0a", fontSize: 12, fontWeight: 700, padding: "7px 16px", borderRadius: 8, cursor: closingBake ? "default" : "pointer", fontFamily: font, opacity: closingBake ? 0.6 : 1 }}>{closingBake ? "Rebuilding PDF…" : "Exit"}</button>
           </div>
         </div>
 

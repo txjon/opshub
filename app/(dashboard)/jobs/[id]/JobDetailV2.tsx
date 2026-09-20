@@ -2839,8 +2839,19 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.amber, marginBottom: 3 }}>Proof PDF is out of date</div>
                         <div style={{ fontSize: 12.5, color: T.text, lineHeight: 1.5 }}>
                           The art has changed since this PDF was made, so the file the client and the printer see is the old one.
-                          Open <b>Generate proof</b> and exit to rebuild it. {art === "approved" && "Rebuilding creates a new version and asks the client to approve again."}
+                          {art === "approved" && " Rebuilding makes a new version and asks the client to approve again."}
                         </div>
+                        <button
+                          onClick={async () => {
+                            try {
+                              await bakeProofPdfs([it.id]);
+                              const { data: fresh }: any = await createClient().from("item_files").select(FILE_COLS).eq("item_id", it.id).is("superseded_at", null).order("created_at");
+                              setFilesByItem(m => ({ ...m, [it.id]: fresh || [] }));
+                              const { data: freshItem }: any = await createClient().from("items").select("proof_spec, artwork_status").eq("id", it.id).maybeSingle();
+                              if (freshItem) setItems(prev => prev.map(x => x.id === it.id ? { ...x, proof_spec: freshItem.proof_spec, artwork_status: freshItem.artwork_status } : x));
+                            } catch (e) { failed("Could not rebuild the proof PDF", e); }
+                          }}
+                          style={{ ...ghostBtn, marginTop: 8, borderColor: T.amber, color: T.amber }}>Rebuild the PDF</button>
                       </div>
                     )}
                     {tip(<>Upload art by stage (mockup, proof, print-ready). A mockup unlocks <b style={{ color: T.text }}>Generate proof</b> — the proof editor that clients approve and vendors print from. Files land in this item&apos;s Drive folder automatically.</>)}
