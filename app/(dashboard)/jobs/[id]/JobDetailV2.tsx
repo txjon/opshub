@@ -2875,15 +2875,35 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       <span style={wlbl}>Files · {files.length}</span>
                       <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <span style={{ fontWeight: 800, fontSize: 11, letterSpacing: "0.04em", textTransform: "uppercase", color: artColor }}>{artLabel}</span>
-                        {/* One action: make it, or change it. The rare overrides
-                            (mark approved, no proof needed) live in the item's
-                            ⋯ menu with the other corrections. */}
+                        {/* The choice depends on where the item is: no proof yet
+                            means make one or say it doesn't need one; a proof
+                            exists means edit it. Nothing else belongs here. */}
                         {(() => {
-                          const mockupFile = files.find((f: any) => f.stage === "mockup") || files.find((f: any) => f.file_name?.toLowerCase().includes("mockup"));
-                          if (!mockupFile) return <span style={{ fontSize: 12, color: T.faint }}>Upload a mockup to build the proof</span>;
+                          const noProofNeeded = it.artwork_status === "n_a";
+                          const setStatus = async (next: string, msg: string) => {
+                            try {
+                              await (createClient().from("items") as any).update({ artwork_status: next }).eq("id", it.id);
+                              setItems(prev => prev.map(x => x.id === it.id ? { ...x, artwork_status: next } : x));
+                              logJobActivity(job.id, msg);
+                              recalcPhase();
+                            } catch (e) { failed("Not saved", e); }
+                          };
+                          if (noProofNeeded) {
+                            return <button onClick={() => setStatus("not_started", `${it.name} needs a proof again`)} style={ghostBtn}>Needs a proof</button>;
+                          }
                           const has = !!it.proof_spec || !!proofByItem[it.id];
-                          return <button onClick={() => { setProofMode("edit"); setProofItemId(it.id); }}
-                            style={has ? ghostBtn : { ...actBtn, background: T.amber, color: "#fff" }}>{has ? "Edit proof" : "Make the proof"}</button>;
+                          if (has) {
+                            return <button onClick={() => { setProofMode("edit"); setProofItemId(it.id); }} style={ghostBtn}>Edit proof</button>;
+                          }
+                          const mockupFile = files.find((f: any) => f.stage === "mockup") || files.find((f: any) => f.file_name?.toLowerCase().includes("mockup"));
+                          return (
+                            <>
+                              {mockupFile
+                                ? <button onClick={() => { setProofMode("edit"); setProofItemId(it.id); }} style={{ ...actBtn, background: T.amber, color: "#fff" }}>Make the proof</button>
+                                : <span style={{ fontSize: 12, color: T.faint }}>Upload a mockup to build the proof</span>}
+                              <button onClick={() => setStatus("n_a", `${it.name} marked no proof needed`)} style={ghostBtn}>No proof needed</button>
+                            </>
+                          );
                         })()}
                       </span>
                     </div>
@@ -3014,7 +3034,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         </div>
                       );
                     })()}
-                    <div style={{ fontSize: 11, color: T.muted, marginTop: 12 }}>Files open full-size in a new tab. Proofs are sent from the Client section; the client approves in their hub — or use <b style={{ color: T.muted }}>Mark approved</b> above when they&apos;ve okayed it verbally.</div>
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 12 }}>Files open full-size in a new tab. Proofs are sent from the Client section and the client approves in their hub. To record a verbal approval, use the ⋯ menu at the top of this item.</div>
                   </div>
                 );
               })()}
