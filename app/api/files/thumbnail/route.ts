@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
     userId,
     route: "thumbnail" as const,
     referer: req.headers.get("referer"),
+    selfPath: `${req.nextUrl.pathname}${req.nextUrl.search.replace(/([?&]t=)[^&]+/, "$1<token>")}`.slice(0, 500),
   });
   if (!verdict.serve) return new NextResponse("Not found", { status: 404 });
 

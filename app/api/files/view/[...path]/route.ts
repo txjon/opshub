@@ -68,6 +68,7 @@ async function serve(req: NextRequest, params: { path: string[] }, headOnly: boo
     userId,
     route: "view" as const,
     referer: req.headers.get("referer"),
+    selfPath: `${req.nextUrl.pathname}${req.nextUrl.search.replace(/([?&]t=)[^&]+/, "$1<token>")}`.slice(0, 500),
   });
   if (!verdict.serve) return new NextResponse("Not found", { status: 404 });
 

@@ -62,9 +62,13 @@ const admin = () =>
  * row would refuse clients their own art. All lookups run in parallel.
  */
 export async function resolveOwners(db: any, driveFileId: string): Promise<Owner[]> {
+  // A failed lookup must NEVER read as "nothing owns this file" — that is a
+  // refusal, and under enforcement it would blank a real image. Errors throw
+  // and the caller serves the file (lib/google-drive-refs takes the same
+  // fail-safe stance for deletes).
   const rows = (table: string, column: string, select: string) =>
     db.from(table).select(select).eq(column, driveFileId).limit(25)
-      .then((r: any) => (r.error ? [] : (r.data || []))).catch(() => []);
+      .then((r: any) => { if (r.error) throw new Error(`${table}.${column}: ${r.error.message}`); return r.data || []; });
 
   const [items, briefs, briefPreviews, lineups, lineupPreviews, clientDocs, legacy, products, lab] = await Promise.all([
     rows("item_files", "drive_file_id", "id, item_id, stage, superseded_at"),
@@ -75,10 +79,10 @@ export async function resolveOwners(db: any, driveFileId: string): Promise<Owner
     rows("client_files", "drive_file_id", "id, client_id"),
     rows("legacy_art_files", "drive_file_id", "id, client_id"),
     db.from("products").select("id").eq("spec->>mockup_drive_file_id", driveFileId).limit(5)
-      .then((r: any) => (r.error ? [] : (r.data || []))).catch(() => []),
+      .then((r: any) => { if (r.error) throw new Error(`products: ${r.error.message}`); return r.data || []; }),
     // The public Lab page renders a stored URL that carries the Drive id.
     db.from("lab_order_requests").select("id").ilike("design_file_url", `%${driveFileId}%`).limit(1)
-      .then((r: any) => (r.error ? [] : (r.data || []))).catch(() => []),
+      .then((r: any) => { if (r.error) throw new Error(`lab_order_requests: ${r.error.message}`); return r.data || []; }),
   ]);
 
   const out: Owner[] = [];
@@ -207,7 +211,7 @@ export async function identify(db: any, tokens: string[], userId: string | null)
   await Promise.all(unique.map(async (token) => {
     const hint = token.slice(0, 8);
     const [client, dec, designer, job] = await Promise.all([
-      db.from("clients").select("id").eq("portal_token", token).maybeSingle().then((r: any) => r.data).catch(() => null),
+      db.from("clients").select("id").eq("portal_token", token).eq("client_hub_enabled", true).maybeSingle().then((r: any) => r.data).catch(() => null),
       db.from("decorators").select("id, name, short_code").eq("external_token", token).maybeSingle().then((r: any) => r.data).catch(() => null),
       db.from("designers").select("id").eq("portal_token", token).eq("active", true).maybeSingle().then((r: any) => r.data).catch(() => null),
       db.from("jobs").select("id").eq("portal_token", token).maybeSingle().then((r: any) => r.data).catch(() => null),
@@ -236,9 +240,20 @@ function cacheSet(key: string, allowed: boolean, reason: string) {
   verdictCache.set(key, { at: Date.now(), allowed, reason });
 }
 
+// A referer is a full URL, and portal URLs carry the visitor's access token.
+// Never store one: the token is redacted, matching the 8-character hint kept
+// beside it.
+export function redactTokens(url: string | null): string | null {
+  if (!url) return null;
+  return url
+    .replace(/(\/portal\/client\/|\/portal\/vendor\/|\/design\/|\/designer\/|\/portal\/|\/art-request\/)[^/?#]+/g, "$1<token>")
+    .replace(/([?&]t=)[^&]+/g, "$1<token>")
+    .slice(0, 500);
+}
+
 async function judge(opts: {
   driveFileId: string; tokens: string[]; userId: string | null;
-  route: "view" | "thumbnail"; referer: string | null;
+  route: "view" | "thumbnail"; referer: string | null; selfPath?: string | null;
 }): Promise<{ allowed: boolean; reason: string }> {
   const db = admin();
   const [whos, owners] = await Promise.all([
@@ -246,6 +261,28 @@ async function judge(opts: {
     resolveOwners(db, opts.driveFileId),
   ]);
   const verdict = await isAllowed(db, whos, owners);
+
+  // Shadow only: a staff member testing a client hub in their logged-in browser
+  // is judged staff and logs nothing, which makes an internal test read as
+  // "clean". Judge the portal identity too and record that verdict, marked, so
+  // the go/no-go data reflects what a real client would get.
+  if (!FILE_ACCESS_ENFORCE && verdict.ok && verdict.reason === "staff") {
+    const portalOnly = whos.filter(w => w.kind !== "staff");
+    if (portalOnly.length) {
+      const masked = await isAllowed(db, portalOnly, owners);
+      if (!masked.ok) {
+        await db.from("file_access_log").insert({
+          drive_file_id: opts.driveFileId, route: opts.route,
+          audience: portalOnly.map(w => w.kind).join("+"),
+          verdict: "deny", reason: `staff-masked:${masked.reason}`,
+          owner_ref: owners.length ? owners.map(o => `${o.kind}:${(o as any).id}`).slice(0, 3).join(",") : null,
+          user_id: null,
+          token_hint: (portalOnly.find(w => (w as any).tokenHint) as any)?.tokenHint || null,
+          path: redactTokens(opts.referer) || opts.selfPath || null,
+        }).then(() => {}, () => {});
+      }
+    }
+  }
 
   if (!verdict.ok) {
     // Record only refusals: allowances are the normal case and would bury them.
@@ -261,7 +298,7 @@ async function judge(opts: {
       owner_ref: owners.length ? owners.map(o => `${o.kind}:${(o as any).id}`).slice(0, 3).join(",") : null,
       user_id: staff?.userId || null,
       token_hint: (whos.find(w => (w as any).tokenHint) as any)?.tokenHint || null,
-      path: (opts.referer || "").slice(0, 500) || null,
+      path: redactTokens(opts.referer) || opts.selfPath || null,
     });
   }
   return { allowed: verdict.ok, reason: verdict.reason };
@@ -280,24 +317,37 @@ export async function judgeFileRequest(opts: {
   userId: string | null;
   route: "view" | "thumbnail";
   referer: string | null;
+  /** The file route's own URL, used when the referer is suppressed. */
+  selfPath?: string | null;
 }): Promise<{ serve: boolean; allowed: boolean; reason: string }> {
   const tokens = (opts.tokens.filter(Boolean) as string[]).sort();
   const key = `${opts.driveFileId}|${opts.userId || ""}|${tokens.join(",")}`;
   const cached = cacheGet(key);
-  if (cached) return { serve: cached.allowed || !FILE_ACCESS_ENFORCE, allowed: cached.allowed, reason: cached.reason };
+  // A remembered timeout means "serve, don't re-judge yet".
+  if (cached) return { serve: cached.allowed || cached.reason === "judge-timeout" || !FILE_ACCESS_ENFORCE, allowed: cached.allowed, reason: cached.reason };
 
   let result: { allowed: boolean; reason: string };
+  let timer: ReturnType<typeof setTimeout> | null = null;
   try {
     result = await Promise.race([
       judge({ ...opts, tokens }),
-      new Promise<{ allowed: boolean; reason: string }>((resolve) =>
-        setTimeout(() => resolve({ allowed: false, reason: "judge-timeout" }), JUDGE_TIMEOUT_MS)),
+      new Promise<{ allowed: boolean; reason: string }>((resolve) => {
+        timer = setTimeout(() => resolve({ allowed: false, reason: "judge-timeout" }), JUDGE_TIMEOUT_MS);
+      }),
     ]);
-  } catch {
+  } catch (e: any) {
+    // Includes a failed lookup: serve the file, and never cache the failure.
     return { serve: true, allowed: false, reason: "judge-error" };
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  // A timeout is not a verdict: never cache it, and never let it block.
-  if (result.reason === "judge-timeout") return { serve: true, allowed: false, reason: "judge-timeout" };
+  // A timeout is not a verdict, but re-judging every thumbnail on a slow
+  // database makes the slowness self-sustaining: remember it briefly as
+  // "serve", never as an allow.
+  if (result.reason === "judge-timeout") {
+    verdictCache.set(key, { at: Date.now() - (VERDICT_TTL_MS - 5000), allowed: false, reason: "judge-timeout" });
+    return { serve: true, allowed: false, reason: "judge-timeout" };
+  }
   cacheSet(key, result.allowed, result.reason);
   return { serve: result.allowed || !FILE_ACCESS_ENFORCE, allowed: result.allowed, reason: result.reason };
 }
