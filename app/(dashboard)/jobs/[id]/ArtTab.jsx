@@ -822,9 +822,25 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   // rendered from this record whenever a client or printer asks for it, so it
   // can never be out of date (lib/proof-versions). The cropped mockup is kept
   // as a small image so the server can draw the same proof the editor shows.
+  // The version on record when this editor opened. Comparing against it is the
+  // only reliable way to know whether the art changed — an in-session ref says
+  // nothing about what was actually frozen (Jon: "I made another edit since v2"
+  // and no v3 appeared).
+  const latestVersionRef = useRef(null);
+  useEffect(() => {
+    if (!specLoaded) return;
+    createClient().from("proof_versions").select("id, version, spec")
+      .eq("item_id", item.id).is("superseded_at", null)
+      .order("version", { ascending: false }).limit(1)
+      .then(({ data }) => { latestVersionRef.current = (data || [])[0] || null; });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [specLoaded, item.id]);
+
   async function freezeProofVersion(state = "draft") {
     if (!specLoaded) return null;
     const specSnap = JSON.stringify(buildSpec());
+    // Same art as the version on record: nothing to freeze.
+    if (latestVersionRef.current?.spec && JSON.stringify(latestVersionRef.current.spec) === specSnap) return latestVersionRef.current;
     let mockupDriveFileId = null;
     try {
       if (croppedMockupUrl) {
@@ -936,7 +952,7 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   const [closingBake, setClosingBake] = useState(false);
   async function handleClose() {
     flushSpecSave();
-    if (specLoaded && isDriveDirty()) {
+    if (specLoaded) {
       setClosingBake(true);
       try { await freezeProofVersion("draft"); }
       catch (e) { console.error("[ProofModal close freeze]", e); }

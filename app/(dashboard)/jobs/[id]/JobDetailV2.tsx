@@ -226,7 +226,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     // (PSD drop / pickers) must keep their files across reloads.
     const ids = (itemsRef.current || itemsProp || []).map((i: any) => i.id).filter(Boolean);
     if (!ids.length) return;
-    createClient().from("proof_versions").select("id, item_id, version, state, approved_at")
+    createClient().from("proof_versions").select("id, item_id, version, state, approved_at, sent_at")
       .in("item_id", ids).in("state", ["approved", "sent", "draft"]).is("superseded_at", null)
       .order("version", { ascending: false })
       .then(({ data }: any) => {
@@ -2895,7 +2895,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           setItems(prev => prev.map(x => x.id === it.id ? { ...x, artwork_status: next } : x));
                           if (next === "approved") {
                             try { await fetch(`/api/items/${it.id}/proof/approve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "internal" }) }); } catch { /* status still saved */ }
-                            const { data: v }: any = await createClient().from("proof_versions").select("id, item_id, version, state, approved_at").eq("item_id", it.id).is("superseded_at", null).order("version", { ascending: false }).limit(1);
+                            const { data: v }: any = await createClient().from("proof_versions").select("id, item_id, version, state, approved_at, sent_at").eq("item_id", it.id).is("superseded_at", null).order("version", { ascending: false }).limit(1);
                             if (v?.[0]) setProofByItem(m => ({ ...m, [it.id]: v[0] }));
                           }
                           logJobActivity(job.id, msg);
@@ -2912,7 +2912,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                             <b style={{ color: approved ? T.green : T.text }}>Proof v{pv.version}</b>
                             {approved && pv.approved_at
                               ? ` · approved ${new Date(pv.approved_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
-                              : pv.state === "sent" ? " · sent, awaiting the client" : " · draft, not sent"}
+                              : pv.sent_at
+                                ? ` · sent ${new Date(pv.sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}, awaiting the client`
+                                : " · not sent yet"}
                           </span>
                           {approved
                             ? <button onClick={() => setStatus("not_started", `${it.name} internal approval removed`)}
@@ -3328,7 +3330,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                     try {
                       const sb = createClient();
                       const [{ data: v }, { data: fresh }]: any = await Promise.all([
-                        sb.from("proof_versions").select("id, item_id, version, state, approved_at")
+                        sb.from("proof_versions").select("id, item_id, version, state, approved_at, sent_at")
                           .eq("item_id", id).is("superseded_at", null).order("version", { ascending: false }).limit(1),
                         sb.from("item_files").select(FILE_COLS).eq("item_id", id).is("superseded_at", null).order("created_at"),
                       ]);
