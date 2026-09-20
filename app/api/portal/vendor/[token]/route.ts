@@ -518,7 +518,7 @@ export async function GET(
       completed: mergedCompleted,
       completedTotal: (completedTotal || 0) + (completedOffset === 0 ? completedFromActive.length : 0),
       completedOffset,
-    }), params.token);
+    }), "vendor", params.token);
   } catch (e: any) {
     console.error("Vendor portal GET error:", e);
     return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });

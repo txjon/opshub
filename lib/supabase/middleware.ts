@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { resolveSlugFromHost } from "@/lib/tenants";
 import { canAccessPath, firstGrantedHref } from "@/lib/access";
 import { V2_WRITES_LIVE } from "@/lib/v2-flags";
+import { portalCookie } from "@/lib/file-access";
 
 // v2 cutover: once live, legacy warehouse URLs bounce to their v2 surface. Closes
 // the drift hole (a legacy page writes the old fields, NOT the ledger) and catches
@@ -126,6 +127,24 @@ export async function updateSession(request: NextRequest) {
       }
     } catch {
       // fail-open: a profile-read hiccup must not lock anyone out
+    }
+  }
+
+  // Portal identity: a visitor opening /portal/client/<token>, the vendor
+  // portal, the designer door or a legacy job link gets a cookie holding the
+  // SAME token already in their URL, so the file routes know who they are
+  // (lib/file-access). Set here rather than in each portal's data route: a
+  // deep link to a sub-page renders images before that route answers, and
+  // every one of those would read as anonymous.
+  const portalMatch =
+    pathname.match(/^\/portal\/client\/([^/]+)/) ? (["client", RegExp.$1] as const) :
+    pathname.match(/^\/portal\/vendor\/([^/]+)/) ? (["vendor", RegExp.$1] as const) :
+    pathname.match(/^\/design\/([^/]+)/) ? (["designer", RegExp.$1] as const) :
+    pathname.match(/^\/portal\/([^/]+)/) ? (["job", RegExp.$1] as const) : null;
+  if (portalMatch) {
+    const [kind, token] = portalMatch;
+    if (token && token.length > 8) {
+      supabaseResponse.headers.append("Set-Cookie", portalCookie(kind as any, token));
     }
   }
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { proxyDriveFile } from "@/lib/drive-proxy";
 import { createClient as createServerClient } from "@/lib/supabase/server";
-import { judgeFileRequest, PORTAL_COOKIE } from "@/lib/file-access";
+import { judgeFileRequest, ALL_PORTAL_COOKIES } from "@/lib/file-access";
 
 // Streams a Google Drive file (or its thumbnail) through the service account.
 // Core proxy logic lives in lib/drive-proxy.ts (shared with the token-scoped
@@ -21,10 +21,10 @@ export async function GET(req: NextRequest) {
   } catch { userId = null; }
   const verdict = await judgeFileRequest({
     driveFileId: fileId,
-    token: req.nextUrl.searchParams.get("t") || req.cookies.get(PORTAL_COOKIE)?.value || null,
+    tokens: [req.nextUrl.searchParams.get("t"), ...ALL_PORTAL_COOKIES.map(c => req.cookies.get(c)?.value)],
     userId,
-    route: "thumbnail",
-    path: req.nextUrl.pathname,
+    route: "thumbnail" as const,
+    referer: req.headers.get("referer"),
   });
   if (!verdict.serve) return new NextResponse("Not found", { status: 404 });
 

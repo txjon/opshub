@@ -96,8 +96,22 @@ export async function GET(req: NextRequest) {
       deleted += batch.length;
     }
 
+    // Keep the file-access shadow log to 30 days — it records refusals only,
+    // but nothing else prunes it (Phase 1, Sep 2026).
+    let accessLogPruned = 0;
+    try {
+      const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const { data: stale } = await sb.from("file_access_log").select("id").lt("created_at", cutoff).limit(5000);
+      const ids = (stale || []).map((r: any) => r.id);
+      if (ids.length) {
+        await sb.from("file_access_log").delete().in("id", ids);
+        accessLogPruned = ids.length;
+      }
+    } catch { /* never fail the sweep over housekeeping */ }
+
     return NextResponse.json({
       ok: true,
+      accessLogPruned,
       inspected,
       deleted,
       referenced: referencedPaths.size,

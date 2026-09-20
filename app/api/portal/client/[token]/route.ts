@@ -322,7 +322,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         unpaid_count: unpaidCount,
         next_ship_date: nextShipJob?.target_ship_date || null,
       },
-    }), params.token);
+    }), "client", params.token);
   } catch (e: any) {
     return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });
   }

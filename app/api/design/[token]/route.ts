@@ -204,7 +204,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     return withPortalCookie(NextResponse.json({
       designer: { name: designer.name },
       briefs: enriched,
-    }), params.token);
+    }), "designer", params.token);
   } catch (e: any) {
     return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });
   }

@@ -453,7 +453,7 @@ export async function GET(
       })),
       shipments,
       clientProjects,
-    }), params.token);
+    }), "job", params.token);
   } catch (e: any) {
     console.error("Portal GET error:", e);
     return NextResponse.json(

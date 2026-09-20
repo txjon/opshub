@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAccessToken } from "@/lib/drive-auth";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { createClient as createServerClient } from "@/lib/supabase/server";
-import { judgeFileRequest, PORTAL_COOKIE } from "@/lib/file-access";
+import { judgeFileRequest, ALL_PORTAL_COOKIES } from "@/lib/file-access";
 
 // URL: /api/files/view/My-Proof-File.pdf?id=driveFileId[&download=1]
 // The filename is in the URL path so browsers use it for Save As.
@@ -64,10 +64,10 @@ async function serve(req: NextRequest, params: { path: string[] }, headOnly: boo
   // file is still served, until FILE_ACCESS_ENFORCE is switched on.
   const verdict = await judgeFileRequest({
     driveFileId: fileId,
-    token: req.nextUrl.searchParams.get("t") || req.cookies.get(PORTAL_COOKIE)?.value || null,
+    tokens: [req.nextUrl.searchParams.get("t"), ...ALL_PORTAL_COOKIES.map(c => req.cookies.get(c)?.value)],
     userId,
-    route: "view",
-    path: req.nextUrl.pathname,
+    route: "view" as const,
+    referer: req.headers.get("referer"),
   });
   if (!verdict.serve) return new NextResponse("Not found", { status: 404 });
 
