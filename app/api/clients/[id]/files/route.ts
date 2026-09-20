@@ -4,7 +4,7 @@ export const maxDuration = 60;
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { uploadFile, deleteFile } from "@/lib/google-drive";
-import { getDriveToken, getOrCreateNestedFolder } from "@/lib/drive-token";
+import { getDriveToken, getPrivateDocFolder } from "@/lib/drive-token";
 
 // POST — upload a tax-exempt / W9 / MSA / other client-level document.
 // Body: multipart form with `file`, optional `kind` (default
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       : kind === "w9" ? "W9"
       : kind === "msa" ? "MSAs"
       : "Other";
-    const folderId = await getOrCreateNestedFolder(token, ["Clients", (client as any).name || "Unknown", folderName]);
+    const folderId = await getPrivateDocFolder(token, [(client as any).name || "Unknown", folderName]);
 
     const buffer = Buffer.from(await file.arrayBuffer());
     // Client paperwork (tax exemption, W9, MSA) is never public — it is read

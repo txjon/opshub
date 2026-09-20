@@ -860,7 +860,9 @@ function DocsBlock({ clientId, secHead }: any) {
       {files.length === 0 && <div style={{ color: H.faint, fontSize: 12.5 }}>No documents on file.</div>}
       {files.map((f: any) => (
         <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: `1px solid ${H.line}` }}>
-          <a href={f.drive_link || "#"} target="_blank" rel="noreferrer" style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 700, color: H.text, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.file_name}</a>
+          {/* Through OpsHub, not Drive: client paperwork is private now, so a
+              Drive link only opens for whoever owns the file (Sep 19 2026). */}
+          <a href={f.drive_file_id ? `/api/files/view/${encodeURIComponent(f.file_name || "document")}?id=${f.drive_file_id}` : (f.drive_link || "#")} target="_blank" rel="noreferrer" style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 700, color: H.text, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.file_name}</a>
           <span style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint, flexShrink: 0 }}>{size(f.file_size)}</span>
           {confirmId === f.id ? (
             <button onClick={() => del(f.id)} style={{ border: "none", background: H.red, color: "#fff", borderRadius: 999, fontSize: 9.5, fontWeight: 800, padding: "4px 10px", cursor: "pointer", fontFamily: H.font }}>Delete?</button>

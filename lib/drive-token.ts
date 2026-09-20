@@ -208,6 +208,22 @@ export async function getOrCreateNestedFolder(token: string, segments: string[])
   return parent;
 }
 
+// ── Private documents (Sep 19 2026) ─────────────────────────────────────────
+// Client paperwork (tax exemption, W9, MSA) must never be world-readable.
+// "OpsHub Files" is shared anyone-with-link and children INHERIT that, so
+// these live in their own tree outside it: My Drive / HPD Private Documents /
+// {Client} / {Kind}. Staff read them through OpsHub, never a Drive link.
+export const PRIVATE_DOCS_ROOT = "HPD Private Documents";
+
+export async function getPrivateDocFolder(token: string, segments: string[]): Promise<string> {
+  let parent = await findOrCreateFolder(token, PRIVATE_DOCS_ROOT, "root");
+  for (const raw of segments) {
+    const name = (raw || "Untitled").trim().replace(/[\/\\]+/g, "-").slice(0, 120) || "Untitled";
+    parent = await findOrCreateFolder(token, name, parent);
+  }
+  return parent;
+}
+
 // ── Sent documents archive (Sep 14 2026) ────────────────────────────────────
 // The PO PDF used to exist only as an email attachment: regenerated on every
 // view, never stored. When a vendor held a stale copy (ICON, HPD-2609-002) or
