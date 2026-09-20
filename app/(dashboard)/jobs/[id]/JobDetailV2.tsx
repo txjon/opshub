@@ -883,10 +883,22 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       const needBake = items.filter((it: any) => needsProof(it) && !carriedApproved(it) && (!hasApprovedProof(filesByItem[it.id]) || it.proof_spec?.specDirty) && it.proof_spec && ((it.proof_spec.bakedRendererVersion == null) || it.proof_spec.bakedRendererVersion < PROOF_RENDERER_VERSION || it.proof_spec.specDirty)).map((x: any) => x.id);
       if (needBake.length) await bakeProofPdfs(needBake);
       await sendQuoteAndProofs(job, { to, cc, includeProofs: hasReady, proofsOnly: !!job.quote_approved });
-      const readyIds = items.filter((it: any) => needsProof(it) && !carriedApproved(it) && it.proof_spec && !it.proof_sent_at).map((it: any) => it.id);
-      // The versions those proofs represent are now what the client is looking at.
-      for (const id of readyIds) { try { await fetch(`/api/items/${id}/proof/versions`, { method: "PATCH" }); } catch { /* the send still counts */ } }
-      if (readyIds.length) { const nowP = new Date().toISOString(); await (createClient().from("items") as any).update({ proof_sent_at: nowP }).in("id", readyIds); setItems(prev => prev.map(x => readyIds.includes(x.id) ? { ...x, proof_sent_at: nowP } : x)); }
+      // The client approves the PACKAGE, so every proof in it was just sent —
+      // including revised ones that went out before. Stamping only the
+      // never-sent items left a revised proof reading 'not sent' after it had
+      // gone (Jon, Sep 2026).
+      const sentIds = items.filter((it: any) => needsProof(it) && !carriedApproved(it) && it.proof_spec).map((it: any) => it.id);
+      for (const id of sentIds) { try { await fetch(`/api/items/${id}/proof/versions`, { method: "PATCH" }); } catch { /* the send still counts */ } }
+      if (sentIds.length) {
+        const nowP = new Date().toISOString();
+        await (createClient().from("items") as any).update({ proof_sent_at: nowP }).in("id", sentIds);
+        setItems(prev => prev.map(x => sentIds.includes(x.id) ? { ...x, proof_sent_at: nowP } : x));
+        // Pull the stamped versions back so the item lines read 'sent' at once.
+        const { data: fresh }: any = await createClient().from("proof_versions")
+          .select("id, item_id, version, state, approved_at, sent_at")
+          .in("item_id", sentIds).is("superseded_at", null).order("version", { ascending: false });
+        if (fresh) setProofByItem(m => { const next = { ...m }; for (const v of fresh) if (!next[v.item_id] || next[v.item_id].version < v.version) next[v.item_id] = v; return next; });
+      }
       await refetchTypeMeta();
       setClientAction(null);
       recalcPhase();
@@ -2006,9 +2018,26 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             // action is a REVISED invoice send, and it says so.
             const needsRevise = !!invNum && Math.abs(toInvoice) > 0.01;
             const primary = !flags.approved ? "quote" : (!invNum || needsRevise) ? "invoice" : paid < orderTotal ? "payment" : null;
+            // What the package holds right now: the client approves all of it or
+            // none of it, so this is the only place proofs go out (Jon's rule).
+            const pk = items.filter((x: any) => needsProof(x) && !carriedApproved(x) && x.proof_spec);
+            // Three states, no overlap: signed off, with the client, or still
+            // waiting to go out. An approved proof is not "unsent".
+            const pkApproved = pk.filter((x: any) => proofByItem[x.id]?.state === "approved" || x.artwork_status === "approved").length;
+            const pkWithClient = pk.filter((x: any) => proofByItem[x.id]?.sent_at && proofByItem[x.id]?.state !== "approved" && x.artwork_status !== "approved").length;
+            const pkWaiting = pk.length - pkApproved - pkWithClient;
             return (
+              <>
+              {pk.length > 0 && (
+                <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 8 }}>
+                  <b style={{ color: T.text }}>{pk.length} proof{pk.length === 1 ? "" : "s"} in this package</b>
+                  {pkApproved ? ` · ${pkApproved} approved` : ""}
+                  {pkWithClient > 0 ? ` · ${pkWithClient} with the client` : ""}
+                  {pkWaiting > 0 ? <span style={{ color: T.amber }}> · {pkWaiting} not sent yet</span> : ""}
+                </div>
+              )}
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-                <button onClick={() => openSend("quote")} style={primary === "quote" ? actBtn : ghostBtn}>{job.quote_approved ? "Send proofs" : "Send quote & proofs"}</button>
+                <button onClick={() => openSend("quote")} style={primary === "quote" || pkWaiting > 0 ? actBtn : ghostBtn}>{job.quote_approved ? "Send proofs" : "Send quote & proofs"}</button>
                 {job.quote_approved
                   ? <button onClick={doRevoke} disabled={actBusy} style={ghostBtn}>Approved ✓ · revoke</button>
                   : <button onClick={doApprove} disabled={actBusy} style={ghostBtn}>Mark approved</button>}
@@ -2047,6 +2076,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 </div>
                 {actErr && <div style={{ width: "100%", color: T.red, fontSize: 12 }}>{actErr}</div>}
               </div>
+              </>
             );
           })()}
           {/* ── 2×2 grid of trays: Order+Billing · Additional charges / Payments · Contacts.
@@ -2914,7 +2944,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                               ? ` · approved ${new Date(pv.approved_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
                               : pv.sent_at
                                 ? ` · sent ${new Date(pv.sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}, awaiting the client`
-                                : " · not sent yet"}
+                                : " · not sent yet — goes out with the next proof send"}
                           </span>
                           {approved
                             ? <button onClick={() => setStatus("not_started", `${it.name} internal approval removed`)}
