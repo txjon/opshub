@@ -35,6 +35,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     note: body.note || null,
   });
   if (!res.ok) return NextResponse.json({ error: res.error }, { status: 500 });
+
+  // A NEW version over an approved one means the art moved on: the item is no
+  // longer approved, and the client has to look again. Any new version counts,
+  // draft or sent — otherwise the screen reads "approved" over a document
+  // nobody has seen (Jon caught exactly this, Sep 2026).
+  if (res.version.state !== "approved") {
+    const { data: hadApproved } = await db.from("proof_versions")
+      .select("id, version").eq("item_id", params.id).eq("state", "approved").limit(1);
+    if ((hadApproved || []).length && (hadApproved as any)[0].version < res.version.version) {
+      await db.from("items").update({ artwork_status: "not_started" }).eq("id", params.id).eq("artwork_status", "approved");
+      await db.from("item_files").update({ approval: "pending", approved_at: null })
+        .eq("item_id", params.id).eq("stage", "proof").is("superseded_at", null).eq("approval", "approved");
+    }
+  }
   return NextResponse.json({ version: res.version });
 }
 

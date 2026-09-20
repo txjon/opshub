@@ -2859,11 +2859,14 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                             Proof v{proofByItem[it.id].version} · {proofByItem[it.id].state === "approved" ? "approved" : "sent, awaiting the client"}
                           </span>
                           <div style={{ fontSize: 12, color: T.muted, fontFamily: mono }}>
-                            {proofByItem[it.id].approved_at ? new Date(proofByItem[it.id].approved_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "The PDF is drawn from this when anyone opens it"}
+                            {proofByItem[it.id].approved_at
+                              ? `Signed off ${new Date(proofByItem[it.id].approved_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} — this exact document`
+                              : "View and Download draw this document from the current art"}
                           </div>
                         </div>
                         <a href={`/api/proof/${proofByItem[it.id].id}/pdf`} target="_blank" rel="noreferrer" style={{ ...ghostBtn, textDecoration: "none", display: "inline-block" }}>View</a>
                         <a href={`/api/proof/${proofByItem[it.id].id}/pdf?download=1`} style={{ ...ghostBtn, textDecoration: "none", display: "inline-block" }}>Download</a>
+                        <button onClick={() => { setProofMode("edit"); setProofItemId(it.id); }} style={ghostBtn}>Edit</button>
                       </div>
                     )}
                     {/* The PDF a client approved, and a printer prints, must match
@@ -2894,7 +2897,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       <div style={{ fontSize: 13, color: T.faint, padding: "16px 0" }}>No files on this item yet.</div>
                     ) : (
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(88px, 1fr))", gap: 10 }}>
-                        {files.map((f: any) => {
+                        {files.filter((f: any) => !(proofByItem[it.id] && f.stage === "proof")).map((f: any) => {
                           const ap = f.approval === "approved" ? T.green : f.approval === "revision_requested" ? T.amber : T.faint;
                           return (
                             <a key={f.drive_file_id + f.file_name} href={thumbSrc(f.drive_file_id, true)} target="_blank" rel="noreferrer" title={f.file_name} style={{ textDecoration: "none", position: "relative", display: "block" }}>
@@ -2943,8 +2946,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       return (
                         <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.border}44`, flexWrap: "wrap" }}>
                           <span style={wlbl}>Proof</span>
-                          {hasProof && <button onClick={() => { setProofMode("preview"); setProofItemId(it.id); }} style={ghostBtn}>View</button>}
-                          {proofPdf && proofPdf.drive_link && <button onClick={() => window.open(proofPdf.drive_link, "_blank")} style={ghostBtn}>View proof PDF</button>}
+                          {/* One document, one place. "View" used to open the live
+                              web proof while the version strip opened the PDF, and
+                              the two could differ — which is the confusion this
+                              whole model removes (Jon, Sep 2026). */}
+                          {hasProof && !proofByItem[it.id] && <button onClick={() => { setProofMode("preview"); setProofItemId(it.id); }} style={ghostBtn}>View</button>}
                           {mockupFile && <button onClick={() => { setProofMode("edit"); setProofItemId(it.id); }}
                             style={hasProof || proofPdf ? ghostBtn : { ...actBtn, background: T.amber, color: "#fff" }}>{hasProof ? "Edit proof" : "Generate proof"}</button>}
                           {!mockupFile && <span style={{ fontSize: 12, color: T.faint }}>Upload a mockup first — the proof is built on it.</span>}

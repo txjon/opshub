@@ -117,7 +117,13 @@ export async function approveVersion(db: any, opts: {
     const { data } = await db.from("proof_versions").select("*").eq("id", opts.versionId).maybeSingle();
     target = (data as ProofVersion) || null;
   } else {
-    target = await currentVersion(db, opts.itemId);
+    // The NEWEST version, not the last approved one. After an edit the newest
+    // is the draft that needs signing off; approving anything else would bless
+    // a document nobody is looking at any more.
+    const { data } = await db.from("proof_versions").select("*")
+      .eq("item_id", opts.itemId).is("superseded_at", null)
+      .order("version", { ascending: false }).limit(1);
+    target = ((data || [])[0] as ProofVersion) || null;
   }
   if (!target) return { ok: false, error: "no proof version to approve" };
   if (target.state === "approved") return { ok: true, version: target };
