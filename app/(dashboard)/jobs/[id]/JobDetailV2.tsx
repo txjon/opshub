@@ -389,8 +389,6 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const [artReqWo, setArtReqWo] = useState<string | null>(null);
   useEffect(() => { try { const w = new URLSearchParams(window.location.search).get("wo"); if (w) { setArtReqWo(w); setArtReqOpen(true); } } catch {} }, []);
   const [wsMenu, setWsMenu] = useState(false);
-  const [proofMenu, setProofMenu] = useState(false);
-  const [artMenu, setArtMenu] = useState(false);
   const [moveItem, setMoveItem] = useState<{ id: string; name: string; mode: "move" | "copy" } | null>(null);
   // Revised-proof re-send (classic nudge: item_files.revision_pending_send).
   const [revisedOpen, setRevisedOpen] = useState(false);
@@ -2556,6 +2554,35 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Duplicate item</button>
                         <button onClick={() => { setWsMenu(false); setMoveItem({ id: it.id, name: it.name, mode: "copy" }); }}
                           style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Copy to another job…</button>
+                        {/* Approval overrides live here with the other corrections,
+                            not next to the daily actions (Jon, Sep 2026). */}
+                        <button onClick={async () => {
+                            setWsMenu(false);
+                            const next = (it.artwork_status === "approved") ? "not_started" : "approved";
+                            try {
+                              await (createClient().from("items") as any).update({ artwork_status: next }).eq("id", it.id);
+                              setItems(prev => prev.map(x => x.id === it.id ? { ...x, artwork_status: next } : x));
+                              if (next === "approved") {
+                                try { await fetch(`/api/items/${it.id}/proof/approve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "internal" }) }); } catch {}
+                                const { data: v }: any = await createClient().from("proof_versions").select("id, item_id, version, state, approved_at").eq("item_id", it.id).is("superseded_at", null).order("version", { ascending: false }).limit(1);
+                                if (v?.[0]) setProofByItem(m => ({ ...m, [it.id]: v[0] }));
+                                logJobActivity(job.id, `${it.name} approved internally`);
+                              } else logJobActivity(job.id, `${it.name} internal approval removed`);
+                              recalcPhase();
+                            } catch (e) { failed("Approval not saved", e); }
+                          }}
+                          style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>{it.artwork_status === "approved" ? "Undo approval" : "Mark proof approved"}</button>
+                        <button onClick={async () => {
+                            setWsMenu(false);
+                            const next = it.artwork_status === "n_a" ? "not_started" : "n_a";
+                            try {
+                              await (createClient().from("items") as any).update({ artwork_status: next }).eq("id", it.id);
+                              setItems(prev => prev.map(x => x.id === it.id ? { ...x, artwork_status: next } : x));
+                              logJobActivity(job.id, next === "n_a" ? `${it.name} marked no proof needed` : `${it.name} needs a proof again`);
+                              recalcPhase();
+                            } catch (e) { failed("Not saved", e); }
+                          }}
+                          style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>{it.artwork_status === "n_a" ? "Needs a proof" : "No proof needed"}</button>
                         <button onClick={() => { setWsMenu(false); setMoveItem({ id: it.id, name: it.name, mode: "move" }); }}
                           style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Move to another job…</button>
                       </div>
@@ -2848,54 +2875,31 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       <span style={wlbl}>Files · {files.length}</span>
                       <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <span style={{ fontWeight: 800, fontSize: 11, letterSpacing: "0.04em", textTransform: "uppercase", color: artColor }}>{artLabel}</span>
-                        {/* One menu instead of a row of buttons — the approval
-                            state is the headline, the ways to change it are not. */}
-                        <span style={{ position: "relative", display: "inline-flex" }}>
-                          <button onClick={() => setArtMenu(m => !m)} title="Approval" style={{ ...ghostBtn, padding: "6px 11px", fontWeight: 900 }}>⋯</button>
-                          {artMenu && (
-                            <>
-                              <div onClick={() => setArtMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
-                              <div style={{ position: "absolute", top: 34, right: 0, zIndex: 41, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, minWidth: 210, padding: 5, boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
-                                {art !== "n_a" && <button onClick={() => { setArtMenu(false); markInternal(); }}
-                                  style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>{art === "approved" ? "Undo approval" : "Mark approved"}</button>}
-                                {art !== "approved" && <button onClick={() => { setArtMenu(false); toggleNoProof(); }}
-                                  style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>{art === "n_a" ? "Needs a proof" : "No proof needed"}</button>}
-                              </div>
-                            </>
-                          )}
-                        </span>
+                        {/* One action: make it, or change it. The rare overrides
+                            (mark approved, no proof needed) live in the item's
+                            ⋯ menu with the other corrections. */}
+                        {(() => {
+                          const mockupFile = files.find((f: any) => f.stage === "mockup") || files.find((f: any) => f.file_name?.toLowerCase().includes("mockup"));
+                          if (!mockupFile) return <span style={{ fontSize: 12, color: T.faint }}>Upload a mockup to build the proof</span>;
+                          const has = !!it.proof_spec || !!proofByItem[it.id];
+                          return <button onClick={() => { setProofMode("edit"); setProofItemId(it.id); }}
+                            style={has ? ghostBtn : { ...actBtn, background: T.amber, color: "#fff" }}>{has ? "Edit proof" : "Make the proof"}</button>;
+                        })()}
                       </span>
                     </div>
                     {proofByItem[it.id] && (() => {
                       const pv = proofByItem[it.id];
                       const approved = pv.state === "approved";
-                      const menuRow: React.CSSProperties = { display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 };
+                      // A line, not a control strip: where the proof stands, in
+                      // words. The proof itself is a card in the strip below,
+                      // and there is one button for changing it.
                       return (
-                        <a href={`/api/proof/${pv.id}/pdf`} target="_blank" rel="noreferrer"
-                          style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", border: `1px solid ${approved ? T.green + "55" : T.border}`, borderRadius: 10, background: approved ? T.greenDim : T.surface, marginBottom: 10, textDecoration: "none", color: T.text }}>
-                          <span style={{ flex: 1, minWidth: 0 }}>
-                            <span style={{ display: "block", fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: approved ? T.green : T.faint }}>
-                              Proof v{pv.version} · {approved ? "approved" : pv.state === "sent" ? "sent, awaiting the client" : "draft, not sent"}
-                            </span>
-                            <span style={{ display: "block", fontSize: 12, color: T.muted, fontFamily: mono }}>
-                              {approved && pv.approved_at
-                                ? `Signed off ${new Date(pv.approved_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
-                                : "Tap to read it"}
-                            </span>
-                          </span>
-                          <span onClick={(e) => { e.preventDefault(); e.stopPropagation(); setProofMenu(m => !m); }} style={{ position: "relative", display: "inline-flex" }}>
-                            <span style={{ ...ghostBtn, padding: "6px 11px", fontWeight: 900 } as React.CSSProperties}>⋯</span>
-                            {proofMenu && (
-                              <>
-                                <span onClick={(e) => { e.preventDefault(); setProofMenu(false); }} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
-                                <span style={{ position: "absolute", top: 34, right: 0, zIndex: 41, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, minWidth: 190, padding: 5, boxShadow: "0 12px 40px rgba(0,0,0,0.4)", display: "block" }}>
-                                  <button onClick={(e) => { e.preventDefault(); setProofMenu(false); setProofMode("edit"); setProofItemId(it.id); }} style={menuRow}>Edit the proof</button>
-                                  <a href={`/api/proof/${pv.id}/pdf?download=1`} onClick={() => setProofMenu(false)} style={{ ...menuRow, display: "block", textDecoration: "none" }}>Download the PDF</a>
-                                </span>
-                              </>
-                            )}
-                          </span>
-                        </a>
+                        <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 10 }}>
+                          <b style={{ color: approved ? T.green : T.text }}>Proof v{pv.version}</b>
+                          {approved && pv.approved_at
+                            ? ` · approved ${new Date(pv.approved_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
+                            : pv.state === "sent" ? " · sent, awaiting the client" : " · draft, not sent"}
+                        </div>
                       );
                     })()}
                     {/* The PDF a client approved, and a printer prints, must match
@@ -2926,6 +2930,26 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       <div style={{ fontSize: 13, color: T.faint, padding: "16px 0" }}>No files on this item yet.</div>
                     ) : (
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(88px, 1fr))", gap: 10 }}>
+                        {proofByItem[it.id] && (() => {
+                          const pv = proofByItem[it.id];
+                          const approved = pv.state === "approved";
+                          const proofFile = files.find((f: any) => f.stage === "proof");
+                          return (
+                            <a key={`proof-${pv.id}`} href={`/api/proof/${pv.id}/pdf`} target="_blank" rel="noreferrer" title={`Proof v${pv.version}`}
+                              style={{ textDecoration: "none", position: "relative", display: "block" }}>
+                              <button title="Download the proof"
+                                onClick={e => { e.preventDefault(); e.stopPropagation(); window.location.href = `/api/proof/${pv.id}/pdf?download=1`; }}
+                                style={{ position: "absolute", top: 4, left: 4, zIndex: 1, width: 20, height: 20, borderRadius: 999, border: "none", background: "rgba(10,10,10,0.6)", color: "#fff", fontSize: 11, lineHeight: "20px", textAlign: "center", padding: 0, cursor: "pointer" }}>⬇</button>
+                              <div style={{ aspectRatio: "1 / 1", background: "#fff", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${approved ? T.green + "66" : T.border}` }}>
+                                {proofFile
+                                  ? <img src={thumbSrc(proofFile.drive_file_id)} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+                                  : <span style={{ fontSize: 22 }}>📄</span>}
+                              </div>
+                              <div style={{ fontSize: 10, color: T.muted, marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Proof v{pv.version}</div>
+                              <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: approved ? T.green : T.faint }}>PROOF{approved ? " ✓" : ""}</div>
+                            </a>
+                          );
+                        })()}
                         {files.filter((f: any) => !(proofByItem[it.id] && f.stage === "proof")).map((f: any) => {
                           const ap = f.approval === "approved" ? T.green : f.approval === "revision_requested" ? T.amber : T.faint;
                           return (
