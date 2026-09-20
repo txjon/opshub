@@ -1743,6 +1743,50 @@ export type Database = {
 
         ];
       };
+      file_access_log: {
+        Row: {
+          id: string;
+          created_at: string;
+          drive_file_id: string;
+          route: string;
+          audience: string | null;
+          verdict: string;
+          reason: string | null;
+          owner_ref: string | null;
+          user_id: string | null;
+          token_hint: string | null;
+          path: string | null;
+        };
+        Insert: {
+          id?: string;
+          created_at?: string;
+          drive_file_id: string;
+          route: string;
+          audience?: string | null;
+          verdict: string;
+          reason?: string | null;
+          owner_ref?: string | null;
+          user_id?: string | null;
+          token_hint?: string | null;
+          path?: string | null;
+        };
+        Update: {
+          id?: string;
+          created_at?: string;
+          drive_file_id?: string;
+          route?: string;
+          audience?: string | null;
+          verdict?: string;
+          reason?: string | null;
+          owner_ref?: string | null;
+          user_id?: string | null;
+          token_hint?: string | null;
+          path?: string | null;
+        };
+        Relationships: [
+
+        ];
+      };
       fulfillment_daily_logs: {
         Row: {
           id: string;
