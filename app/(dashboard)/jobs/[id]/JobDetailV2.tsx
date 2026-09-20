@@ -2554,35 +2554,6 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Duplicate item</button>
                         <button onClick={() => { setWsMenu(false); setMoveItem({ id: it.id, name: it.name, mode: "copy" }); }}
                           style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Copy to another job…</button>
-                        {/* Approval overrides live here with the other corrections,
-                            not next to the daily actions (Jon, Sep 2026). */}
-                        <button onClick={async () => {
-                            setWsMenu(false);
-                            const next = (it.artwork_status === "approved") ? "not_started" : "approved";
-                            try {
-                              await (createClient().from("items") as any).update({ artwork_status: next }).eq("id", it.id);
-                              setItems(prev => prev.map(x => x.id === it.id ? { ...x, artwork_status: next } : x));
-                              if (next === "approved") {
-                                try { await fetch(`/api/items/${it.id}/proof/approve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "internal" }) }); } catch {}
-                                const { data: v }: any = await createClient().from("proof_versions").select("id, item_id, version, state, approved_at").eq("item_id", it.id).is("superseded_at", null).order("version", { ascending: false }).limit(1);
-                                if (v?.[0]) setProofByItem(m => ({ ...m, [it.id]: v[0] }));
-                                logJobActivity(job.id, `${it.name} approved internally`);
-                              } else logJobActivity(job.id, `${it.name} internal approval removed`);
-                              recalcPhase();
-                            } catch (e) { failed("Approval not saved", e); }
-                          }}
-                          style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>{it.artwork_status === "approved" ? "Undo approval" : "Mark proof approved"}</button>
-                        <button onClick={async () => {
-                            setWsMenu(false);
-                            const next = it.artwork_status === "n_a" ? "not_started" : "n_a";
-                            try {
-                              await (createClient().from("items") as any).update({ artwork_status: next }).eq("id", it.id);
-                              setItems(prev => prev.map(x => x.id === it.id ? { ...x, artwork_status: next } : x));
-                              logJobActivity(job.id, next === "n_a" ? `${it.name} marked no proof needed` : `${it.name} needs a proof again`);
-                              recalcPhase();
-                            } catch (e) { failed("Not saved", e); }
-                          }}
-                          style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>{it.artwork_status === "n_a" ? "Needs a proof" : "No proof needed"}</button>
                         <button onClick={() => { setWsMenu(false); setMoveItem({ id: it.id, name: it.name, mode: "move" }); }}
                           style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Move to another job…</button>
                       </div>
@@ -2910,15 +2881,37 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                     {proofByItem[it.id] && (() => {
                       const pv = proofByItem[it.id];
                       const approved = pv.state === "approved";
-                      // A line, not a control strip: where the proof stands, in
-                      // words. The proof itself is a card in the strip below,
-                      // and there is one button for changing it.
+                      const setStatus = async (next: string, msg: string) => {
+                        try {
+                          await (createClient().from("items") as any).update({ artwork_status: next }).eq("id", it.id);
+                          setItems(prev => prev.map(x => x.id === it.id ? { ...x, artwork_status: next } : x));
+                          if (next === "approved") {
+                            try { await fetch(`/api/items/${it.id}/proof/approve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "internal" }) }); } catch { /* status still saved */ }
+                            const { data: v }: any = await createClient().from("proof_versions").select("id, item_id, version, state, approved_at").eq("item_id", it.id).is("superseded_at", null).order("version", { ascending: false }).limit(1);
+                            if (v?.[0]) setProofByItem(m => ({ ...m, [it.id]: v[0] }));
+                          }
+                          logJobActivity(job.id, msg);
+                          recalcPhase();
+                        } catch (e) { failed("Approval not saved", e); }
+                      };
+                      // The line says where the proof stands, and carries the one
+                      // action that state allows. Recording a verbal approval must
+                      // work on a live job, so it cannot live in the item ⋯ menu —
+                      // that disappears once pricing locks (Jon, Sep 2026).
                       return (
-                        <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 10 }}>
-                          <b style={{ color: approved ? T.green : T.text }}>Proof v{pv.version}</b>
-                          {approved && pv.approved_at
-                            ? ` · approved ${new Date(pv.approved_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
-                            : pv.state === "sent" ? " · sent, awaiting the client" : " · draft, not sent"}
+                        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+                          <span style={{ fontSize: 12.5, color: T.muted }}>
+                            <b style={{ color: approved ? T.green : T.text }}>Proof v{pv.version}</b>
+                            {approved && pv.approved_at
+                              ? ` · approved ${new Date(pv.approved_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
+                              : pv.state === "sent" ? " · sent, awaiting the client" : " · draft, not sent"}
+                          </span>
+                          {approved
+                            ? <button onClick={() => setStatus("not_started", `${it.name} internal approval removed`)}
+                                style={{ ...ghostBtn, padding: "3px 9px", fontSize: 11 }}>Undo approval</button>
+                            : <button onClick={() => setStatus("approved", `${it.name} approved internally`)}
+                                title="They okayed it verbally or by email"
+                                style={{ ...ghostBtn, padding: "3px 9px", fontSize: 11 }}>Mark approved</button>}
                         </div>
                       );
                     })()}
@@ -2945,7 +2938,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           style={{ ...ghostBtn, marginTop: 8, borderColor: T.amber, color: T.amber }}>Rebuild the PDF</button>
                       </div>
                     )}
-                    {tip(<>Upload art by stage (mockup, proof, print-ready). A mockup unlocks <b style={{ color: T.text }}>Generate proof</b> — the proof editor that clients approve and vendors print from. Files land in this item&apos;s Drive folder automatically.</>)}
+                    {tip(<>Upload art by stage (mockup, proof, print-ready). A mockup unlocks <b style={{ color: T.text }}>Make the proof</b> — the editor clients approve and vendors print from. The proof itself is a card below: it is drawn from the current art whenever anyone opens it, so it can never be out of date.</>)}
                     {files.length === 0 ? (
                       <div style={{ fontSize: 13, color: T.faint, padding: "16px 0" }}>No files on this item yet.</div>
                     ) : (
@@ -3034,7 +3027,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         </div>
                       );
                     })()}
-                    <div style={{ fontSize: 11, color: T.muted, marginTop: 12 }}>Files open full-size in a new tab. Proofs are sent from the Client section and the client approves in their hub. To record a verbal approval, use the ⋯ menu at the top of this item.</div>
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 12 }}>Files open full-size in a new tab. Proofs are sent from the Client section and the client approves in their hub. If they okay it verbally, use Mark approved on the proof line.</div>
                   </div>
                 );
               })()}
