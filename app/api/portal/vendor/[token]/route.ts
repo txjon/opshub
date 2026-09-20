@@ -9,7 +9,7 @@ import { shipFromProduction } from "@/lib/production2-ship";
 import { getPdfBranding } from "@/lib/branding";
 import { vendorPaperShipTo, effectiveRoute, loadJobDestinations } from "@/lib/destinations";
 import { ensureTracker } from "@/lib/inbound-tracking";
-import { loadProductionFiles, releaseFor, itemDrift } from "@/lib/production-files";
+import { loadProductionFiles, loadProofVersions, releaseFor, itemDrift } from "@/lib/production-files";
 import { withPortalCookie } from "@/lib/file-access";
 
 // costProds in ITEM sort order — "first item in a share group" (who carries
@@ -49,6 +49,9 @@ async function prefetchJobData(sb: any, jobs: any[], decorator: any) {
   // files, proof, mockup) served through the app — never a Drive folder
   // (lib/production-files: the HPD-2608-042 wrong-art incident).
   const filesByItem = await loadProductionFiles(sb, wantedIds, { token: decorator.external_token || null });
+  // The proof is a VERSION, rendered when the printer opens it — never a file
+  // that drifted from the art (lib/proof-versions).
+  const proofByItem = await loadProofVersions(sb, wantedIds, { token: decorator.external_token || null });
   const mockupByItem: Record<string, string> = {};
   for (const id of Object.keys(filesByItem)) {
     const m = filesByItem[id].find(f => f.stage === "mockup");
@@ -65,7 +68,7 @@ async function prefetchJobData(sb: any, jobs: any[], decorator: any) {
       lettersByJob[jid] = m;
     }
   }
-  return { itemsById, filesByItem, mockupByItem, lettersByJob };
+  return { itemsById, filesByItem, proofByItem, mockupByItem, lettersByJob };
 }
 
 // ── GET: All active work for this decorator ──
@@ -197,6 +200,7 @@ export async function GET(
 
       const mockupByItem = pre.mockupByItem;
       const filesByItem = pre.filesByItem;
+      const proofByItem = pre.proofByItem;
       const letterMap: Record<string, string> = pre.lettersByJob[job.id] || {};
 
       // Get ship-to address for this vendor
@@ -235,6 +239,7 @@ export async function GET(
           blankSku: item.blank_sku || costProd?.color || "",
           pipelineStage: item.pipeline_stage || "pending",
           files: filesByItem[item.id] || [],
+          proofVersion: proofByItem[item.id] || null,
           incomingGoods: incoming,
           productionNotes: item.production_notes_po,
           packingNotes: item.packing_notes,
@@ -394,6 +399,7 @@ export async function GET(
 
       const cMockupByItem = cPre.mockupByItem;
       const filesByItem = cPre.filesByItem;
+      const proofByItem = cPre.proofByItem;
       const cLetterMap: Record<string, string> = cPre.lettersByJob[job.id] || {};
 
       const paper = await vendorPaperShipTo(sb, {
@@ -426,6 +432,7 @@ export async function GET(
           blankSku: item.blank_sku || costProd?.color || "",
           pipelineStage: item.pipeline_stage || "complete",
           files: filesByItem[item.id] || [],
+          proofVersion: proofByItem[item.id] || null,
           incomingGoods: incoming,
           productionNotes: item.production_notes_po,
           packingNotes: item.packing_notes,

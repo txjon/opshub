@@ -22,7 +22,7 @@
 //     the live files still match what the printer was given.
 
 import { deleteDriveFileIfUnreferenced } from "./google-drive-refs";
-import { PRODUCTION_STAGES, type ProductionFile } from "./po-release";
+import { PRODUCTION_STAGES, type ProductionFile, type ProofVersionRef } from "./po-release";
 export * from "./po-release";
 
 const FILE_COLS = "id, item_id, file_name, stage, drive_file_id, mime_type, file_size, created_at";
@@ -111,3 +111,32 @@ export async function supersedeSameNameFiles(sb: any, itemId: string, stage: str
   return retired;
 }
 
+/**
+ * The proof VERSION that counts for each item — approved if there is one, else
+ * the latest sent. Vendors and clients read the document from this, rendered on
+ * demand, so what they see is never a stale copy (lib/proof-versions).
+ */
+export async function loadProofVersions(sb: any, itemIds: string[], opts?: { token?: string | null }): Promise<Record<string, ProofVersionRef>> {
+  const out: Record<string, ProofVersionRef> = {};
+  const ids = Array.from(new Set(itemIds.filter(Boolean)));
+  const t = opts?.token ? `?t=${encodeURIComponent(opts.token)}` : "";
+  for (let i = 0; i < ids.length; i += 150) {
+    const { data, error } = await sb.from("proof_versions")
+      .select("id, item_id, version, state, approved_at")
+      .in("item_id", ids.slice(i, i + 150))
+      .in("state", ["approved", "sent"])
+      .order("version", { ascending: false });
+    if (error) continue;
+    for (const v of (data || [])) {
+      const cur = out[v.item_id];
+      // approved wins; otherwise the newest sent
+      if (cur && (cur.state === "approved" || v.state !== "approved")) continue;
+      out[v.item_id] = {
+        id: v.id, version: v.version, state: v.state, approvedAt: v.approved_at,
+        viewUrl: `/api/proof/${v.id}/pdf${t}`,
+        downloadUrl: `/api/proof/${v.id}/pdf${t ? t + "&" : "?"}download=1`,
+      };
+    }
+  }
+  return out;
+}

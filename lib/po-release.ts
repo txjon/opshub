@@ -12,6 +12,15 @@ export const STAGE_LABEL: Record<ProductionStage, string> = {
   mockup: "Mockup",
 };
 
+export type ProofVersionRef = {
+  id: string;
+  version: number;
+  state: string;
+  approvedAt: string | null;
+  viewUrl: string;
+  downloadUrl: string;
+};
+
 export type ProductionFile = {
   id: string;             // item_files.id
   itemId: string;

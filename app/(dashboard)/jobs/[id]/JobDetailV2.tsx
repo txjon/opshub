@@ -2814,6 +2814,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                   try {
                     await (createClient().from("items") as any).update({ artwork_status: newStatus }).eq("id", it.id);
                     setItems(prev => prev.map(x => x.id === it.id ? { ...x, artwork_status: newStatus } : x));
+                    // Approving internally stamps the same proof VERSION a client
+                    // would have approved, so the record is identical either way.
+                    if (newStatus === "approved") {
+                      try { await fetch(`/api/items/${it.id}/proof/approve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "internal" }) }); } catch { /* status is saved either way */ }
+                    }
                     if (newStatus === "approved") logJobActivity(job.id, `${it.name} approved internally`);
                     else logJobActivity(job.id, `${it.name} internal approval removed`);
                     recalcPhase();

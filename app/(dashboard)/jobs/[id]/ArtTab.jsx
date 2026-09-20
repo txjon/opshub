@@ -818,6 +818,45 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   // Bake the current live PDF into the Drive art folder (supersede-safe via the
   // ref-counted delete). Does NOT close — exit/Download call it. One file: the
   // Drive PDF, the client, the vendor, and Download all read this.
+  // Freeze the current art as a proof VERSION. No PDF is made: the document is
+  // rendered from this record whenever a client or printer asks for it, so it
+  // can never be out of date (lib/proof-versions). The cropped mockup is kept
+  // as a small image so the server can draw the same proof the editor shows.
+  async function freezeProofVersion(state = "draft") {
+    if (!specLoaded) return null;
+    const specSnap = JSON.stringify(buildSpec());
+    let mockupDriveFileId = null;
+    try {
+      if (croppedMockupUrl) {
+        const blob = await (await fetch(croppedMockupUrl)).blob();
+        const safeName = (item.name || "Item").replace(/[^\w\s-]/g, "");
+        const driveFile = await uploadToDrive({
+          blob, fileName: `${safeName} - Proof mockup.png`, mimeType: "image/png",
+          itemId: item.id, clientName, projectTitle, itemName: item.name || "",
+        });
+        mockupDriveFileId = driveFile?.fileId || null;
+      }
+    } catch (e) { console.error("[proof version] mockup upload failed:", e); }
+    const res = await fetch(`/api/items/${item.id}/proof/versions`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ spec: JSON.parse(specSnap), mockupDriveFileId, rendererVersion: PROOF_RENDERER_VERSION, state }),
+    });
+    if (!res.ok) { console.error("[proof version] freeze failed"); return null; }
+    const { version } = await res.json();
+    // Remember what this version holds, so the next exit knows whether the art
+    // moved on.
+    try {
+      const stamped = withStamps(JSON.parse(specSnap), { bakedSpecHash: specHash(specSnap), bakedRendererVersion: PROOF_RENDERER_VERSION });
+      await createClient().from("items").update({ proof_spec: stamped }).eq("id", item.id);
+      if (onUpdateItem) onUpdateItem(item.id, { proof_spec: stamped });
+      driveBakedSpecRef.current = specSnap;
+      lastSavedSpecRef.current = specSnap;
+      forceRebakeRef.current = false;
+    } catch (e) { console.error("[proof version] stamp failed:", e); }
+    logJobActivity(item.job_id, `Proof v${version?.version || "?"} saved for ${item.name}`);
+    return version || null;
+  }
+
   async function bakeToDrive() {
     if (!specLoaded) return null;
     const safeName = (item.name || "Item").replace(/[^\w\s-]/g, "");
@@ -899,8 +938,8 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     flushSpecSave();
     if (specLoaded && isDriveDirty()) {
       setClosingBake(true);
-      try { await bakeToDrive(); }
-      catch (e) { console.error("[ProofModal close bake]", e); }
+      try { await freezeProofVersion("draft"); }
+      catch (e) { console.error("[ProofModal close freeze]", e); }
       finally { setClosingBake(false); }
     }
     if (previewUrl) URL.revokeObjectURL(previewUrl);

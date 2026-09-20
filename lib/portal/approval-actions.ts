@@ -84,6 +84,15 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
       .in("item_id", itemIds).eq("stage", "proof").is("superseded_at", null);
     // n_a (no proof needed) stays n_a — the client never had a proof to approve on it.
     await sb.from("items").update({ artwork_status: "approved" }).in("id", itemIds).neq("artwork_status", "n_a");
+    // Stamp the VERSION the client actually looked at. That version is frozen
+    // from here on: an edit afterwards makes a new draft and reopens the gate
+    // (lib/proof-versions).
+    try {
+      const { approveVersion } = await import("@/lib/proof-versions");
+      for (const itemId of itemIds) {
+        await approveVersion(sb, { itemId, approvedBy: ctx.via || "client", source: "client" });
+      }
+    } catch (e: any) { console.error("[approval] proof version stamp failed:", e?.message || e); }
   }
 
   const snapshot: ApprovalSnapshot = {

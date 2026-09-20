@@ -27,6 +27,7 @@ type OrderItem = {
   // Drive folder). filesAfterPo = uploaded after this vendor's PO went out;
   // filesRemoved = names the PO listed that are no longer current.
   files: ProdFile[]; filesChanged?: boolean; filesAfterPo?: string[]; filesRemoved?: string[];
+  proofVersion?: { id: string; version: number; state: string; approvedAt: string | null; viewUrl: string; downloadUrl: string } | null;
   incomingGoods: string | null; productionNotes: string | null;
   packingNotes: string | null; shipTracking: string | null;
   shipQtys: Record<string, number> | null; sizes: string[]; qtys: Record<string, number>;
@@ -478,6 +479,24 @@ function ProductionFiles({ item, release }: { item: OrderItem; release: { versio
         <span style={LBL}>Production files{prints.length ? ` · ${prints.length} print file${prints.length === 1 ? "" : "s"}` : ""}</span>
         {release && <span style={{ ...LBL, color: C.muted }}>Release v{release.version} · {fmtDate(release.sentAt)}</span>}
       </div>
+      {/* The proof is a version, drawn when you open it — never an old copy of
+          a file (lib/proof-versions). */}
+      {item.proofVersion && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 9px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.card, marginBottom: 6 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ ...LBL, color: item.proofVersion.state === "approved" ? C.green : C.faint }}>
+              Proof v{item.proofVersion.version}{item.proofVersion.state === "approved" ? " · approved" : " · not yet approved"}
+            </span>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: C.text }}>
+              {item.proofVersion.approvedAt ? `Signed off ${fmtDate(item.proofVersion.approvedAt)}` : "Awaiting the client"}
+            </div>
+          </div>
+          <a href={item.proofVersion.viewUrl} target="_blank" rel="noopener noreferrer"
+            style={{ textDecoration: "none", fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: C.text, background: C.surface, padding: "8px 12px", borderRadius: 7 }}>View</a>
+          <a href={item.proofVersion.downloadUrl}
+            style={{ textDecoration: "none", fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: "#fff", background: C.accent, padding: "8px 12px", borderRadius: 7 }}>Download</a>
+        </div>
+      )}
       {item.filesChanged && (
         <div style={{ borderLeft: `3px solid ${C.amber}`, background: C.amberBg, padding: "6px 10px", marginBottom: 8, fontSize: 12, color: C.text, lineHeight: 1.5 }}>
           <div style={{ ...LBL, color: C.amber, marginBottom: 2 }}>Files changed after your PO</div>
@@ -489,7 +508,7 @@ function ProductionFiles({ item, release }: { item: OrderItem; release: { versio
         <div style={{ fontSize: 12, color: C.faint }}>No files on this item yet. Check back before printing.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {files.map(f => {
+          {files.filter(f => !(item.proofVersion && f.stage === "proof")).map(f => {
             const isPrint = f.stage === "print_ready";
             const updated = after.has(f.id);
             return (
