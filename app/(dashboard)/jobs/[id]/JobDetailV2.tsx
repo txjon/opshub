@@ -218,11 +218,25 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // mime_type / drive_link; the revised-proof nudge needs revision_pending_send.
   const FILE_COLS = "id, item_id, file_name, stage, drive_file_id, drive_link, mime_type, approval, revision_pending_send, created_at";
   const [filesByItem, setFilesByItem] = useState<Record<string, any[]>>({});
+  // The proof each item is currently on: approved if there is one, else the
+  // latest sent (lib/proof-versions). The PDF is rendered from this on demand.
+  const [proofByItem, setProofByItem] = useState<Record<string, any>>({});
   const reloadAllFiles = () => {
     // Read CURRENT items (ref), not itemsProp — items created this session
     // (PSD drop / pickers) must keep their files across reloads.
     const ids = (itemsRef.current || itemsProp || []).map((i: any) => i.id).filter(Boolean);
     if (!ids.length) return;
+    createClient().from("proof_versions").select("id, item_id, version, state, approved_at")
+      .in("item_id", ids).in("state", ["approved", "sent"]).order("version", { ascending: false })
+      .then(({ data }: any) => {
+        const m: Record<string, any> = {};
+        for (const v of (data || [])) {
+          const cur = m[v.item_id];
+          if (cur && (cur.state === "approved" || v.state !== "approved")) continue;
+          m[v.item_id] = v;
+        }
+        setProofByItem(m);
+      });
     createClient().from("item_files").select(FILE_COLS).in("item_id", ids).is("superseded_at", null).order("created_at").then(({ data }: any) => {
       if (!data) return;
       const m: Record<string, any[]> = {};
@@ -870,6 +884,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       if (needBake.length) await bakeProofPdfs(needBake);
       await sendQuoteAndProofs(job, { to, cc, includeProofs: hasReady, proofsOnly: !!job.quote_approved });
       const readyIds = items.filter((it: any) => needsProof(it) && !carriedApproved(it) && it.proof_spec && !it.proof_sent_at).map((it: any) => it.id);
+      // The versions those proofs represent are now what the client is looking at.
+      for (const id of readyIds) { try { await fetch(`/api/items/${id}/proof/versions`, { method: "PATCH" }); } catch { /* the send still counts */ } }
       if (readyIds.length) { const nowP = new Date().toISOString(); await (createClient().from("items") as any).update({ proof_sent_at: nowP }).in("id", readyIds); setItems(prev => prev.map(x => readyIds.includes(x.id) ? { ...x, proof_sent_at: nowP } : x)); }
       await refetchTypeMeta();
       setClientAction(null);
@@ -2836,6 +2852,20 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           style={ghostBtn}>{art === "n_a" ? "Needs a proof" : "No proof needed"}</button>}
                       </span>
                     </div>
+                    {proofByItem[it.id] && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", border: `1px solid ${T.border}`, borderRadius: 10, background: T.surface, marginBottom: 10 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: proofByItem[it.id].state === "approved" ? T.green : T.faint }}>
+                            Proof v{proofByItem[it.id].version} · {proofByItem[it.id].state === "approved" ? "approved" : "sent, awaiting the client"}
+                          </span>
+                          <div style={{ fontSize: 12, color: T.muted, fontFamily: mono }}>
+                            {proofByItem[it.id].approved_at ? new Date(proofByItem[it.id].approved_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "The PDF is drawn from this when anyone opens it"}
+                          </div>
+                        </div>
+                        <a href={`/api/proof/${proofByItem[it.id].id}/pdf`} target="_blank" rel="noreferrer" style={{ ...ghostBtn, textDecoration: "none", display: "inline-block" }}>View</a>
+                        <a href={`/api/proof/${proofByItem[it.id].id}/pdf?download=1`} style={{ ...ghostBtn, textDecoration: "none", display: "inline-block" }}>Download</a>
+                      </div>
+                    )}
                     {/* The PDF a client approved, and a printer prints, must match
                         what the proof editor shows. When it doesn't, say so here
                         rather than let a vendor find out (Sep 2026). */}

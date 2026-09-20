@@ -46,3 +46,20 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const version = await currentVersion(admin(), params.id);
   return NextResponse.json({ version });
 }
+
+// Mark the current version as SENT — the document the client is now looking at.
+export async function PATCH(_req: NextRequest, { params }: { params: { id: string } }) {
+  const session = await createServerClient();
+  const { data: { user } } = await session.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const db = admin();
+  const current = await currentVersion(db, params.id);
+  if (!current) return NextResponse.json({ version: null });
+  if (current.state === "draft") {
+    const { data } = await db.from("proof_versions")
+      .update({ state: "sent", sent_at: new Date().toISOString() })
+      .eq("id", current.id).select("*").single();
+    return NextResponse.json({ version: data });
+  }
+  return NextResponse.json({ version: current });
+}
