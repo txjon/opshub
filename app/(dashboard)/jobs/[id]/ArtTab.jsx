@@ -624,17 +624,25 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   // Stamps live alongside the spec and are carried through every save, so an
   // edit changes the CONTENT hash rather than erasing the record of the bake.
   const withStamps = (spec, extra) => {
-    const bakedSpecHash = extra?.bakedSpecHash ?? item.proof_spec?.bakedSpecHash ?? null;
+    const knownHash = extra?.bakedSpecHash ?? item.proof_spec?.bakedSpecHash ?? null;
     const hash = specHash(JSON.stringify(spec));
+    const isBake = !!extra?.bakedSpecHash;
+    // Has the art moved on from the PDF that was baked?
+    //
+    // UNKNOWN COUNTS AS DRIFTED. Saves only happen when something actually
+    // changed, and every approved proof on file today predates this record, so
+    // treating "no record" as "still matching" is what let an edited proof keep
+    // its approval and a stale PDF (found in Jon's own check, Sep 2026). Wrong
+    // in this direction only ever costs an extra bake; wrong the other way
+    // sends a printer art nobody can see.
+    const dirty = isBake ? false : (knownHash ? knownHash !== hash : true);
     return {
       ...spec,
-      bakedRendererVersion: extra?.bakedRendererVersion ?? item.proof_spec?.bakedRendererVersion ?? null,
-      bakedSpecHash,
-      // Has the art moved on from the PDF that was baked? Written on EVERY save
-      // so the rest of the app can see drift without opening the editor. A
-      // frozen proof must never mean a silently stale file: an edited proof
-      // still bakes, as a new version that starts unapproved.
-      specDirty: extra?.bakedSpecHash ? false : (bakedSpecHash ? bakedSpecHash !== hash : false),
+      // A drifted proof also loses the renderer stamp, so the existing
+      // "needs baking" checks pick it up exactly as they always did.
+      bakedRendererVersion: isBake ? extra.bakedRendererVersion : (dirty ? null : (item.proof_spec?.bakedRendererVersion ?? null)),
+      bakedSpecHash: knownHash,
+      specDirty: dirty,
       ...(item.proof_spec?.carriedFrom ? { carriedFrom: item.proof_spec.carriedFrom } : {}),
     };
   };
@@ -776,7 +784,11 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   // Set once the spec is loaded — assume the Drive PDF matches the loaded spec.
   useEffect(() => {
     if (!specLoaded) return;
-    if (driveBakedSpecRef.current === null) driveBakedSpecRef.current = JSON.stringify(buildSpec());
+    const openSnap = JSON.stringify(buildSpec());
+    if (driveBakedSpecRef.current === null) driveBakedSpecRef.current = openSnap;
+    // Merely OPENING the editor is not an edit: seed the save baseline so the
+    // mount-time autosave doesn't fire and mark the proof drifted.
+    if (lastSavedSpecRef.current === null) lastSavedSpecRef.current = openSnap;
     // Legacy approved proofs (119 of them) carry no record of what was baked.
     // Assume the file in Drive matches the spec as loaded — the same assumption
     // the line above has always made — and write it down, so the NEXT edit is
@@ -788,10 +800,16 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     // whose spec was edited after the last bake must not be stamped — doing so
     // would freeze that divergence forever. They fall back to the in-session
     // comparison, and a real edit still produces a new version.
-    if (approvedOnFile && !item.proof_spec?.bakedSpecHash && item.proof_spec?.bakedRendererVersion === PROOF_RENDERER_VERSION) {
-      const snap = JSON.stringify(buildSpec());
-      const stamped = withStamps(JSON.parse(snap), { bakedSpecHash: specHash(snap) });
-      lastSavedSpecRef.current = snap;   // keep the mount-time autosave from overwriting it
+    if (approvedOnFile && !item.proof_spec?.bakedSpecHash) {
+      // Last write was the bake itself (the stamp survives only until an edit):
+      // the loaded spec provably matches the PDF, so record it as the baseline.
+      // Otherwise the spec was written after the bake and we must assume the
+      // PDF is stale — say so rather than hide it.
+      const clean = item.proof_spec?.bakedRendererVersion === PROOF_RENDERER_VERSION;
+      const stamped = clean
+        ? withStamps(JSON.parse(openSnap), { bakedSpecHash: specHash(openSnap), bakedRendererVersion: PROOF_RENDERER_VERSION })
+        : { ...JSON.parse(openSnap), bakedRendererVersion: null, bakedSpecHash: item.proof_spec?.bakedSpecHash ?? null, specDirty: true };
+      lastSavedSpecRef.current = openSnap;
       createClient().from("items").update({ proof_spec: stamped }).eq("id", item.id)
         .then(({ error: err }) => { if (!err && onUpdateItem) onUpdateItem(item.id, { proof_spec: stamped }); });
     }

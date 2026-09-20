@@ -2831,6 +2831,18 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           style={ghostBtn}>{art === "n_a" ? "Needs a proof" : "No proof needed"}</button>}
                       </span>
                     </div>
+                    {/* The PDF a client approved, and a printer prints, must match
+                        what the proof editor shows. When it doesn't, say so here
+                        rather than let a vendor find out (Sep 2026). */}
+                    {it.proof_spec?.specDirty && files.some((f: any) => f.stage === "proof" && !f.superseded_at) && (
+                      <div style={{ borderLeft: `3px solid ${T.amber}`, background: `${T.amber}14`, padding: "8px 12px", margin: "0 0 10px", borderRadius: "0 10px 10px 0" }}>
+                        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.amber, marginBottom: 3 }}>Proof PDF is out of date</div>
+                        <div style={{ fontSize: 12.5, color: T.text, lineHeight: 1.5 }}>
+                          The art has changed since this PDF was made, so the file the client and the printer see is the old one.
+                          Open <b>Generate proof</b> and exit to rebuild it. {art === "approved" && "Rebuilding creates a new version and asks the client to approve again."}
+                        </div>
+                      </div>
+                    )}
                     {tip(<>Upload art by stage (mockup, proof, print-ready). A mockup unlocks <b style={{ color: T.text }}>Generate proof</b> — the proof editor that clients approve and vendors print from. Files land in this item&apos;s Drive folder automatically.</>)}
                     {files.length === 0 ? (
                       <div style={{ fontSize: 13, color: T.faint, padding: "16px 0" }}>No files on this item yet.</div>
