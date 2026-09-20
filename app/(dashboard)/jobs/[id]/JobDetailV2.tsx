@@ -389,6 +389,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const [artReqWo, setArtReqWo] = useState<string | null>(null);
   useEffect(() => { try { const w = new URLSearchParams(window.location.search).get("wo"); if (w) { setArtReqWo(w); setArtReqOpen(true); } } catch {} }, []);
   const [wsMenu, setWsMenu] = useState(false);
+  const [proofMenu, setProofMenu] = useState(false);
+  const [artMenu, setArtMenu] = useState(false);
   const [moveItem, setMoveItem] = useState<{ id: string; name: string; mode: "move" | "copy" } | null>(null);
   // Revised-proof re-send (classic nudge: item_files.revision_pending_send).
   const [revisedOpen, setRevisedOpen] = useState(false);
@@ -2846,31 +2848,56 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       <span style={wlbl}>Files · {files.length}</span>
                       <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <span style={{ fontWeight: 800, fontSize: 11, letterSpacing: "0.04em", textTransform: "uppercase", color: artColor }}>{artLabel}</span>
-                        {art !== "n_a" && <button onClick={markInternal} title={art === "approved" ? "Clear the approval (back to not started)" : "Approve without a client click — for approvals given verbally or by email"}
-                          style={ghostBtn}>{art === "approved" ? "Undo approval" : "Mark approved"}</button>}
-                        {art !== "approved" && <button onClick={toggleNoProof} title={art === "n_a" ? "This item needs a proof after all" : "No proof for this item — it won't gate, count, or show as awaiting approval"}
-                          style={ghostBtn}>{art === "n_a" ? "Needs a proof" : "No proof needed"}</button>}
+                        {/* One menu instead of a row of buttons — the approval
+                            state is the headline, the ways to change it are not. */}
+                        <span style={{ position: "relative", display: "inline-flex" }}>
+                          <button onClick={() => setArtMenu(m => !m)} title="Approval" style={{ ...ghostBtn, padding: "6px 11px", fontWeight: 900 }}>⋯</button>
+                          {artMenu && (
+                            <>
+                              <div onClick={() => setArtMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+                              <div style={{ position: "absolute", top: 34, right: 0, zIndex: 41, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, minWidth: 210, padding: 5, boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
+                                {art !== "n_a" && <button onClick={() => { setArtMenu(false); markInternal(); }}
+                                  style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>{art === "approved" ? "Undo approval" : "Mark approved"}</button>}
+                                {art !== "approved" && <button onClick={() => { setArtMenu(false); toggleNoProof(); }}
+                                  style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>{art === "n_a" ? "Needs a proof" : "No proof needed"}</button>}
+                              </div>
+                            </>
+                          )}
+                        </span>
                       </span>
                     </div>
-                    {proofByItem[it.id] && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", border: `1px solid ${T.border}`, borderRadius: 10, background: T.surface, marginBottom: 10 }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: proofByItem[it.id].state === "approved" ? T.green : T.faint }}>
-                            Proof v{proofByItem[it.id].version} · {proofByItem[it.id].state === "approved" ? "approved" : proofByItem[it.id].state === "sent" ? "sent, awaiting the client" : "draft, not sent yet"}
+                    {proofByItem[it.id] && (() => {
+                      const pv = proofByItem[it.id];
+                      const approved = pv.state === "approved";
+                      const menuRow: React.CSSProperties = { display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 };
+                      return (
+                        <a href={`/api/proof/${pv.id}/pdf`} target="_blank" rel="noreferrer"
+                          style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", border: `1px solid ${approved ? T.green + "55" : T.border}`, borderRadius: 10, background: approved ? T.greenDim : T.surface, marginBottom: 10, textDecoration: "none", color: T.text }}>
+                          <span style={{ flex: 1, minWidth: 0 }}>
+                            <span style={{ display: "block", fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: approved ? T.green : T.faint }}>
+                              Proof v{pv.version} · {approved ? "approved" : pv.state === "sent" ? "sent, awaiting the client" : "draft, not sent"}
+                            </span>
+                            <span style={{ display: "block", fontSize: 12, color: T.muted, fontFamily: mono }}>
+                              {approved && pv.approved_at
+                                ? `Signed off ${new Date(pv.approved_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
+                                : "Tap to read it"}
+                            </span>
                           </span>
-                          <div style={{ fontSize: 12, color: T.muted, fontFamily: mono }}>
-                            {proofByItem[it.id].approved_at
-                              ? `Signed off ${new Date(proofByItem[it.id].approved_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} — this exact document`
-                              : proofByItem[it.id].state === "sent"
-                                ? "The client is looking at this version"
-                                : "Not sent yet — View and Download draw it from the current art"}
-                          </div>
-                        </div>
-                        <a href={`/api/proof/${proofByItem[it.id].id}/pdf`} target="_blank" rel="noreferrer" style={{ ...ghostBtn, textDecoration: "none", display: "inline-block" }}>View</a>
-                        <a href={`/api/proof/${proofByItem[it.id].id}/pdf?download=1`} style={{ ...ghostBtn, textDecoration: "none", display: "inline-block" }}>Download</a>
-                        <button onClick={() => { setProofMode("edit"); setProofItemId(it.id); }} style={ghostBtn}>Edit</button>
-                      </div>
-                    )}
+                          <span onClick={(e) => { e.preventDefault(); e.stopPropagation(); setProofMenu(m => !m); }} style={{ position: "relative", display: "inline-flex" }}>
+                            <span style={{ ...ghostBtn, padding: "6px 11px", fontWeight: 900 } as React.CSSProperties}>⋯</span>
+                            {proofMenu && (
+                              <>
+                                <span onClick={(e) => { e.preventDefault(); setProofMenu(false); }} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+                                <span style={{ position: "absolute", top: 34, right: 0, zIndex: 41, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, minWidth: 190, padding: 5, boxShadow: "0 12px 40px rgba(0,0,0,0.4)", display: "block" }}>
+                                  <button onClick={(e) => { e.preventDefault(); setProofMenu(false); setProofMode("edit"); setProofItemId(it.id); }} style={menuRow}>Edit the proof</button>
+                                  <a href={`/api/proof/${pv.id}/pdf?download=1`} onClick={() => setProofMenu(false)} style={{ ...menuRow, display: "block", textDecoration: "none" }}>Download the PDF</a>
+                                </span>
+                              </>
+                            )}
+                          </span>
+                        </a>
+                      );
+                    })()}
                     {/* The PDF a client approved, and a printer prints, must match
                         what the proof editor shows. When it doesn't, say so here
                         rather than let a vendor find out (Sep 2026). */}
