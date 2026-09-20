@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { computeFileOrdinals, formatActivityText, type ActivityRole, type ActivityType } from "@/lib/art-activity-text";
 import { hubClientLookup } from "@/lib/hub-client";
+import { withPortalCookie } from "@/lib/file-access";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -310,7 +311,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       .not("sent_at", "is", null);
     unpaidCount += (shipReports || []).filter((r: any) => !r.paid_at).length;
 
-    return NextResponse.json({
+    return withPortalCookie(NextResponse.json({
       client: { name: client.name },
       features: (client as any).portal_features || [],
       company: { name: tenant.name, slug: tenant.slug },
@@ -321,7 +322,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         unpaid_count: unpaidCount,
         next_ship_date: nextShipJob?.target_ship_date || null,
       },
-    });
+    }), params.token);
   } catch (e: any) {
     return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });
   }

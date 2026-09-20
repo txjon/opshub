@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { computeFileOrdinals, formatActivityText, type ActivityRole, type ActivityType } from "@/lib/art-activity-text";
+import { withPortalCookie } from "@/lib/file-access";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -200,10 +201,10 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     // Sort briefs newest-activity-first across all roles (iMessage-style)
     enriched.sort((a: any, b: any) => (b.last_activity_at || "").localeCompare(a.last_activity_at || ""));
 
-    return NextResponse.json({
+    return withPortalCookie(NextResponse.json({
       designer: { name: designer.name },
       briefs: enriched,
-    });
+    }), params.token);
   } catch (e: any) {
     return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });
   }

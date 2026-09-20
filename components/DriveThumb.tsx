@@ -18,6 +18,8 @@ type Props = {
   title?: string;
   maxRetries?: number;
   retryDelayMs?: number;
+  /** Portal link token (client hub / vendor / designer). Staff surfaces omit it. */
+  token?: string | null;
 };
 
 /**
@@ -40,6 +42,7 @@ export function DriveThumb({
   title,
   maxRetries = 2,
   retryDelayMs = 1500,
+  token,
 }: Props) {
   const [attempt, setAttempt] = useState(0);
   const [failed, setFailed] = useState(false);
@@ -65,7 +68,9 @@ export function DriveThumb({
     );
   }
 
-  const src = `/api/files/thumbnail?id=${driveFileId}${attempt > 0 ? `&r=${attempt}` : ""}`;
+  // token: portal surfaces pass their link token so the file routes can tell
+  // who is asking (lib/file-access); staff surfaces rely on the session.
+  const src = `/api/files/thumbnail?id=${driveFileId}${attempt > 0 ? `&r=${attempt}` : ""}${token ? `&t=${encodeURIComponent(token)}` : ""}`;
 
   const img = (
     <img
@@ -99,6 +104,7 @@ export function DriveThumb({
           driveFileId={driveFileId}
           title={title}
           driveLink={driveLink}
+          token={token}
           onClose={() => setOpen(false)}
         />
       )}
@@ -122,12 +128,16 @@ export function ImageLightbox({
   title,
   driveLink,
   onClose,
+  token,
 }: {
   driveFileId: string;
   title?: string;
   driveLink?: string | null;
   onClose: () => void;
+  /** Portal link token (client hub / vendor / designer). */
+  token?: string | null;
 }) {
+  const t = token ? `&t=${encodeURIComponent(token)}` : "";
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -196,7 +206,7 @@ export function ImageLightbox({
             not the preview PNG. Works for any file type: PSD/AI/EPS
             download their native bytes, images as the original raster. */}
         <a
-          href={`/api/files/thumbnail?id=${driveFileId}&dl=1`}
+          href={`/api/files/thumbnail?id=${driveFileId}&dl=1${t}`}
           download
           onClick={(e) => e.stopPropagation()}
           style={headerBtn}
@@ -222,7 +232,7 @@ export function ImageLightbox({
         }}
       >
         <img
-          src={`/api/files/thumbnail?id=${driveFileId}&size=1600`}
+          src={`/api/files/thumbnail?id=${driveFileId}&size=1600${t}`}
           alt={title || ""}
           style={{ maxWidth: "100%", maxHeight: "calc(92vh - 60px)", objectFit: "contain", borderRadius: 10, display: "block" }}
         />

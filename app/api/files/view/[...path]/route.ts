@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAccessToken } from "@/lib/drive-auth";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { createClient as createServerClient } from "@/lib/supabase/server";
+import { judgeFileRequest, PORTAL_COOKIE } from "@/lib/file-access";
 
 // URL: /api/files/view/My-Proof-File.pdf?id=driveFileId[&download=1]
 // The filename is in the URL path so browsers use it for Save As.
@@ -50,11 +51,25 @@ async function serve(req: NextRequest, params: { path: string[] }, headOnly: boo
   const fileId = req.nextUrl.searchParams.get("id");
   if (!fileId) return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
-  if (await isStaffOnlyFile(fileId)) {
+  // Staff-only files (client tax/W9/MSA) are enforced today.
+  let userId: string | null = null;
+  try {
     const session = await createServerClient();
     const { data: { user } } = await session.auth.getUser();
-    if (!user) return new NextResponse("Not found", { status: 404 });
-  }
+    userId = user?.id || null;
+  } catch { userId = null; }
+  if (!userId && await isStaffOnlyFile(fileId)) return new NextResponse("Not found", { status: 404 });
+
+  // Everything else is judged in SHADOW mode: the verdict is recorded, the
+  // file is still served, until FILE_ACCESS_ENFORCE is switched on.
+  const verdict = await judgeFileRequest({
+    driveFileId: fileId,
+    token: req.nextUrl.searchParams.get("t") || req.cookies.get(PORTAL_COOKIE)?.value || null,
+    userId,
+    route: "view",
+    path: req.nextUrl.pathname,
+  });
+  if (!verdict.serve) return new NextResponse("Not found", { status: 404 });
 
   const fileName = decodeURIComponent(params.path.join("/")) || "file";
 

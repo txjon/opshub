@@ -95,7 +95,9 @@ const daysUntil = (iso: string | null) => {
 
 // Proxied via /api/files/thumbnail?thumb=1 — returns Drive's pre-sized
 // thumbnailLink (small, fast) instead of the full file, cached 24h.
-const thumbUrl = (id: string | null | undefined) => id ? `/api/files/thumbnail?id=${id}&thumb=1` : null;
+// ?t= carries the designer's own link token so the file routes know who is
+// asking (lib/file-access).
+const thumbUrl = (id: string | null | undefined, token?: string | null) => id ? `/api/files/thumbnail?id=${id}&thumb=1${token ? `&t=${encodeURIComponent(token)}` : ""}` : null;
 
 type Toast = { id: string; briefId: string; title: string; preview: string };
 

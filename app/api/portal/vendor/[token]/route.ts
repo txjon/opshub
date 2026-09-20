@@ -10,6 +10,7 @@ import { getPdfBranding } from "@/lib/branding";
 import { vendorPaperShipTo, effectiveRoute, loadJobDestinations } from "@/lib/destinations";
 import { ensureTracker } from "@/lib/inbound-tracking";
 import { loadProductionFiles, releaseFor, itemDrift } from "@/lib/production-files";
+import { withPortalCookie } from "@/lib/file-access";
 
 // costProds in ITEM sort order — "first item in a share group" (who carries
 // the screen fees) resolves by array position in the pricing engine; every
@@ -47,7 +48,7 @@ async function prefetchJobData(sb: any, jobs: any[], decorator: any) {
   // The printer's file list = the item's ACTIVE production files (print
   // files, proof, mockup) served through the app — never a Drive folder
   // (lib/production-files: the HPD-2608-042 wrong-art incident).
-  const filesByItem = await loadProductionFiles(sb, wantedIds);
+  const filesByItem = await loadProductionFiles(sb, wantedIds, { token: decorator.external_token || null });
   const mockupByItem: Record<string, string> = {};
   for (const id of Object.keys(filesByItem)) {
     const m = filesByItem[id].find(f => f.stage === "mockup");
@@ -78,7 +79,7 @@ export async function GET(
     // Look up decorator by token
     const { data: decorator, error: decErr } = await sb
       .from("decorators")
-      .select("id, name, short_code, default_shipping_route")
+      .select("id, name, short_code, default_shipping_route, external_token")
       .eq("external_token", params.token)
       .single();
 
@@ -245,7 +246,7 @@ export async function GET(
           totalQty,
           decoLines,
           itemTotal,
-          mockupThumb: mockupByItem[item.id] ? `/api/files/thumbnail?id=${mockupByItem[item.id]}&thumb=1&size=400` : null,
+          mockupThumb: mockupByItem[item.id] ? `/api/files/thumbnail?id=${mockupByItem[item.id]}&thumb=1&size=400&t=${encodeURIComponent(params.token)}` : null,
           blanksOrdered: (item as any).blanks_order_cost != null,
           // impressions = units × print passes per garment: ACTIVE locations
           // (named + colors set — a named-but-empty row isn't printed) + the
@@ -510,14 +511,14 @@ export async function GET(
       email: branding.fromEmailBilling || "",
     } : null;
 
-    return NextResponse.json({
+    return withPortalCookie(NextResponse.json({
       decorator: { name: decorator.name, shortCode: decorator.short_code },
       billTo,
       orders,
       completed: mergedCompleted,
       completedTotal: (completedTotal || 0) + (completedOffset === 0 ? completedFromActive.length : 0),
       completedOffset,
-    });
+    }), params.token);
   } catch (e: any) {
     console.error("Vendor portal GET error:", e);
     return NextResponse.json({ error: e.message || "Failed" }, { status: 500 });

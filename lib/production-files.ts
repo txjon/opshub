@@ -27,9 +27,12 @@ export * from "./po-release";
 
 const FILE_COLS = "id, item_id, file_name, stage, drive_file_id, mime_type, file_size, created_at";
 
-function toProductionFile(f: any): ProductionFile {
+function toProductionFile(f: any, token?: string | null): ProductionFile {
   const name = f.file_name || "file";
   const enc = encodeURIComponent(name);
+  // ?t= carries the caller's portal token so the file routes can tell WHO is
+  // asking (lib/file-access). Staff surfaces pass none and rely on the session.
+  const t = token ? `&t=${encodeURIComponent(token)}` : "";
   return {
     id: f.id,
     itemId: f.item_id,
@@ -39,9 +42,9 @@ function toProductionFile(f: any): ProductionFile {
     mimeType: f.mime_type || null,
     size: f.file_size == null ? null : Number(f.file_size),
     createdAt: f.created_at,
-    viewUrl: `/api/files/view/${enc}?id=${f.drive_file_id}`,
-    downloadUrl: `/api/files/view/${enc}?id=${f.drive_file_id}&download=1`,
-    thumbUrl: `/api/files/thumbnail?id=${f.drive_file_id}&thumb=1&size=400`,
+    viewUrl: `/api/files/view/${enc}?id=${f.drive_file_id}${t}`,
+    downloadUrl: `/api/files/view/${enc}?id=${f.drive_file_id}&download=1${t}`,
+    thumbUrl: `/api/files/thumbnail?id=${f.drive_file_id}&thumb=1&size=400${t}`,
   };
 }
 
@@ -50,7 +53,7 @@ const STAGE_RANK: Record<string, number> = { print_ready: 0, proof: 1, mockup: 2
 // Active production files for a set of items, print files first, newest
 // first within a stage. Chunked + explicitly ranged: Supabase caps un-ranged
 // selects at 1000 rows and truncates silently.
-export async function loadProductionFiles(sb: any, itemIds: string[]): Promise<Record<string, ProductionFile[]>> {
+export async function loadProductionFiles(sb: any, itemIds: string[], opts?: { token?: string | null }): Promise<Record<string, ProductionFile[]>> {
   const out: Record<string, ProductionFile[]> = {};
   const ids = Array.from(new Set(itemIds.filter(Boolean)));
   for (let i = 0; i < ids.length; i += 150) {
@@ -63,7 +66,7 @@ export async function loadProductionFiles(sb: any, itemIds: string[]): Promise<R
         .order("created_at", { ascending: false })
         .range(from, from + 999);
       if (error) throw new Error(error.message);
-      for (const f of (data || [])) (out[f.item_id] ||= []).push(toProductionFile(f));
+      for (const f of (data || [])) (out[f.item_id] ||= []).push(toProductionFile(f, opts?.token));
       if (!data || data.length < 1000) break;
       from += 1000;
     }

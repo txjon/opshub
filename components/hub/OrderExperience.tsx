@@ -22,7 +22,9 @@ const TONE: Record<ClientTone, string> = { warn: H.amber, move: H.blue, done: H.
 const TERMS: Record<string, string> = { net_15: "Net 15", net_30: "Net 30", net_45: "Net 45", net_60: "Net 60", prepaid: "Prepaid", deposit_balance: "Deposit" };
 const LBL: React.CSSProperties = { fontSize: 10, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint };
 
-const thumbSrc = (driveId: string, size = 500) => `/api/files/thumbnail?id=${driveId}&thumb=1&size=${size}`;
+// ?t= carries the portal token (job or client hub) so the file routes know
+// who is asking (lib/file-access).
+const thumbSrc = (driveId: string, size = 500, token?: string | null) => `/api/files/thumbnail?id=${driveId}&thumb=1&size=${size}${token ? `&t=${encodeURIComponent(token)}` : ""}`;
 const mockupOf = (it: any) => (it.proofs || []).find((f: any) => f.stage === "mockup") || (it.proofs || []).find((f: any) => f.stage === "proof") || null;
 
 export function OrderExperience({ data, token, onAction }: {

@@ -3,6 +3,7 @@ import { loadClientShipments } from "@/lib/portal/client-shipments";
 import { createClient } from "@supabase/supabase-js";
 import { sortSizes } from "@/lib/theme";
 import { approvePackage, requestChanges } from "@/lib/portal/approval-actions";
+import { withPortalCookie } from "@/lib/file-access";
 // Pricing source of truth: items.sell_per_unit
 
 const admin = () =>
@@ -368,7 +369,7 @@ export async function GET(
     const productsSubtotal = portalQuoteItems.reduce((a: number, qi: any) => a + (qi.total || 0), 0);
     const extrasSubtotalOut = portalExtraLines.reduce((a: number, l: any) => a + l.amount, 0);
 
-    return NextResponse.json({
+    return withPortalCookie(NextResponse.json({
       project: {
         id: job.id,
         title: job.title,
@@ -452,7 +453,7 @@ export async function GET(
       })),
       shipments,
       clientProjects,
-    });
+    }), params.token);
   } catch (e: any) {
     console.error("Portal GET error:", e);
     return NextResponse.json(
