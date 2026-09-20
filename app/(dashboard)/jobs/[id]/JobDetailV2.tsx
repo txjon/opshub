@@ -227,14 +227,14 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     const ids = (itemsRef.current || itemsProp || []).map((i: any) => i.id).filter(Boolean);
     if (!ids.length) return;
     createClient().from("proof_versions").select("id, item_id, version, state, approved_at")
-      .in("item_id", ids).in("state", ["approved", "sent"]).order("version", { ascending: false })
+      .in("item_id", ids).in("state", ["approved", "sent", "draft"]).is("superseded_at", null)
+      .order("version", { ascending: false })
       .then(({ data }: any) => {
         const m: Record<string, any> = {};
-        for (const v of (data || [])) {
-          const cur = m[v.item_id];
-          if (cur && (cur.state === "approved" || v.state !== "approved")) continue;
-          m[v.item_id] = v;
-        }
+        // The newest live version is the one that counts — a retired one is
+        // history, and showing it next to a "not started" header is how the
+        // screen ends up contradicting itself.
+        for (const v of (data || [])) if (!m[v.item_id]) m[v.item_id] = v;
         setProofByItem(m);
       });
     createClient().from("item_files").select(FILE_COLS).in("item_id", ids).is("superseded_at", null).order("created_at").then(({ data }: any) => {
@@ -2856,12 +2856,14 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", border: `1px solid ${T.border}`, borderRadius: 10, background: T.surface, marginBottom: 10 }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: proofByItem[it.id].state === "approved" ? T.green : T.faint }}>
-                            Proof v{proofByItem[it.id].version} · {proofByItem[it.id].state === "approved" ? "approved" : "sent, awaiting the client"}
+                            Proof v{proofByItem[it.id].version} · {proofByItem[it.id].state === "approved" ? "approved" : proofByItem[it.id].state === "sent" ? "sent, awaiting the client" : "draft, not sent yet"}
                           </span>
                           <div style={{ fontSize: 12, color: T.muted, fontFamily: mono }}>
                             {proofByItem[it.id].approved_at
                               ? `Signed off ${new Date(proofByItem[it.id].approved_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} — this exact document`
-                              : "View and Download draw this document from the current art"}
+                              : proofByItem[it.id].state === "sent"
+                                ? "The client is looking at this version"
+                                : "Not sent yet — View and Download draw it from the current art"}
                           </div>
                         </div>
                         <a href={`/api/proof/${proofByItem[it.id].id}/pdf`} target="_blank" rel="noreferrer" style={{ ...ghostBtn, textDecoration: "none", display: "inline-block" }}>View</a>
@@ -2943,6 +2945,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       // draft here won't match the already-approved document.
                       const proofPdf = !hasProof ? files.find((f: any) => f.stage === "proof") : null;
                       const revisedPend = files.some((f: any) => f.stage === "proof" && f.revision_pending_send);
+                      if (proofByItem[it.id]) return null;
                       return (
                         <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.border}44`, flexWrap: "wrap" }}>
                           <span style={wlbl}>Proof</span>
