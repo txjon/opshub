@@ -866,7 +866,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       // Bake stale/never-baked proof PDFs into Drive BEFORE the send — the
       // vendor folder + portal + client hub all read that file.
       // An approved proof is frozen — never re-baked (lib/proof-gate).
-      const needBake = items.filter((it: any) => needsProof(it) && !carriedApproved(it) && !hasApprovedProof(filesByItem[it.id]) && it.proof_spec && ((it.proof_spec.bakedRendererVersion == null) || it.proof_spec.bakedRendererVersion < PROOF_RENDERER_VERSION)).map((x: any) => x.id);
+      const needBake = items.filter((it: any) => needsProof(it) && !carriedApproved(it) && (!hasApprovedProof(filesByItem[it.id]) || it.proof_spec?.specDirty) && it.proof_spec && ((it.proof_spec.bakedRendererVersion == null) || it.proof_spec.bakedRendererVersion < PROOF_RENDERER_VERSION || it.proof_spec.specDirty)).map((x: any) => x.id);
       if (needBake.length) await bakeProofPdfs(needBake);
       await sendQuoteAndProofs(job, { to, cc, includeProofs: hasReady, proofsOnly: !!job.quote_approved });
       const readyIds = items.filter((it: any) => needsProof(it) && !carriedApproved(it) && it.proof_spec && !it.proof_sent_at).map((it: any) => it.id);
@@ -1266,7 +1266,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       // Same send-time bake as the quote path (90s valve inside bakeProofPdfs);
       // was the deferred "decorator PDF bake" on the proof-flow punch list.
       const vendorItems = vendorGroups[poVendor] || [];
-      const poNeedBake = vendorItems.filter((it: any) => needsProof(it) && !hasApprovedProof(filesByItem[it.id]) && it.proof_spec && ((it.proof_spec.bakedRendererVersion == null) || it.proof_spec.bakedRendererVersion < PROOF_RENDERER_VERSION)).map((x: any) => x.id);
+      const poNeedBake = vendorItems.filter((it: any) => needsProof(it) && (!hasApprovedProof(filesByItem[it.id]) || it.proof_spec?.specDirty) && it.proof_spec && ((it.proof_spec.bakedRendererVersion == null) || it.proof_spec.bakedRendererVersion < PROOF_RENDERER_VERSION || it.proof_spec.specDirty)).map((x: any) => x.id);
       if (poNeedBake.length) await bakeProofPdfs(poNeedBake);
       const supabase = createClient();
       const [to, ...cc] = emails;

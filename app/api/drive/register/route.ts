@@ -51,7 +51,11 @@ export async function POST(req: NextRequest) {
       // freshly uploaded file is trashed and the approved one stands.
       const approved = (existing || []).find((f: any) => f.approval === "approved");
       if (approved && preserveApproval) {
-        await deleteDriveFileIfUnreferenced(fileId);   // drop the orphan we were handed
+        // Drop the orphan we were handed. If the trash fails, say so: a second
+        // identically-named proof left in the folder is exactly the confusion
+        // this whole effort exists to remove.
+        const dropped = await deleteDriveFileIfUnreferenced(fileId);
+        if (!dropped.deleted) console.error("[register] frozen proof: could not trash the rejected upload", fileId);
         return NextResponse.json({
           success: true, frozen: true,
           file: approved,

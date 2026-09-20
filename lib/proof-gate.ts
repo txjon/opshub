@@ -41,10 +41,12 @@ export const allProofsSatisfied = (items: any[], ps?: Record<string, ProofPs>): 
 // renderer bumps keep working.
 export function proofPdfMissing(it: any, hasProofFile: boolean, rendererVersion: number, hasApprovedProofFile = false): boolean {
   if (!it?.proof_spec || !needsProof(it)) return false;
-  // An approved proof is FROZEN — it is the document the client signed off, so
-  // a renderer bump must never rebuild it (Sep 2026: 21 approved proofs had
-  // been silently replaced, keeping the original approval date).
-  if (hasApprovedProofFile) return false;
+  // An approved proof is FROZEN — a renderer bump must never rebuild it (Sep
+  // 2026: 21 approved proofs had been silently replaced, keeping the original
+  // approval date). But frozen only applies while the art still MATCHES: once
+  // the spec has drifted, the item must bake again (as a new, unapproved
+  // version) or the vendor would print art nobody can see in OpsHub.
+  if (hasApprovedProofFile && !it.proof_spec?.specDirty) return false;
   const engaged = !!it.proof_sent_at || it.artwork_status === "approved";
   if (!engaged) return false;
   const v = it.proof_spec.bakedRendererVersion;

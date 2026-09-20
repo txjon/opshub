@@ -143,7 +143,14 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       try {
         const clientName = (job as any)?.clients?.name || "Unknown Client";
         const projectTitle = (job as any)?.title || (job as any)?.job_number || "Untitled Project";
-        folderId = await getItemFolderId(clientName, projectTitle, (newItem as any).name);
+        // The folder is found by NAME, and two duplicates of one item are both
+        // called "X (Copy)" — without a unique name they would share a folder
+        // and each would show the other's art. Number the later ones.
+        const baseName = (newItem as any).name;
+        const { data: sameName } = await db.from("items").select("id").eq("job_id", jobId).eq("name", baseName);
+        const uniqueName = (sameName || []).length > 1 ? `${baseName} ${(sameName || []).length}` : baseName;
+        if (uniqueName !== baseName) await db.from("items").update({ name: uniqueName }).eq("id", (newItem as any).id);
+        folderId = await getItemFolderId(clientName, projectTitle, uniqueName);
       } catch (e: any) { console.error("[item duplicate] folder resolve failed:", e?.message || e); }
 
       // Copy in parallel — a dozen files would otherwise be a dozen round trips.
@@ -170,7 +177,15 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         });
       }
       const { error: filesErr } = await db.from("item_files").insert(rows);
-      if (filesErr) console.error("[item duplicate] item_files insert failed:", filesErr.message);
+      if (filesErr) {
+        // Never leave copies nobody references: trash what we just made rather
+        // than orphan it in the folder the vendor can see.
+        console.error("[item duplicate] item_files insert failed:", filesErr.message);
+        const { trashFile } = await import("@/lib/google-drive");
+        const srcIds = new Set(((srcFiles || []) as any[]).map(f => f.drive_file_id));
+        for (const r of rows) if (r.drive_file_id && !srcIds.has(r.drive_file_id)) await trashFile(r.drive_file_id).catch(() => {});
+        return NextResponse.json({ error: "Duplicate created, but its files could not be recorded — nothing was copied." }, { status: 500 });
+      }
       if (folderId) await db.from("items").update({ drive_folder_id: folderId, drive_link: `https://drive.google.com/drive/folders/${folderId}` }).eq("id", (newItem as any).id);
     }
 
