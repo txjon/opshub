@@ -4,7 +4,7 @@ export const maxDuration = 60;
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { freezeVersion, currentVersion } from "@/lib/proof-versions";
+import { freezeVersion, currentVersion, markVersionSent } from "@/lib/proof-versions";
 
 const admin = () => createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
@@ -61,19 +61,13 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   return NextResponse.json({ version });
 }
 
-// Mark the current version as SENT — the document the client is now looking at.
+// Mark the current version as SENT — the document the client is now looking
+// at. Only the send flow calls this, and the date is stamped here, so a version
+// can never claim a send that did not happen.
 export async function PATCH(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await createServerClient();
   const { data: { user } } = await session.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const db = admin();
-  const current = await currentVersion(db, params.id);
-  if (!current) return NextResponse.json({ version: null });
-  if (current.state === "draft") {
-    const { data } = await db.from("proof_versions")
-      .update({ state: "sent", sent_at: new Date().toISOString() })
-      .eq("id", current.id).select("*").single();
-    return NextResponse.json({ version: data });
-  }
-  return NextResponse.json({ version: current });
+  const version = await markVersionSent(admin(), params.id);
+  return NextResponse.json({ version });
 }

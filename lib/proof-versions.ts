@@ -108,6 +108,22 @@ export async function freezeVersion(db: any, opts: {
   return { ok: true, version: data as ProofVersion };
 }
 
+/**
+ * A version is SENT only when we actually sent it, and never before it existed.
+ * Guessing a send date from the item's history put "sent Sep 16" on a version
+ * created days later (Jon spotted it, Sep 2026).
+ */
+export async function markVersionSent(db: any, itemId: string): Promise<ProofVersion | null> {
+  const { data } = await db.from("proof_versions").select("*")
+    .eq("item_id", itemId).is("superseded_at", null)
+    .order("version", { ascending: false }).limit(1);
+  const v = ((data || [])[0] as ProofVersion) || null;
+  if (!v || v.state === "approved" || v.sent_at) return v;
+  const { data: updated } = await db.from("proof_versions")
+    .update({ state: "sent", sent_at: new Date().toISOString() }).eq("id", v.id).select("*").single();
+  return (updated as ProofVersion) || v;
+}
+
 /** Stamp approval on the version the client actually looked at. */
 export async function approveVersion(db: any, opts: {
   itemId: string; versionId?: string | null; approvedBy?: string | null; source?: string;
