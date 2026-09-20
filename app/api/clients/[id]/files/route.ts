@@ -35,7 +35,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const folderId = await getOrCreateNestedFolder(token, ["Clients", (client as any).name || "Unknown", folderName]);
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const result = await uploadFile(folderId, file.name, file.type || "application/octet-stream", buffer);
+    // Client paperwork (tax exemption, W9, MSA) is never public — it is read
+    // through OpsHub by staff only (Phase 0, Sep 2026).
+    const result = await uploadFile(folderId, file.name, file.type || "application/octet-stream", buffer, { public: false });
 
     const { data, error } = await supabase.from("client_files").insert({
       client_id: params.id,

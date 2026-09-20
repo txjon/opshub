@@ -10,6 +10,7 @@ import { generatePDF } from "@/lib/pdf/browser";
 import { contentDisposition } from "@/lib/pdf/filename";
 import { getPdfBranding } from "@/lib/branding";
 import { sizeMatrixHtml } from "@/lib/size-grid";
+import { loadProductionFiles } from "@/lib/production-files";
 
 // RFQ PDF — mirrors PO layout (so the cohesive look carries when the
 // same decorator later receives the actual PO) but strips per-line cost
@@ -138,10 +139,25 @@ function renderRFQHTML(data: any): string {
         <span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#aaa;margin-right:6px">Sizes</span>${sizeStr}
       </div>` : "")}
       ${splitShipToHtml(item.split_ship_to, sortSizes, mono)}
-      ${item.drive_link ? `<div style="font-size:9px;margin-bottom:4px;padding:3px 8px;background:#f0f5ff;border-radius:3px">
-        <span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#888;margin-right:6px">Art / reference</span>
-        <a href="${item.drive_link}" style="color:#1a56db">${item.drive_link}</a>
-      </div>` : ""}
+      ${(() => {
+        // Vendors get the FILE LIST OpsHub knows about, never a Drive folder
+        // link — a folder can hold retired versions the app no longer shows
+        // (HPD-2608-042 was printed from one). Quotes don't ship art, so the
+        // list is informational: names, types and dates only.
+        const files: any[] = item.files || [];
+        if (!files.length) return "";
+        const stageLbl: Record<string, string> = { print_ready: "PRINT FILE", proof: "PROOF", mockup: "MOCKUP" };
+        const fmtUp = (iso: string) => { try { return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); } catch { return ""; } };
+        return `<div style="font-size:9px;margin-bottom:4px;padding:4px 8px;background:#f7f7f7;border:0.5px solid #e4e4e4;border-radius:3px">
+          <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#888;margin-bottom:2px">Art on file at House Party Distro</div>
+          ${files.map((f: any) => `<div style="display:flex;gap:6px;align-items:center">
+            <span style="min-width:52px;font-size:7px;font-weight:800;letter-spacing:0.08em;color:#aaa">${stageLbl[f.stage] || f.stage}</span>
+            <span style="flex:1;min-width:0;font-size:9px;color:#333;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${f.name}</span>
+            <span style="font-size:8px;color:#999;font-family:${mono};white-space:nowrap">${fmtUp(f.createdAt)}</span>
+          </div>`).join("")}
+          <div style="font-size:7.5px;color:#999;margin-top:2px">Files are sent with the purchase order, not with this quote request.</div>
+        </div>`;
+      })()}
       <div style="display:flex;gap:16px;align-items:flex-start">
         ${thumbHtml ? `<div style="flex-shrink:0">${thumbHtml}</div>` : ""}
         <div style="flex:1;min-width:0">${decoSection}</div>
@@ -246,17 +262,15 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
 
     if (itemsError) return NextResponse.json({ error: "Failed to fetch items", detail: itemsError?.message }, { status: 500 });
 
-    // Mockup thumbnails
+    // Production files per item — the same single source the PO and the
+    // vendor portal read, so a quote request can never describe art the app
+    // has retired (lib/production-files).
     const itemIds = (items || []).map((it: any) => it.id);
-    const { data: mockupFiles } = await supabase
-      .from("item_files")
-      .select("item_id, drive_file_id")
-      .in("item_id", itemIds)
-      .eq("stage", "mockup")
-      .order("created_at", { ascending: false });
+    const filesByItem = await loadProductionFiles(supabase, itemIds);
     const mockupByItem: Record<string, string> = {};
-    for (const f of (mockupFiles || [])) {
-      if (!mockupByItem[f.item_id]) mockupByItem[f.item_id] = f.drive_file_id;
+    for (const id of Object.keys(filesByItem)) {
+      const m = filesByItem[id].find(f => f.stage === "mockup");
+      if (m) mockupByItem[id] = m.driveFileId;
     }
 
     const costingData = job.costing_data || {};
@@ -278,7 +292,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         name: it.name,
         blank_vendor: it.blank_vendor,
         blank_sku: it.blank_sku,
-        drive_link: it.drive_link,
+        files: filesByItem[it.id] || [],
         mockupThumb: mockupFileId ? `https://lh3.googleusercontent.com/d/${mockupFileId}=w300` : null,
         incoming_goods: it.incoming_goods,
         production_notes_po: it.production_notes_po,

@@ -82,7 +82,8 @@ export async function uploadFile(
   folderId: string,
   fileName: string,
   mimeType: string,
-  buffer: Buffer
+  buffer: Buffer,
+  opts?: { public?: boolean }
 ): Promise<{ fileId: string; webViewLink: string; webContentLink: string }> {
   const drive = getDrive();
   const stream = new Readable();
@@ -101,14 +102,17 @@ export async function uploadFile(
     fields: "id,webViewLink,webContentLink",
   });
 
-  // Make file viewable by anyone with the link
-  await drive.permissions.create({
-    fileId: res.data.id!,
-    requestBody: {
-      role: "reader",
-      type: "anyone",
-    },
-  });
+  // Anyone-with-the-link is a legacy default kept only for surfaces that
+  // still load images straight from Google (PDF renderer, brief grids).
+  // Anything private — client tax documents, W9s, MSAs — passes
+  // { public: false } and is served through OpsHub instead (Phase 0, Sep
+  // 2026; Phase 5 removes the default entirely).
+  if (opts?.public !== false) {
+    await drive.permissions.create({
+      fileId: res.data.id!,
+      requestBody: { role: "reader", type: "anyone" },
+    });
+  }
 
   return {
     fileId: res.data.id!,

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { setFilePublicReadable, getDriveWebLink } from "@/lib/drive-resumable";
+import { setFilePublicReadable, getDriveWebLink, verifyBriefUpload } from "@/lib/drive-resumable";
 import { notifyTeamServer, logJobActivityServer } from "@/lib/notify-server";
 import { generatePsdPreview, isPsdFile } from "@/lib/psd-preview-server";
 import { hubClientLookup } from "@/lib/hub-client";
@@ -34,6 +34,13 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     if (!drive_file_id || !file_name) {
       return NextResponse.json({ error: "drive_file_id, file_name required" }, { status: 400 });
     }
+
+    // The caller names a Drive id, so PROVE it is the file they just uploaded
+    // into this brief's own folder before it is registered or made readable.
+    // Without this check a token holder could register (and later delete) any
+    // Drive file in the account (Phase 0, Sep 2026).
+    const claimed = await verifyBriefUpload(ctx.db, ctx.brief.id, drive_file_id);
+    if (!claimed) return NextResponse.json({ error: "File not found in this brief's folder" }, { status: 400 });
 
     try { await setFilePublicReadable(drive_file_id); } catch {}
     const webViewLink = await getDriveWebLink(drive_file_id);

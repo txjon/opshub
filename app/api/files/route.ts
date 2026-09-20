@@ -155,14 +155,24 @@ export async function DELETE(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { fileId, driveFileId } = await req.json();
+    const { fileId } = await req.json();
     if (!fileId) return NextResponse.json({ error: "Missing fileId" }, { status: 400 });
 
-    // Delete the Drive file only if no OTHER item_files row still references it
-    // (duplicated / re-ordered items share drive_file_ids). Exclude this row so
-    // its own reference doesn't block its deletion.
-    if (driveFileId) {
-      await deleteDriveFileIfUnreferenced(driveFileId, fileId);
+    // The Drive id comes from the ROW, never from the request. Trusting the
+    // body let any signed-in caller trash any Drive file that no active
+    // item_files row happened to reference — brief art, client tax documents,
+    // sent POs (Phase 0, Sep 2026). Reading through the caller's own session
+    // also means RLS decides whether they may touch this row at all.
+    const { data: row } = await supabase
+      .from("item_files").select("id, drive_file_id").eq("id", fileId).maybeSingle();
+    if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    // Delete the Drive file only if nothing else still references it
+    // (duplicated / re-ordered items share drive_file_ids, and briefs, the
+    // catalog and the legacy archive point at the same files). Exclude this
+    // row so its own reference doesn't block its deletion.
+    if ((row as any).drive_file_id) {
+      await deleteDriveFileIfUnreferenced((row as any).drive_file_id, fileId);
     }
 
     // Delete from database

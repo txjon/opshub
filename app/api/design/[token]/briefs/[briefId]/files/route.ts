@@ -3,6 +3,7 @@ import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getDriveToken, getReceivingFolderId } from "@/lib/drive-token";
 import { notifyTeamServer, logJobActivityServer } from "@/lib/notify-server";
 import { recomputeBriefState } from "@/lib/art-brief-state";
+import { deleteDriveFileIfUnreferenced } from "@/lib/google-drive-refs";
 
 function admin() {
   return createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -163,16 +164,16 @@ export async function DELETE(req: NextRequest, { params }: { params: { token: st
   const { data: file } = await ctx.db.from("art_brief_files").select("id, uploader_role, drive_file_id, kind").eq("id", fileId).eq("brief_id", ctx.brief.id).single();
   if (!file || file.uploader_role !== "designer") return NextResponse.json({ error: "Not allowed" }, { status: 403 });
 
+  // Trash (recoverable), never a permanent delete, and only when nothing
+  // else still uses the file: a brief file can already have become a
+  // product's mockup or an item's print file (Phase 0, Sep 2026).
   if (file.drive_file_id) {
-    try {
-      const token = await getDriveToken();
-      await fetch(`https://www.googleapis.com/drive/v3/files/${file.drive_file_id}`, {
-        method: "DELETE", headers: { Authorization: `Bearer ${token}` },
-      });
-    } catch {}
+    await ctx.db.from("art_brief_files").delete().eq("id", fileId);
+    await deleteDriveFileIfUnreferenced(file.drive_file_id);
   }
 
   await ctx.db.from("art_brief_files").delete().eq("id", fileId);
+  // (no-op when the branch above already removed it)
 
   // Recompute brief state from remaining designer deliverables. The
   // upload route advances state forward (in_progress → wip_review →

@@ -4,7 +4,7 @@ export const maxDuration = 30;
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { renameItemFolder, deleteItemFolder, deleteProjectFolder } from "@/lib/drive-cleanup";
+import { renameItemFolder, findItemFolder, findProjectFolder, trashFolderSafely } from "@/lib/drive-cleanup";
 import { getDriveToken } from "@/lib/drive-token";
 
 // Trash a Drive folder by id (sends to Drive trash — 30-day recovery).
@@ -43,13 +43,20 @@ export async function POST(req: NextRequest) {
       if (!clientName || !projectTitle || !itemName || !itemId) {
         return NextResponse.json({ error: "Missing fields" }, { status: 400 });
       }
-      // Delete Drive folder (goes to Drive trash — 30 day recovery)
-      const driveSuccess = await deleteItemFolder(clientName, projectTitle, itemName);
+      // Prefer the stashed folder id (survives renames); fall back to the
+      // legacy name path. Trash is REFERENCE-SAFE: a file a duplicate or
+      // re-order still uses is left in place instead of going with the
+      // folder (Phase 0, Sep 2026).
+      const { data: itemRow } = await admin.from("items").select("drive_folder_id").eq("id", itemId).maybeSingle();
+      let folderId: string | null = (itemRow as any)?.drive_folder_id || null;
+      if (!folderId) folderId = await findItemFolder(clientName, projectTitle, itemName);
+      let result = { trashedFiles: 0, keptFiles: 0, folderTrashed: false };
+      if (folderId) result = await trashFolderSafely(folderId, { excludeItemIds: [itemId] });
 
       // Delete item files from DB
       await admin.from("item_files").delete().eq("item_id", itemId);
 
-      return NextResponse.json({ success: true, driveDeleted: driveSuccess, action: "archive-item" });
+      return NextResponse.json({ success: true, driveDeleted: !!folderId, action: "archive-item", ...result });
     }
 
     // ── Delete project folder + mark cancelled ──
@@ -61,21 +68,24 @@ export async function POST(req: NextRequest) {
       // Prefer the stashed Drive folder id — survives renames. Fall back
       // to the legacy path-based lookup only when the row never had any
       // uploads (id is null).
-      let driveSuccess = false;
       const { data: job } = await admin
         .from("jobs")
         .select("drive_folder_id, title, clients:client_id(name)")
         .eq("id", jobId)
         .maybeSingle();
-      const stashedId = (job as any)?.drive_folder_id;
-      if (stashedId) {
-        driveSuccess = await trashDriveFolder(stashedId);
-      } else if ((job as any)?.title && (job as any)?.clients?.name) {
-        // Legacy fallback when the project predates the stash migration.
-        driveSuccess = await deleteProjectFolder((job as any).clients.name, (job as any).title);
-      } else if (clientName && projectTitle) {
-        driveSuccess = await deleteProjectFolder(clientName, projectTitle);
+      let folderId: string | null = (job as any)?.drive_folder_id || null;
+      if (!folderId) {
+        const cn = (job as any)?.clients?.name || clientName;
+        const pt = (job as any)?.title || projectTitle;
+        if (cn && pt) folderId = (await findProjectFolder(cn, pt))?.projectFolderId || null;
       }
+      // Reference-safe: files this project's items share with re-orders or
+      // duplicates in other projects stay put (Phase 0, Sep 2026).
+      const { data: jobItems } = await admin.from("items").select("id").eq("job_id", jobId);
+      const excludeItemIds = (jobItems || []).map((r: any) => r.id);
+      let result = { trashedFiles: 0, keptFiles: 0, folderTrashed: false };
+      if (folderId) result = await trashFolderSafely(folderId, { excludeItemIds });
+      const driveSuccess = !!folderId;
 
       // Mark job as cancelled
       await admin.from("jobs").update({ phase: "cancelled" }).eq("id", jobId);
@@ -83,10 +93,10 @@ export async function POST(req: NextRequest) {
       // Log activity
       await admin.from("job_activity").insert({
         job_id: jobId, user_id: user.id, type: "auto",
-        message: "Project deleted — files removed from Drive",
+        message: `Project deleted — ${result.trashedFiles} file${result.trashedFiles === 1 ? "" : "s"} moved to Drive trash${result.keptFiles ? `, ${result.keptFiles} kept (still used by another project)` : ""}`,
       });
 
-      return NextResponse.json({ success: true, driveDeleted: driveSuccess, action: "archive-project" });
+      return NextResponse.json({ success: true, driveDeleted: driveSuccess, action: "archive-project", ...result });
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });

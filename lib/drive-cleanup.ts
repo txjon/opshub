@@ -127,6 +127,59 @@ export async function renameItemFolder(
  * Delete an item's Drive folder permanently.
  * Trashes: Root / clientName / projectTitle / itemName
  */
+/**
+ * Trash a folder WITHOUT destroying files that something else still uses.
+ *
+ * The old behaviour trashed the whole folder, so archiving an item or project
+ * took its duplicates' and re-orders' shared art with it (Phase 0, Sep 2026).
+ * Now every file inside is checked first: files nothing else references are
+ * trashed, referenced files are left in place, and the folder itself is only
+ * trashed when nothing had to be kept. Recursive, so project folders cover
+ * their item folders.
+ *
+ * Returns what happened so the caller can report it.
+ */
+export async function trashFolderSafely(
+  folderId: string,
+  opts?: { excludeItemIds?: string[] }
+): Promise<{ trashedFiles: number; keptFiles: number; folderTrashed: boolean }> {
+  const drive = getDrive();
+  const { otherRefsToDriveFile } = await import("./google-drive-refs");
+  const { createClient } = await import("@supabase/supabase-js");
+  const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+
+  let trashedFiles = 0, keptFiles = 0;
+  const walk = async (id: string): Promise<boolean> => {
+    let kept = false;
+    let pageToken: string | undefined;
+    do {
+      const res: any = await drive.files.list({
+        q: `'${id}' in parents and trashed=false`,
+        fields: "nextPageToken, files(id, mimeType)",
+        pageSize: 200, pageToken,
+      });
+      for (const f of (res.data.files || [])) {
+        if (f.mimeType === "application/vnd.google-apps.folder") {
+          if (await walk(f.id!)) kept = true;
+          continue;
+        }
+        // Shortcuts are pointers, never the art itself — safe to trash.
+        const refs = f.mimeType === "application/vnd.google-apps.shortcut"
+          ? []
+          : await otherRefsToDriveFile(db, f.id!, undefined, opts);
+        if (refs.length > 0) { keptFiles++; kept = true; continue; }
+        try { await drive.files.update({ fileId: f.id!, requestBody: { trashed: true } }); trashedFiles++; }
+        catch { keptFiles++; kept = true; }
+      }
+      pageToken = res.data.nextPageToken || undefined;
+    } while (pageToken);
+    if (!kept) { try { await drive.files.update({ fileId: id, requestBody: { trashed: true } }); } catch { kept = true; } }
+    return kept;
+  };
+  const keptAnything = await walk(folderId);
+  return { trashedFiles, keptFiles, folderTrashed: !keptAnything };
+}
+
 export async function deleteItemFolder(
   clientName: string,
   projectTitle: string,
