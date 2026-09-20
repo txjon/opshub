@@ -35,23 +35,47 @@ export async function POST(req: NextRequest) {
     if (stage === "proof") {
       const { data: existing } = await supabase
         .from("item_files")
-        .select("id, drive_file_id, approval, approved_at")
+        .select("id, drive_file_id, approval, approved_at, file_name")
         .eq("item_id", itemId)
         .eq("stage", "proof")
         .is("superseded_at", null);
       const now = new Date().toISOString();
+
+      // AN APPROVED PROOF IS FROZEN (Sep 2026). It is the evidence of what the
+      // client signed off, so it is never replaced and never deleted.
+      // Measured before this rule: 22 approved proofs had been replaced, and in
+      // 21 of those the approval carried onto the NEW file with the ORIGINAL
+      // approval date — the record showed a document the client never saw.
+      //
+      // A re-bake (same content, newer renderer) is refused outright: the
+      // freshly uploaded file is trashed and the approved one stands.
+      const approved = (existing || []).find((f: any) => f.approval === "approved");
+      if (approved && preserveApproval) {
+        await deleteDriveFileIfUnreferenced(fileId);   // drop the orphan we were handed
+        return NextResponse.json({
+          success: true, frozen: true,
+          file: approved,
+          message: "This proof is approved, so it was left as it is. A change to the art makes a new version.",
+        });
+      }
+
       for (const old of (existing || []) as any[]) {
         if (old.approval === "revision_requested") replacedRevision = true;
         if (preserveApproval && old.approval && !carriedApproval) {
           carriedApproval = old.approval;
           carriedApprovedAt = old.approved_at || null;
         }
-        // Mark superseded FIRST so the ref-count below doesn't count this row,
-        // then delete the Drive file ONLY if no OTHER item still shares it
-        // (duplicated / re-ordered items share drive_file_ids).
+        // Retire the old row. A proof that was APPROVED keeps its Drive file
+        // forever — superseding it makes a new version, it does not erase the
+        // one the client agreed to. Unapproved drafts still clean up.
         await supabase.from("item_files").update({ superseded_at: now }).eq("id", old.id);
-        if (old.drive_file_id) await deleteDriveFileIfUnreferenced(old.drive_file_id, old.id);
+        if (old.drive_file_id && old.approval !== "approved") {
+          await deleteDriveFileIfUnreferenced(old.drive_file_id, old.id);
+        }
       }
+      // A new proof over an approved one starts unapproved, whatever the caller
+      // asked for: the client has not seen this version.
+      if (approved) { carriedApproval = null; carriedApprovedAt = null; }
     } else if (stage === "mockup") {
       const { data: existing } = await supabase.from("item_files").select("id, drive_file_id").eq("item_id", itemId).eq("stage", "mockup");
       for (const old of (existing || [])) {

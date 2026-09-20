@@ -53,8 +53,12 @@ export async function POST(req: NextRequest) {
         if (old.approval === "revision_requested") replacedRevision = true;
         // Supersede FIRST, then delete the Drive file only if no OTHER item
         // still references it (duplicated / re-ordered items share files).
+        // An APPROVED proof keeps its file forever — it is the evidence of
+        // what the client signed off (Sep 2026).
         await supabase.from("item_files").update({ superseded_at: now }).eq("id", old.id);
-        if (old.drive_file_id) await deleteDriveFileIfUnreferenced(old.drive_file_id, old.id);
+        if (old.drive_file_id && (old as any).approval !== "approved") {
+          await deleteDriveFileIfUnreferenced(old.drive_file_id, old.id);
+        }
       }
     } else if (stage !== "mockup") {
       // Same name on the same item + stage = new version; retire the old row

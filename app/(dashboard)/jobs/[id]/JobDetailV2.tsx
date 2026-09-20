@@ -52,7 +52,7 @@ import { similarClients } from "@/lib/client-match";
 import { calculatePriority } from "@/lib/dates";
 import { PRODUCTION_STAGES, releaseFor, itemDrift } from "@/lib/po-release";
 import { SHIP_METHODS } from "@/lib/ship-methods";
-import { proofCounts, needsProof, proofPdfMissing, carriedApproved, carriedFrom } from "@/lib/proof-gate";
+import { proofCounts, needsProof, proofPdfMissing, carriedApproved, carriedFrom, hasApprovedProof } from "@/lib/proof-gate";
 import { suggestPoField, poSuggestionsFor, type PoFieldKey } from "@/lib/po-suggest";
 
 // Single-source S3 (Sep 5 2026): quantities are NEVER persisted into
@@ -865,7 +865,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       const hasReady = items.some((it: any) => it.proof_spec && needsProof(it) && !carriedApproved(it));
       // Bake stale/never-baked proof PDFs into Drive BEFORE the send — the
       // vendor folder + portal + client hub all read that file.
-      const needBake = items.filter((it: any) => needsProof(it) && !carriedApproved(it) && it.proof_spec && ((it.proof_spec.bakedRendererVersion == null) || it.proof_spec.bakedRendererVersion < PROOF_RENDERER_VERSION)).map((x: any) => x.id);
+      // An approved proof is frozen — never re-baked (lib/proof-gate).
+      const needBake = items.filter((it: any) => needsProof(it) && !carriedApproved(it) && !hasApprovedProof(filesByItem[it.id]) && it.proof_spec && ((it.proof_spec.bakedRendererVersion == null) || it.proof_spec.bakedRendererVersion < PROOF_RENDERER_VERSION)).map((x: any) => x.id);
       if (needBake.length) await bakeProofPdfs(needBake);
       await sendQuoteAndProofs(job, { to, cc, includeProofs: hasReady, proofsOnly: !!job.quote_approved });
       const readyIds = items.filter((it: any) => needsProof(it) && !carriedApproved(it) && it.proof_spec && !it.proof_sent_at).map((it: any) => it.id);
@@ -1265,7 +1266,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       // Same send-time bake as the quote path (90s valve inside bakeProofPdfs);
       // was the deferred "decorator PDF bake" on the proof-flow punch list.
       const vendorItems = vendorGroups[poVendor] || [];
-      const poNeedBake = vendorItems.filter((it: any) => needsProof(it) && it.proof_spec && ((it.proof_spec.bakedRendererVersion == null) || it.proof_spec.bakedRendererVersion < PROOF_RENDERER_VERSION)).map((x: any) => x.id);
+      const poNeedBake = vendorItems.filter((it: any) => needsProof(it) && !hasApprovedProof(filesByItem[it.id]) && it.proof_spec && ((it.proof_spec.bakedRendererVersion == null) || it.proof_spec.bakedRendererVersion < PROOF_RENDERER_VERSION)).map((x: any) => x.id);
       if (poNeedBake.length) await bakeProofPdfs(poNeedBake);
       const supabase = createClient();
       const [to, ...cc] = emails;
@@ -1959,7 +1960,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               WITHOUT sending anything. */}
           {(() => {
             // Sent-or-approved proofs only; a legacy/carried spec with a PDF on file is fine (lib/proof-gate).
-            const needBake = items.filter((it: any) => proofPdfMissing(it, (filesByItem[it.id] || []).some((f: any) => f.stage === "proof" && !f.superseded_at), PROOF_RENDERER_VERSION));
+            const needBake = items.filter((it: any) => proofPdfMissing(it, (filesByItem[it.id] || []).some((f: any) => f.stage === "proof" && !f.superseded_at), PROOF_RENDERER_VERSION, hasApprovedProof(filesByItem[it.id])));
             if (!needBake.length || bakeIds) return null;
             return (
               <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", border: `1px solid ${T.border}`, background: T.surface, borderRadius: 10, padding: "9px 13px", marginBottom: 12 }}>

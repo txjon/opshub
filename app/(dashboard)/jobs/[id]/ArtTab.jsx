@@ -756,6 +756,16 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     // the document's content is identical, so the client's approval must
     // survive — only a real edit resets it to pending.
     const preserveApproval = forceRebakeRef.current && driveBakedSpecRef.current !== null && specSnap === driveBakedSpecRef.current;
+    // An approved proof is FROZEN: the document the client signed off is never
+    // rebuilt, so an unchanged re-bake stops here instead of uploading a file
+    // the server would refuse (Sep 2026 — 21 approved proofs had been silently
+    // replaced). A real edit falls through and makes a new, unapproved version.
+    const approvedOnFile = (files || []).some(f => f.stage === "proof" && !f.superseded_at && f.approval === "approved");
+    if (approvedOnFile && preserveApproval) {
+      forceRebakeRef.current = false;
+      driveBakedSpecRef.current = specSnap;
+      return null;
+    }
     let pdfBlob;
     try { pdfBlob = await buildProofPdfBlob(); }
     catch (err) { console.error("Proof render error:", err); return null; }

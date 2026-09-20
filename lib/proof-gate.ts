@@ -39,14 +39,22 @@ export const allProofsSatisfied = (items: any[], ps?: Record<string, ProofPs>): 
 // A never-stamped spec (legacy / carried in on a reorder) with a proof PDF
 // already on file is fine; a stamped-but-outdated version still re-bakes so
 // renderer bumps keep working.
-export function proofPdfMissing(it: any, hasProofFile: boolean, rendererVersion: number): boolean {
+export function proofPdfMissing(it: any, hasProofFile: boolean, rendererVersion: number, hasApprovedProofFile = false): boolean {
   if (!it?.proof_spec || !needsProof(it)) return false;
+  // An approved proof is FROZEN — it is the document the client signed off, so
+  // a renderer bump must never rebuild it (Sep 2026: 21 approved proofs had
+  // been silently replaced, keeping the original approval date).
+  if (hasApprovedProofFile) return false;
   const engaged = !!it.proof_sent_at || it.artwork_status === "approved";
   if (!engaged) return false;
   const v = it.proof_spec.bakedRendererVersion;
   if (v == null) return !hasProofFile;
   return v < rendererVersion;
 }
+
+/** Does this item have an approved proof on file? Then it is frozen. */
+export const hasApprovedProof = (files: any[] | undefined): boolean =>
+  (files || []).some(f => f.stage === "proof" && !f.superseded_at && f.approval === "approved");
 
 // ── Reorders carry approval with the art (Jon 2026-08-25: "always carries").
 // The copy stamps proof_spec.carriedFrom; with artwork_status still "approved"
