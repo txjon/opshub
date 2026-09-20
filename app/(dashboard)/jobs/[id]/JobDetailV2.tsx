@@ -2845,7 +2845,6 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10 }}>
                       <span style={wlbl}>Files · {files.length}</span>
                       <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ fontWeight: 800, fontSize: 11, letterSpacing: "0.04em", textTransform: "uppercase", color: artColor }}>{artLabel}</span>
                         {/* The choice depends on where the item is: no proof yet
                             means make one or say it doesn't need one; a proof
                             exists means edit it. Nothing else belongs here. */}
@@ -2878,6 +2877,15 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         })()}
                       </span>
                     </div>
+                    {!proofByItem[it.id] && (
+                      <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 10 }}>
+                        {it.artwork_status === "n_a"
+                          ? <b style={{ color: T.text }}>No proof needed for this item</b>
+                          : carriedApproved(it)
+                            ? <><b style={{ color: T.green }}>Approved</b> · carried from {carriedFrom(it)?.jobNumber || "a re-order"}</>
+                            : <b style={{ color: T.text }}>No proof yet</b>}
+                      </div>
+                    )}
                     {proofByItem[it.id] && (() => {
                       const pv = proofByItem[it.id];
                       const approved = pv.state === "approved";
