@@ -102,6 +102,8 @@ function buildDecoSpec(p: any): { label: string; detail: string }[] {
 function renderRFQHTML(data: any): string {
   const font = `'Helvetica Neue', Arial, sans-serif`;
   const mono = `ui-monospace, monospace`;
+const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
 
   const itemBlocks = data.items.map((item: any) => {
     const sizeLabels = Object.keys(item.qtys || {});
@@ -152,7 +154,7 @@ function renderRFQHTML(data: any): string {
           <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#888;margin-bottom:2px">Art on file at House Party Distro</div>
           ${files.map((f: any) => `<div style="display:flex;gap:6px;align-items:center">
             <span style="min-width:52px;font-size:7px;font-weight:800;letter-spacing:0.08em;color:#aaa">${stageLbl[f.stage] || f.stage}</span>
-            <span style="flex:1;min-width:0;font-size:9px;color:#333;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${f.name}</span>
+            <span style="flex:1;min-width:0;font-size:9px;color:#333;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.name)}</span>
             <span style="font-size:8px;color:#999;font-family:${mono};white-space:nowrap">${fmtUp(f.createdAt)}</span>
           </div>`).join("")}
           <div style="font-size:7.5px;color:#999;margin-top:2px">Files are sent with the purchase order, not with this quote request.</div>

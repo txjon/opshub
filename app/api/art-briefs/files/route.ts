@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { deleteFile } from "@/lib/google-drive";
 import { recomputeBriefState } from "@/lib/art-brief-state";
+import { deleteDriveFileIfUnreferenced } from "@/lib/google-drive-refs";
 
 // POST — register a file uploaded to Drive as part of a brief
 export async function POST(req: NextRequest) {
@@ -81,12 +82,14 @@ export async function DELETE(req: NextRequest) {
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
     const { data: file } = await supabase.from("art_brief_files").select("brief_id, drive_file_id").eq("id", id).single();
-    if (file?.drive_file_id) {
-      try { await deleteFile(file.drive_file_id); } catch {}
-    }
 
+    // Remove the row FIRST so it doesn't count as a reference to itself, then
+    // trash the Drive file only if nothing else uses it. A brief's final often
+    // IS an item's print file (promote-final shares the id) — a permanent
+    // delete here destroyed live production art (Phase 0 review, Sep 2026).
     const { error } = await supabase.from("art_brief_files").delete().eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (file?.drive_file_id) await deleteDriveFileIfUnreferenced(file.drive_file_id);
 
     // Recompute brief state from remaining designer deliverables —
     // matches the designer DELETE route's backstop.

@@ -270,6 +270,7 @@ const HPD_LOGO_SVG = `<svg style="height:28px;display:block" xmlns="http://www.w
 function renderPOHTML(data: any): string {
   const font = `'Helvetica Neue', Arial, sans-serif`;
   const mono = `ui-monospace, monospace`;
+const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
   let grandTotal = 0;
 
@@ -360,7 +361,7 @@ function renderPOHTML(data: any): string {
         const stageLbl: Record<string, string> = { print_ready: "PRINT FILE", proof: "PROOF", mockup: "MOCKUP" };
         const row = (f: any, strong: boolean) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;border-bottom:0.5px solid #ececec">
             <span style="display:inline-block;min-width:52px;font-size:7px;font-weight:800;letter-spacing:0.08em;color:${strong ? "#1a1a1a" : "#aaa"}">${stageLbl[f.stage] || f.stage}</span>
-            <span style="flex:1;min-width:0;font-size:9px;font-weight:${strong ? 700 : 500};color:#222;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${f.name}</span>
+            <span style="flex:1;min-width:0;font-size:9px;font-weight:${strong ? 700 : 500};color:#222;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.name)}</span>
             <span style="font-size:8px;color:#888;font-family:${mono};white-space:nowrap">${fmtUp(f.createdAt)}</span>
           </div>`;
         const thumbs = prints.slice(0, 4).map((f: any) => `<img src="https://lh3.googleusercontent.com/d/${f.driveFileId}=w200" style="width:44px;height:44px;object-fit:contain;border:0.5px solid #ddd;border-radius:3px;background:#fff" />`).join("");

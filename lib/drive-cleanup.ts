@@ -132,25 +132,27 @@ export async function renameItemFolder(
  *
  * The old behaviour trashed the whole folder, so archiving an item or project
  * took its duplicates' and re-orders' shared art with it (Phase 0, Sep 2026).
- * Now every file inside is checked first: files nothing else references are
- * trashed, referenced files are left in place, and the folder itself is only
- * trashed when nothing had to be kept. Recursive, so project folders cover
- * their item folders.
+ * Now the tree is collected first, every file id checked in ONE batch, then
+ * unreferenced files are trashed; referenced files stay. A folder is trashed
+ * only when nothing inside it (or below it) had to be kept.
  *
- * Returns what happened so the caller can report it.
+ * Collect-then-batch matters: checking each file separately meant ~7 database
+ * round trips per file, and a 59-file project archive timed out mid-trash.
  */
 export async function trashFolderSafely(
   folderId: string,
   opts?: { excludeItemIds?: string[] }
 ): Promise<{ trashedFiles: number; keptFiles: number; folderTrashed: boolean }> {
   const drive = getDrive();
-  const { otherRefsToDriveFile } = await import("./google-drive-refs");
+  const { referencedDriveFileIds } = await import("./google-drive-refs");
   const { createClient } = await import("@supabase/supabase-js");
   const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-  let trashedFiles = 0, keptFiles = 0;
-  const walk = async (id: string): Promise<boolean> => {
-    let kept = false;
+  // 1. Walk the tree once: every file, and every folder in child-first order.
+  type Entry = { id: string; parent: string; shortcut: boolean };
+  const files: Entry[] = [];
+  const folders: string[] = [];        // child-first
+  const collect = async (id: string) => {
     let pageToken: string | undefined;
     do {
       const res: any = await drive.files.list({
@@ -159,25 +161,51 @@ export async function trashFolderSafely(
         pageSize: 200, pageToken,
       });
       for (const f of (res.data.files || [])) {
-        if (f.mimeType === "application/vnd.google-apps.folder") {
-          if (await walk(f.id!)) kept = true;
-          continue;
-        }
-        // Shortcuts are pointers, never the art itself — safe to trash.
-        const refs = f.mimeType === "application/vnd.google-apps.shortcut"
-          ? []
-          : await otherRefsToDriveFile(db, f.id!, undefined, opts);
-        if (refs.length > 0) { keptFiles++; kept = true; continue; }
-        try { await drive.files.update({ fileId: f.id!, requestBody: { trashed: true } }); trashedFiles++; }
-        catch { keptFiles++; kept = true; }
+        if (f.mimeType === "application/vnd.google-apps.folder") await collect(f.id!);
+        else files.push({ id: f.id!, parent: id, shortcut: f.mimeType === "application/vnd.google-apps.shortcut" });
       }
       pageToken = res.data.nextPageToken || undefined;
     } while (pageToken);
-    if (!kept) { try { await drive.files.update({ fileId: id, requestBody: { trashed: true } }); } catch { kept = true; } }
-    return kept;
+    folders.push(id);
   };
-  const keptAnything = await walk(folderId);
-  return { trashedFiles, keptFiles, folderTrashed: !keptAnything };
+  await collect(folderId);
+
+  // 2. One batched reference check for the whole tree. Shortcuts are pointers,
+  //    never the art itself, so they are always safe to trash.
+  const realFileIds = files.filter(f => !f.shortcut).map(f => f.id);
+  const referenced = await referencedDriveFileIds(db, realFileIds, opts);
+
+  // 3. Trash what nothing else uses; remember which folders had to keep something.
+  const keptIn = new Set<string>();
+  let trashedFiles = 0, keptFiles = 0;
+  for (const f of files) {
+    if (!f.shortcut && referenced.has(f.id)) { keptFiles++; keptIn.add(f.parent); continue; }
+    try { await drive.files.update({ fileId: f.id, requestBody: { trashed: true } }); trashedFiles++; }
+    catch { keptFiles++; keptIn.add(f.parent); }
+  }
+
+  // 4. Child-first, trash folders that kept nothing (a kept child keeps its parents).
+  const parentOf = new Map<string, string>();
+  for (const f of files) parentOf.set(f.id, f.parent);
+  const keptFolders = new Set(keptIn);
+  for (const id of folders) {
+    if (keptFolders.has(id)) continue;
+    try { await drive.files.update({ fileId: id, requestBody: { trashed: true } }); }
+    catch { keptFolders.add(id); }
+    if (keptFolders.has(id)) {
+      // propagate upward so ancestors are kept too
+      const res: any = await drive.files.get({ fileId: id, fields: "parents" }).catch(() => null);
+      for (const p of (res?.data?.parents || [])) keptFolders.add(p);
+    }
+  }
+  // a kept child folder must keep its ancestors: re-walk child-first
+  for (const id of folders) {
+    if (!keptFolders.has(id)) continue;
+    const res: any = await drive.files.get({ fileId: id, fields: "parents" }).catch(() => null);
+    for (const p of (res?.data?.parents || [])) keptFolders.add(p);
+  }
+
+  return { trashedFiles, keptFiles, folderTrashed: !keptFolders.has(folderId) };
 }
 
 export async function deleteItemFolder(

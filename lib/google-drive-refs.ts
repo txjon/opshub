@@ -53,18 +53,21 @@ export async function otherRefsToDriveFile(
     }
     const { data, error } = await q;
     if (error) {
-      // A missing table must never read as "no references" — that would green-light
-      // a delete. Report it as a reference so the file is kept.
-      if (!/does not exist|schema cache/i.test(error.message)) hits.push({ table, column, id: "unknown" });
+      // ANY failure counts as a reference: a lookup we could not run must never
+      // read as "nothing uses this file", which would green-light a delete.
+      hits.push({ table, column, id: `error:${error.message.slice(0, 60)}` });
       continue;
     }
     for (const r of (data || [])) hits.push({ table, column, id: (r as any).id });
   }
   // The catalog keeps its mockup inside a jsonb blob, so it needs its own look.
   try {
-    const { data } = await db.from("products").select("id").eq("spec->>mockup_drive_file_id", driveFileId).limit(5);
+    const { data, error } = await db.from("products").select("id").eq("spec->>mockup_drive_file_id", driveFileId).limit(5);
+    // supabase-js returns errors instead of throwing, so check it explicitly —
+    // a broken path would otherwise read as "unreferenced".
+    if (error) hits.push({ table: "products", column: "spec.mockup_drive_file_id", id: `error:${error.message.slice(0, 60)}` });
     for (const r of (data || [])) hits.push({ table: "products", column: "spec.mockup_drive_file_id", id: (r as any).id });
-  } catch { /* table may not exist in this tenant */ }
+  } catch (e: any) { hits.push({ table: "products", column: "spec.mockup_drive_file_id", id: "error" }); }
   return hits;
 }
 
@@ -85,4 +88,39 @@ export async function deleteDriveFileIfUnreferenced(
   } catch {
     return { deleted: false, refs: 0 };
   }
+}
+
+/**
+ * Batched form of the check above: which of these Drive file ids are still
+ * referenced? One query per table instead of seven per file — an archive of a
+ * 59-file project was 400 sequential round trips and timed out mid-trash.
+ * Any query that fails marks EVERY id in that batch as referenced (keep).
+ */
+export async function referencedDriveFileIds(
+  db: any,
+  driveFileIds: string[],
+  opts?: { excludeItemIds?: string[] }
+): Promise<Set<string>> {
+  const referenced = new Set<string>();
+  const ids = Array.from(new Set(driveFileIds.filter(Boolean)));
+  if (!ids.length) return referenced;
+  const keepAll = () => { for (const id of ids) referenced.add(id); };
+  for (let i = 0; i < ids.length; i += 200) {
+    const slice = ids.slice(i, i + 200);
+    for (const { table, column } of REF_TABLES) {
+      let q = db.from(table).select(`${column}`).in(column, slice);
+      if (table === "item_files") {
+        q = q.is("superseded_at", null);
+        const ex = opts?.excludeItemIds || [];
+        if (ex.length) q = q.not("item_id", "in", `(${ex.join(",")})`);
+      }
+      const { data, error } = await q;
+      if (error) { keepAll(); continue; }
+      for (const r of (data || [])) { const v = (r as any)[column]; if (v) referenced.add(v); }
+    }
+    const { data: prods, error: prodErr } = await db.from("products").select("spec").in("spec->>mockup_drive_file_id", slice);
+    if (prodErr) keepAll();
+    else for (const r of (prods || [])) { const v = (r as any)?.spec?.mockup_drive_file_id; if (v) referenced.add(v); }
+  }
+  return referenced;
 }

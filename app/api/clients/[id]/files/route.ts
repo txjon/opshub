@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { uploadFile, deleteFile } from "@/lib/google-drive";
 import { getDriveToken, getPrivateDocFolder } from "@/lib/drive-token";
+import { deleteDriveFileIfUnreferenced } from "@/lib/google-drive-refs";
 
 // POST — upload a tax-exempt / W9 / MSA / other client-level document.
 // Body: multipart form with `file`, optional `kind` (default
@@ -93,11 +94,10 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  if ((row as any).drive_file_id) {
-    try { await deleteFile((row as any).drive_file_id); } catch {}
-  }
-
+  // Row first, then a reference-counted TRASH (recoverable) — never a
+  // permanent delete (Phase 0 review, Sep 2026).
   const { error } = await supabase.from("client_files").delete().eq("id", fileId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if ((row as any).drive_file_id) await deleteDriveFileIfUnreferenced((row as any).drive_file_id);
   return NextResponse.json({ success: true });
 }
