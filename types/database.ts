@@ -3930,6 +3930,74 @@ export type Database = {
 
         ];
       };
+      proof_versions: {
+        Row: {
+          id: string;
+          item_id: string;
+          version: number;
+          state: string;
+          spec: Json;
+          item_snapshot: Json | null;
+          mockup_drive_file_id: string | null;
+          renderer_version: number | null;
+          pdf_drive_file_id: string | null;
+          pdf_created_at: string | null;
+          created_at: string;
+          created_by: string | null;
+          sent_at: string | null;
+          approved_at: string | null;
+          approved_by: string | null;
+          approval_source: string | null;
+          superseded_at: string | null;
+          note: string | null;
+          company_id: string | null;
+        };
+        Insert: {
+          id?: string;
+          item_id: string;
+          version: number;
+          state?: string;
+          spec: Json;
+          item_snapshot?: Json | null;
+          mockup_drive_file_id?: string | null;
+          renderer_version?: number | null;
+          pdf_drive_file_id?: string | null;
+          pdf_created_at?: string | null;
+          created_at?: string;
+          created_by?: string | null;
+          sent_at?: string | null;
+          approved_at?: string | null;
+          approved_by?: string | null;
+          approval_source?: string | null;
+          superseded_at?: string | null;
+          note?: string | null;
+          company_id?: string | null;
+        };
+        Update: {
+          id?: string;
+          item_id?: string;
+          version?: number;
+          state?: string;
+          spec?: Json;
+          item_snapshot?: Json | null;
+          mockup_drive_file_id?: string | null;
+          renderer_version?: number | null;
+          pdf_drive_file_id?: string | null;
+          pdf_created_at?: string | null;
+          created_at?: string;
+          created_by?: string | null;
+          sent_at?: string | null;
+          approved_at?: string | null;
+          approved_by?: string | null;
+          approval_source?: string | null;
+          superseded_at?: string | null;
+          note?: string | null;
+          company_id?: string | null;
+        };
+        Relationships: [
+          { foreignKeyName: "proof_versions_item_id_fkey"; columns: ["item_id"]; isOneToOne: false; referencedRelation: "items"; referencedColumns: ["id"] }
+        ];
+      };
       pull_requests: {
         Row: {
           id: string;
