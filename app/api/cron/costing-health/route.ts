@@ -5,6 +5,12 @@ import { recalcJobPhase } from "@/lib/job-phase-recalc";
 import { refreshJobFinancials } from "@/lib/costing-summary";
 import { scanFileHealth, missingFiles } from "@/lib/file-health";
 
+// The report is read in Las Vegas, so its dates are Pacific — every other
+// OpsHub document already formats this way. Slicing the ISO string printed the
+// UTC day, which is tomorrow from 5pm onward.
+const fmtPacific = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/Los_Angeles" });
+
 export const maxDuration = 120; // per-job phase recompute over the active jobs
 
 const admin = () =>
@@ -282,7 +288,7 @@ export async function GET(req: NextRequest) {
   ${badLinks.length ? `<h3 style="color:#ef4444;margin:16px 0 8px">PO art link points away from the item's folder (${badLinks.length})</h3><ul style="margin:0;padding-left:20px">${badLinks.map(t => `<li style="margin:4px 0;font-size:14px">${t}</li>`).join("")}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">The printer's "Production Files" button opens this link. Re-pull the proof or set the folder link on the item.</p>` : ""}
   ${forbiddenPushes.length ? `<h3 style="color:#ef4444;margin:16px 0 8px">Cost entries in QB that should never be (${forbiddenPushes.length})</h3><ul style="margin:0;padding-left:20px">${forbiddenPushes.map(t => `<li style="margin:4px 0;font-size:14px">${t}</li>`).join("")}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">Delete the QB Bill, then clear the entry's pushed stamp.</p>` : ""}
   ${poNoInvoice.length ? `<h3 style="color:#d97706;margin:16px 0 8px">PO sent, no invoice on the job (${poNoInvoice.length})</h3><ul style="margin:0;padding-left:20px">${poNoInvoice.map(t => `<li style="margin:4px 0;font-size:14px">${t}</li>`).join("")}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">Draft the invoice, or the job lost its QB link — check job_type_meta_history.</p>` : ""}
-  ${missingCount ? `<h3 style="color:#ef4444;margin:16px 0 8px">Files missing from Google Drive (${missingCount}${fileHealth.newlyMissing ? `, ${fileHealth.newlyMissing} new` : ""})</h3><ul style="margin:0;padding-left:20px">${missing.map(m => `<li style="margin:4px 0;font-size:14px"><b>${m.itemName || m.fileName || "—"}</b>${m.jobNumber ? ` · ${m.jobNumber}` : ""}${m.clientName ? ` · ${m.clientName}` : ""} — ${m.stage || "file"} "${m.fileName || ""}" is gone${m.firstMissingAt ? ` (first seen missing ${m.firstMissingAt.slice(0, 10)})` : ""}</li>`).join("")}${missingCount > missing.length ? `<li style="margin:4px 0;font-size:14px;color:#666">…and ${missingCount - missing.length} more</li>` : ""}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">The record points at a Drive file that no longer exists. Check Drive trash first (restorable for 30 days), then re-upload. Deletes have gone to the trash with a reference check since Sep 19 2026.</p>` : ""}
+  ${missingCount ? `<h3 style="color:#ef4444;margin:16px 0 8px">Files missing from Google Drive (${missingCount}${fileHealth.newlyMissing ? `, ${fileHealth.newlyMissing} new` : ""})</h3><ul style="margin:0;padding-left:20px">${missing.map(m => `<li style="margin:4px 0;font-size:14px"><b>${m.itemName || m.fileName || "—"}</b>${m.jobNumber ? ` · ${m.jobNumber}` : ""}${m.clientName ? ` · ${m.clientName}` : ""} — ${m.stage || "file"} "${m.fileName || ""}" is gone${m.firstMissingAt ? ` (first seen missing ${fmtPacific(m.firstMissingAt)})` : ""}</li>`).join("")}${missingCount > missing.length ? `<li style="margin:4px 0;font-size:14px;color:#666">…and ${missingCount - missing.length} more</li>` : ""}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">The record points at a Drive file that no longer exists. Check Drive trash first (restorable for 30 days), then re-upload. Deletes have gone to the trash with a reference check since Sep 19 2026.</p>` : ""}
   <p style="margin:20px 0 0;font-size:12px;color:#999">Costing: re-save the job's costing tab. Phase: open the job (V2 heals on load). — OpsHub tripwire</p>
 </div>`;
         await resend.emails.send({
