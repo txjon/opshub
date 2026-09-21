@@ -57,9 +57,11 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
   const fmtDate = (iso?: string | null) => iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
   const total = fmtMoney(quoteTotal);
 
+  const [err, setErr] = useState("");
   async function submit(action: string, body?: any) {
-    setBusy(true);
+    setBusy(true); setErr("");
     try { await onAction(action, body); setModal(null); setNote(""); setTagged({}); }
+    catch (e: any) { setErr(e?.message || "That didn't go through. Please try again."); }
     finally { setBusy(false); }
   }
   const taggedIds = Object.keys(tagged).filter(k => tagged[k]);
@@ -123,6 +125,7 @@ export function PackageApproval({ c, approved, approvedAt, changeRequest, quoteT
             )}
           </div>
 
+          {err && <div style={{ marginTop: 14, fontSize: 12.5, color: c.amber || "#b45309", lineHeight: 1.5 }}>{err}</div>}
           <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
             <button onClick={() => submit("approve-package")} disabled={busy} style={{ ...btnPrimary, opacity: busy ? 0.6 : 1 }}>{busy ? "Approving…" : "Approve for production"}</button>
             <button onClick={() => setModal(null)} disabled={busy} style={btnGhost}>Cancel</button>

@@ -79,26 +79,42 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
       .select("id, item_id, file_name, drive_file_id")
       .in("item_id", itemIds).eq("stage", "proof").is("superseded_at", null);
     proofFiles = files || [];
-    // Approve every active proof + mark items approved (blanket).
+
+    // The VERSION is the record of what the client signed off, so it is stamped
+    // FIRST and a failure aborts the whole approval.
+    //
+    // This used to run last, inside a catch that logged and carried on. On
+    // 2026-09-21 a hub approval flipped the job and the item to approved while
+    // the version stayed 'sent' — the client was told it worked, the team saw
+    // an approved item, and nothing recorded what had been agreed to. An
+    // approval that leaves no record is not an approval. Stamping before the
+    // derived statuses means a failure now leaves nothing half-approved.
+    const { approveVersion, currentVersion } = await import("@/lib/proof-versions");
+    for (const itemId of itemIds) {
+      // No version = no proof on this item (n_a, or a pre-versions record).
+      // Nothing to stamp, and nothing to fail over.
+      const live = await currentVersion(sb, itemId);
+      if (!live) continue;
+      let r = await approveVersion(sb, { itemId, approvedBy: ctx.via || "client", source: "client" });
+      // One retry: the failure we saw was not reproducible, so a transient
+      // hiccup is the likeliest cause and is worth absorbing silently.
+      if (!r.ok) r = await approveVersion(sb, { itemId, approvedBy: ctx.via || "client", source: "client" });
+      if (!r.ok || !r.version) {
+        throw new Error(`Could not record the approval for "${nameById[itemId] || "this item"}". Nothing has been approved — please try again.`);
+      }
+      approvedVersions.push({
+        itemId, itemName: nameById[itemId] || null,
+        versionId: r.version.id, version: r.version.version,
+        proofUrl: `/api/proof/${r.version.id}/pdf`,
+      });
+    }
+
+    // Derived state, only once the record exists.
     await sb.from("item_files")
       .update({ approval: "approved", approved_at: now })
       .in("item_id", itemIds).eq("stage", "proof").is("superseded_at", null);
     // n_a (no proof needed) stays n_a — the client never had a proof to approve on it.
     await sb.from("items").update({ artwork_status: "approved" }).in("id", itemIds).neq("artwork_status", "n_a");
-    // Stamp the VERSION the client actually looked at. That version is frozen
-    // from here on: an edit afterwards makes a new draft and reopens the gate
-    // (lib/proof-versions).
-    try {
-      const { approveVersion } = await import("@/lib/proof-versions");
-      for (const itemId of itemIds) {
-        const r = await approveVersion(sb, { itemId, approvedBy: ctx.via || "client", source: "client" });
-        if (r.ok && r.version) approvedVersions.push({
-          itemId, itemName: nameById[itemId] || null,
-          versionId: r.version.id, version: r.version.version,
-          proofUrl: `/api/proof/${r.version.id}/pdf`,
-        });
-      }
-    } catch (e: any) { console.error("[approval] proof version stamp failed:", e?.message || e); }
   }
 
   const snapshot: ApprovalSnapshot = {

@@ -44,7 +44,12 @@ export default function PortalPage({ params }: { params: { token: string } }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action, ...body }),
     });
-    if (res.ok) await loadData(activeToken, true);
+    // Same rule as the hub: a refused action must not read as success.
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({} as any));
+      throw new Error(err?.error || "That didn't go through. Please try again.");
+    }
+    await loadData(activeToken, true);
   }
 
   const wordmark = (data?.company?.name || "house party distro").toLowerCase();

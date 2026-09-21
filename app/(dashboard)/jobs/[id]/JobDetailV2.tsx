@@ -2999,9 +2999,15 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                             <b style={{ color: approved ? T.green : T.text }}>Proof v{pv.version}</b>
                             {approved && pv.approved_at
                               ? ` · approved ${new Date(pv.approved_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
-                              : pv.sent_at
-                                ? ` · sent ${new Date(pv.sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}, awaiting the client`
-                                : " · not sent yet — goes out with the next proof send"}
+                              /* Approved, but this version carries no approval. The two
+                                 halves of this line used to disagree in silence — green
+                                 and "Undo approval" beside "awaiting the client" — which
+                                 is exactly what a half-written approval looks like. Say so. */
+                              : approved
+                                ? " · approved, but no approval is recorded on this proof"
+                                : pv.sent_at
+                                  ? ` · sent ${new Date(pv.sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}, awaiting the client`
+                                  : " · not sent yet — goes out with the next proof send"}
                           </span>
                           {approved
                             ? <button onClick={() => setItemApproval(it.id, it.name, false)}

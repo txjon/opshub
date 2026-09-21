@@ -39,7 +39,13 @@ export function OrderDetailView({ token, jobId, onClose, suppressOwnChrome }: {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action, ...extra }),
     });
-    if (res.ok) await load(true);
+    // A refused action has to reach the person who took it. Swallowing this is
+    // how an approval that failed server-side still looked like it worked.
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({} as any));
+      throw new Error(body?.error || "That didn't go through. Please try again.");
+    }
+    await load(true);
   }
 
   const frame: React.CSSProperties = {
