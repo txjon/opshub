@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { parseUpsCsv, aggregateShipments, matchShipments, calculatedShipping, FREIGHT_SOURCES, INVOICE_LEVEL_SECTION } from "@/lib/ups-freight";
 import { resolvePoRef, buildPoRefIndex, type JobLite } from "@/lib/po-ref-match";
+import { todayPacific } from "@/lib/dates";
 
 // Inbound production freight (UPS). Upload CSV(s) → match by ref → IMPORT ALL
 // (matched → jobs, unmatched → a persistent "Needs a match" queue) → reconcile the
@@ -65,7 +66,7 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
     const { error } = await supabase.from("cost_entries").insert({
       source: "manual_freight", charge_type: "freight", status: addResolved ? "matched" : "unmatched",
       job_id: addResolved?.id ?? null, vendor_name: "Freight (manual)", po_ref: addPo.trim() || null,
-      ext_date: new Date().toISOString().slice(0, 10), amount: amt, not_job_specific: false, notes: "manual freight (CC)",
+      ext_date: todayPacific(), amount: amt, not_job_specific: false, notes: "manual freight (CC)",
     } as any);
     setAddSaving(false);
     if (error) { alert("Save failed: " + error.message); return; }

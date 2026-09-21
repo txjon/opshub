@@ -330,7 +330,7 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
     // approvals) = no line. The old latest-client_eta fallback printed a date
     // nobody promised.
     const shipDateLong = job.target_ship_date
-      ? new Date(job.target_ship_date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+      ? new Date(job.target_ship_date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" , timeZone: "America/Los_Angeles" })
       : "";
 
     const branding = await getPdfBranding();

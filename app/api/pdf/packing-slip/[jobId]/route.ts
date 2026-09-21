@@ -223,7 +223,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     // +T12:00:00 anchors local so the day can't shift
     const shipDateRaw = job.target_ship_date || (job.type_meta as any)?.ship_date || "";
     const shipDate = shipDateRaw
-      ? new Date(shipDateRaw + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+      ? new Date(shipDateRaw + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" , timeZone: "America/Los_Angeles" })
       : "";
     const branding = await getPdfBranding();
 

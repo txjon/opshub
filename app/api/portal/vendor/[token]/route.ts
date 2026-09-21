@@ -11,6 +11,7 @@ import { vendorPaperShipTo, effectiveRoute, loadJobDestinations } from "@/lib/de
 import { ensureTracker } from "@/lib/inbound-tracking";
 import { loadProductionFiles, loadProofVersions, releaseFor, itemDrift } from "@/lib/production-files";
 import { withPortalCookie } from "@/lib/file-access";
+import { todayPacific } from "@/lib/dates";
 
 // costProds in ITEM sort order — "first item in a share group" (who carries
 // the screen fees) resolves by array position in the pricing engine; every
@@ -608,7 +609,7 @@ export async function POST(
       // vendor-portal-specific stamps shipFromProduction doesn't own
       await sb.from("decorator_assignments").update({
         tracking_number: tracking,
-        actual_completion_date: new Date().toISOString().split("T")[0],
+        actual_completion_date: todayPacific(),
       }).eq("item_id", itemId).eq("decorator_id", decorator.id);
 
       // register live tracking on the new box(es) — guarded, never throws

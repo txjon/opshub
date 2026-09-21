@@ -149,7 +149,7 @@ const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&l
         const files: any[] = item.files || [];
         if (!files.length) return "";
         const stageLbl: Record<string, string> = { print_ready: "PRINT FILE", proof: "PROOF", mockup: "MOCKUP" };
-        const fmtUp = (iso: string) => { try { return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); } catch { return ""; } };
+        const fmtUp = (iso: string) => { try { return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" , timeZone: "America/Los_Angeles" }); } catch { return ""; } };
         return `<div style="font-size:9px;margin-bottom:4px;padding:4px 8px;background:#f7f7f7;border:0.5px solid #e4e4e4;border-radius:3px">
           <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#888;margin-bottom:2px">Art on file at House Party Distro</div>
           ${files.map((f: any) => `<div style="display:flex;gap:6px;align-items:center">
@@ -181,9 +181,9 @@ const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&l
     </div>`;
   }).join("");
 
-  const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" , timeZone: "America/Los_Angeles" });
   const shipDate = data.target_ship_date
-    ? new Date(data.target_ship_date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+    ? new Date(data.target_ship_date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" , timeZone: "America/Los_Angeles" })
     : "—";
 
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>

@@ -18,6 +18,7 @@ import { ItemsPeekRail } from "@/components/JobItemsPeek";
 import { deriveProjectStage } from "@/lib/project-stage";
 import { loadJobPhasesBatch } from "@/lib/item-state";
 import { ClientLocations } from "@/components/ClientLocations";
+import { todayPacific } from "@/lib/dates";
 
 const PURPLE = "#fd3aa3";
 // Forward Observations Group — their space carries a link to the internal
@@ -474,7 +475,7 @@ function OrdersRail({ model, hist, reports, secHead }: any) {
     const paidRecs = recs.filter((p: any) => p.status === "paid");
     const openRecs = recs.filter((p: any) => p.status !== "paid");
     const lastPaid = paidRecs.map((p: any) => p.paid_date).filter(Boolean).sort().pop();
-    const overdue = openRecs.some((p: any) => p.status === "overdue" || (p.due_date && p.due_date < new Date().toISOString().slice(0, 10)));
+    const overdue = openRecs.some((p: any) => p.status === "overdue" || (p.due_date && p.due_date < todayPacific()));
     // Truth = QB invoice total vs Σ(paid). Records alone lied: a $60k deposit
     // marked paid on a $120k invoice read "paid" (#4365, Aug 3).
     const invoicedTotal = Number(j.type_meta?.qb_total_with_tax) || 0;

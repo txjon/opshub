@@ -15,7 +15,7 @@ import { parseShopifyProductCsv } from "@/lib/shopify-csv/parse";
 const LOW_STOCK_MAX = 9;
 
 function formatReportDate(d: Date): string {
-  return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" , timeZone: "America/Los_Angeles" });
 }
 
 function formatReportRef(d: Date): string {

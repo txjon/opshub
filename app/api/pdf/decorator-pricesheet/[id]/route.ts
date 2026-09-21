@@ -61,7 +61,7 @@ function kvTableTwoCol(obj: any, labels: Record<string, string> = {}): string {
 }
 
 function buildHtml(dec: any, pd: any, branding: any): string {
-  const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" , timeZone: "America/Los_Angeles" });
   const qtys = Array.isArray(pd.qtys) ? pd.qtys : [];
   const prices = (pd.prices && typeof pd.prices === "object") ? pd.prices : {};
 

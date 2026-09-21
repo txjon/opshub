@@ -13,6 +13,7 @@ import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
 import { upsertShipmentForItem } from "./handoff";
 import { shipProgress, type SizeQtys } from "./ship-progress";
 import { recordShip, recordReceive, recomputeItemFromLedger, reverseLastMovement, cleanPositive } from "./inventory-ledger";
+import { todayPacific } from "@/lib/dates";
 
 async function fetchVendorItems(supabase: any, jobId: string, vendor: string): Promise<any[]> {
   const [{ data: job }, { data: items }] = await Promise.all([
@@ -38,7 +39,7 @@ async function fetchVendorItems(supabase: any, jobId: string, vendor: string): P
 // Returns the number of vendor items processed.
 export async function applyPoSentToVendorItems(supabase: any, jobId: string, vendor: string): Promise<number> {
   const vendorItems = await fetchVendorItems(supabase, jobId, vendor);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayPacific();
   const nowIso = new Date().toISOString();
   // Vendor default route is an override for DROP-SHIP jobs only — stage and
   // ship_through already route to HPD, so there's nothing to override there.

@@ -61,7 +61,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const postagePeriod = (report as any).postage_period_label || report.period_label;
 
     const clientName = (report.clients as any)?.name || "—";
-    const generatedOn = new Date(report.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    const generatedOn = new Date(report.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" , timeZone: "America/Los_Angeles" });
 
     // Combined reports keep the postage half on dedicated columns.
     // Postage-only reports keep it on line_items / totals.

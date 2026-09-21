@@ -344,7 +344,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       invoiceNum: job.qb_invoice_number || job.type_meta?.stripe_invoice_number || orderInfo.invoiceNum || job.job_number || "",
       today,
       terms,
-      shipDate: latestEta ? new Date(latestEta + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "",
+      shipDate: latestEta ? new Date(latestEta + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" , timeZone: "America/Los_Angeles" }) : "",
       clientName,
       shipToAddress: (await loadJobShipTo(supabase, job.id))?.address || "",   // project destination (client address book)
       notes: orderInfo.notes || job.notes || "",

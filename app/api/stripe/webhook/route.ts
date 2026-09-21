@@ -3,6 +3,7 @@ import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { verifyWebhookSignature } from "@/lib/stripe";
 import { recalcJobPhase } from "@/lib/job-phase-recalc";
+import { todayPacific } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -82,7 +83,7 @@ export async function POST(req: NextRequest) {
             type: paymentType,
             invoice_number: inv.number || (job as any).type_meta?.stripe_invoice_number,
             status: "paid",
-            paid_date: new Date().toISOString().split("T")[0],
+            paid_date: todayPacific(),
           });
           if (payErr) console.error("[stripe/webhook] payment_records insert failed:", payErr.message);
           // Sync invoice status onto jobs.type_meta

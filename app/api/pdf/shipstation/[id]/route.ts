@@ -950,7 +950,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
     const clientName = (report.clients as any)?.name || "—";
     const clientBillingAddress = (report.clients as any)?.billing_address || null;
-    const generatedOn = new Date(report.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+    const generatedOn = new Date(report.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" , timeZone: "America/Los_Angeles" });
     const isPostage = report.report_type === "postage";
     const isCombined = report.report_type === "combined";
     const isFulfillment = report.report_type === "fulfillment";

@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { todayPacific } from "@/lib/dates";
 
 // POST /api/intake/[id]/convert
 //
@@ -76,7 +77,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           name: (newClient.name || sub.company).trim(),
           client_type: clientType,
           default_terms: newClient.default_terms || null,
-          notes: `Converted from intake submission ${sub.id} on ${new Date().toISOString().slice(0, 10)}`,
+          notes: `Converted from intake submission ${sub.id} on ${todayPacific()}`,
         })
         .select("id")
         .single();

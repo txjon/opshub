@@ -6,6 +6,7 @@ import { T, font, mono } from "@/lib/theme";
 import { snapshotMid, defaultPunch, quoteTotal, type Quote, type QuoteLine, type PunchPoint } from "@/lib/menu-quote";
 import { buildPrintersMap, calcCostProduct, lookupPrintPrice, lookupTagPrice } from "@/lib/pricing";
 import { DecorationPanel as DecorationPanelRaw } from "../jobs/[id]/DecorationPanel";
+import { addDays, todayPacific } from "@/lib/dates";
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 
 // /intake — leads inbox. Submissions from the public /start form land
@@ -1222,7 +1223,7 @@ function QuoteBuilderModal({ lead, onClose, onSent }: { lead: MenuLead; onClose:
       artStatus: lead.picks?.artStatus || null,
       neededBy: lead.contact?.neededBy || null,
     });
-    const vu = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+    const vu = addDays(todayPacific(), 30);
     return { lines, punch, validUntil: vu };
   }, [lead]);
 

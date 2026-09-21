@@ -6,6 +6,7 @@ import { resendForSlug } from "@/lib/resend-client";
 import { renderBrandedEmail } from "@/lib/email-template";
 import { distributeCurve, gridKey, SIZE_ORDER, type Quote } from "@/lib/menu-quote";
 import { refreshJobFinancials } from "@/lib/costing-summary";
+import { todayPacific } from "@/lib/dates";
 
 // POST /api/menu/lead-convert — the accepted quote becomes a real job.
 // { leadId, clientId?, clientName? }
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
       .insert({
         name,
         client_type: "brand",
-        notes: `Created from menu quote (lead ${lead.id.slice(0, 8)}) on ${new Date().toISOString().slice(0, 10)}`,
+        notes: `Created from menu quote (lead ${lead.id.slice(0, 8)}) on ${todayPacific()}`,
       } as never)
       .select("id")
       .single();

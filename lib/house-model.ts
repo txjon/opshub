@@ -1,6 +1,8 @@
 // THE HOUSE's pure rules — shared by the page (client) and the sidebar counts
 // (server) so the number next to a section is the number of cards on it.
 
+import { todayPacific, addDays } from "@/lib/dates";
+
 export type VendorRisk = { job: any; due: string; level: "late" | "confirm"; promised: boolean; vendorKey: string | null };
 
 // Vendor risk, timed off the REAL promises: the PO ship-by chips
@@ -65,5 +67,7 @@ export function vendorRiskFor(job: any, today: string, soon: string): VendorRisk
   return null;
 }
 
-export const houseToday = () => new Date().toISOString().slice(0, 10);
-export const houseSoon = () => new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+// Pacific, not UTC: these decide what is late and what is due soon, and a UTC
+// "today" rolls the whole board forward a day every evening.
+export const houseToday = () => todayPacific();
+export const houseSoon = () => addDays(todayPacific(), 3);

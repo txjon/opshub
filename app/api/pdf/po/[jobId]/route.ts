@@ -357,7 +357,7 @@ const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&l
         const files: any[] = item.files || [];
         const prints = files.filter((f: any) => f.stage === "print_ready");
         const others = files.filter((f: any) => f.stage !== "print_ready");
-        const fmtUp = (iso: string) => { try { return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); } catch { return ""; } };
+        const fmtUp = (iso: string) => { try { return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" , timeZone: "America/Los_Angeles" }); } catch { return ""; } };
         const stageLbl: Record<string, string> = { print_ready: "PRINT FILE", proof: "PROOF", mockup: "MOCKUP" };
         const row = (f: any, strong: boolean) => `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;border-bottom:0.5px solid #ececec">
             <span style="display:inline-block;min-width:52px;font-size:7px;font-weight:800;letter-spacing:0.08em;color:${strong ? "#1a1a1a" : "#aaa"}">${stageLbl[f.stage] || f.stage}</span>
@@ -408,14 +408,14 @@ const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&l
   const shipDate = data.target_ship_date
     ? (data.target_ship_date === "ASAP"
         ? "ASAP"
-        : new Date(data.target_ship_date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }))
+        : new Date(data.target_ship_date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" , timeZone: "America/Los_Angeles" }))
     : "—";
 
   // Revision banner — only on resends. The original PO is implicitly
   // superseded; we tell the decorator with a loud red strip + the
   // original send date so they know which PDF in their inbox is current.
   const originalSentLabel = data.original_sent_date
-    ? new Date(data.original_sent_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+    ? new Date(data.original_sent_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" , timeZone: "America/Los_Angeles" })
     : null;
   // Dynamic banner copy (Jon, 2026-07-17): the NEW-items sentence only when
   // items were actually added — a cost-only revision (e.g. a fleece upcharge

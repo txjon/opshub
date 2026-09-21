@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { dbNoStore } from "@/lib/db-nostore";
 import { getActiveCompany } from "@/lib/company";
+import { todayPacific } from "@/lib/dates";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -91,7 +92,7 @@ export async function GET(req: NextRequest) {
   // unread designer move lights it, so the board itself is the desk.
   const woByBrief: Record<string, { state: string; unread: boolean; late: boolean }> = {};
   if (ids.length) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayPacific();
     const { data: wos } = await db.from("design_work_orders").select("brief_id, state, last_designer_at, hpd_seen_at, due_by, updated_at")
       .in("brief_id", ids).in("state", ["out", "delivered", "in_revision"]).order("updated_at", { ascending: false });
     for (const w of (wos || []) as any[]) {

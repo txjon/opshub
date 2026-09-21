@@ -63,7 +63,7 @@ export async function GET(req: NextRequest, { params }: { params: { releaseId: s
     });
   }
 
-  const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" , timeZone: "America/Los_Angeles" });
   let body = "";
   for (const line of lines) {
     const set = new Set<string>(Object.keys(line.sold));

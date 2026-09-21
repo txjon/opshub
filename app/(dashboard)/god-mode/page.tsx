@@ -9,6 +9,7 @@ import { buildPrintersMap } from "@/lib/pricing";
 import { computeBillingQueue } from "@/lib/billing-queue";
 import { computeVarianceSummary } from "@/lib/variance";
 import { shippingVarianceNet, isFreightSource } from "@/lib/ups-freight";
+import { addDays, todayPacific } from "@/lib/dates";
 
 // Owner cockpit. Gated by is_god OR an explicit /god-mode page grant (the
 // access model) — NOT a hardcoded email, which broke god-by-flag accounts and
@@ -590,8 +591,8 @@ export default async function GodModePage() {
     .sort((a, b) => b.days - a.days);
 
   // Payment attention — overdue + upcoming (next 30 days).
-  const todayStr = now.toISOString().split("T")[0];
-  const in30Str = new Date(now.getTime() + 30 * msPerDay).toISOString().split("T")[0];
+  const todayStr = todayPacific();
+  const in30Str = addDays(todayPacific(), 30);
   const mapPay = (p: any) => {
     const job = jobById[p.job_id];
     return {

@@ -9,6 +9,7 @@ import { sendClientNotification } from "@/lib/auto-email";
 import { appBaseUrl } from "@/lib/public-url";
 import { derivePaymentType } from "@/lib/payment-status";
 import { recalcJobPhase } from "@/lib/job-phase-recalc";
+import { todayPacific } from "@/lib/dates";
 
 const QB_BASE_URL = "https://quickbooks.api.intuit.com";
 
@@ -209,7 +210,7 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
     // as duplicates and dropped all but the first (FOG 4348: 4×$100k → 1).
     // Keying on (qb_payment_id, qb_invoice_id) records each distinct payment
     // once, while still allowing one payment to apply across multiple invoices.
-    const today = new Date().toISOString().split("T")[0];
+    const today = todayPacific();
     const { data: existing } = await supabase
       .from("payment_records")
       .select("id")
@@ -328,7 +329,7 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
 
         // Fetch PAID-stamped invoice PDF — self-fetch uses internal URL
         const internalBase = process.env.NEXT_PUBLIC_SITE_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
-        const pdfRes = await fetch(`${internalBase}/api/pdf/invoice/${job.id}?paid=true&paidDate=${encodeURIComponent(new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }))}`, {
+        const pdfRes = await fetch(`${internalBase}/api/pdf/invoice/${job.id}?paid=true&paidDate=${encodeURIComponent(new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" , timeZone: "America/Los_Angeles" }))}`, {
           headers: { "x-internal-key": process.env.SUPABASE_SERVICE_ROLE_KEY! },
         });
         if (!pdfRes.ok) {

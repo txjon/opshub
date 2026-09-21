@@ -3,6 +3,7 @@
 // carries a PINNED BRIEF. Server-only helpers live in
 // lib/design-work-orders-server.ts.
 import { H } from "@/lib/studio-theme";
+import { todayPacific } from "@/lib/dates";
 
 export type WoType = "creative" | "vector" | "separations";
 export type WoState = "out" | "delivered" | "in_revision" | "accepted" | "killed";
@@ -57,7 +58,7 @@ export const woTypeLabel = (t: string) => WO_TYPES.find(x => x.id === t)?.label 
 // Loose derived state, the studio's vocabulary. Color-text, no pills.
 export function woState(wo: Pick<DesignWorkOrder, "state" | "last_designer_at" | "hpd_seen_at" | "due_by">): { label: string; color: string; unread: boolean; late: boolean } {
   const unread = !!wo.last_designer_at && (!wo.hpd_seen_at || wo.last_designer_at > wo.hpd_seen_at);
-  const late = !!wo.due_by && !["accepted", "killed"].includes(wo.state) && wo.due_by < new Date().toISOString().slice(0, 10);
+  const late = !!wo.due_by && !["accepted", "killed"].includes(wo.state) && wo.due_by < todayPacific();
   if (wo.state === "accepted") return { label: "Accepted", color: H.green, unread: false, late: false };
   if (wo.state === "killed") return { label: "Killed", color: H.faint, unread: false, late: false };
   if (wo.state === "delivered") return { label: unread ? "Delivered · new" : "Delivered", color: H.blue, unread, late };

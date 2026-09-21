@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { resendForSlug } from "@/lib/resend-client";
 import { needsProof } from "@/lib/proof-gate";
+import { todayPacific } from "@/lib/dates";
 
 const admin = () =>
   createClient(
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
   try {
     const sb = admin();
     const now = new Date();
-    const today = now.toISOString().split("T")[0];
+    const today = todayPacific();
     const alerts: { priority: number; type: string; message: string; jobId: string }[] = [];
 
     // ── Fetch all active jobs with related data ──
@@ -196,7 +197,7 @@ export async function GET(req: NextRequest) {
         const html = `
 <div style="font-family:sans-serif;max-width:600px">
   <h2 style="margin:0 0 16px">OpsHub Daily Digest</h2>
-  <p style="color:#666;margin:0 0 20px">${now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })} · ${alerts.length} alert${alerts.length !== 1 ? "s" : ""}</p>
+  <p style="color:#666;margin:0 0 20px">${now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" , timeZone: "America/Los_Angeles" })} · ${alerts.length} alert${alerts.length !== 1 ? "s" : ""}</p>
   ${section("Critical", critical, "#ef4444")}
   ${section("Action Needed", high, "#d97706")}
   ${section("Heads Up", medium, "#4361ee")}
@@ -206,7 +207,7 @@ export async function GET(req: NextRequest) {
         await resend.emails.send({
           from: process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev",
           to: process.env.OWNER_EMAIL,
-          subject: `OpsHub · ${critical.length > 0 ? "🔴" : high.length > 0 ? "🟡" : "🔵"} ${alerts.length} alert${alerts.length !== 1 ? "s" : ""} — ${now.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+          subject: `OpsHub · ${critical.length > 0 ? "🔴" : high.length > 0 ? "🟡" : "🔵"} ${alerts.length} alert${alerts.length !== 1 ? "s" : ""} — ${now.toLocaleDateString("en-US", { month: "short", day: "numeric" , timeZone: "America/Los_Angeles" })}`,
           html,
         });
       } catch (emailErr) {

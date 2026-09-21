@@ -21,6 +21,29 @@ export function parseDay(iso: string): Date | null {
 }
 
 /** Today as a local YYYY-MM-DD (never UTC — an evening in Vegas is still today). */
+/** The business timezone. HPD operates from Las Vegas; the business day is
+ *  Pacific no matter where the server or the person sits. */
+export const BUSINESS_TZ = "America/Los_Angeles";
+
+/** Today as YYYY-MM-DD in the BUSINESS timezone.
+ *
+ *  Use this anywhere a date is recorded, compared or displayed — especially
+ *  server-side. Vercel runs in UTC, so `new Date().toISOString().slice(0,10)`
+ *  there is the UTC day, which is already TOMORROW from 5pm Pacific onward.
+ *  That shipped wrong PO dates, payment dates and due dates (Sep 2026). */
+export function todayPacific(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUSINESS_TZ, year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(new Date());
+}
+
+/** A timestamp's calendar day in the business timezone, as YYYY-MM-DD. */
+export function businessDay(iso: string | Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: BUSINESS_TZ, year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(typeof iso === "string" ? new Date(iso) : iso);
+}
+
 export function todayStr(): string {
   const t = new Date();
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;

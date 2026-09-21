@@ -10,6 +10,7 @@ import { generatePDF } from "@/lib/pdf/browser";
 import { contentDisposition } from "@/lib/pdf/filename";
 import { getPdfBranding } from "@/lib/branding";
 import { buildStatementData, renderStatementHTML } from "@/lib/statement";
+import { todayPacific } from "@/lib/dates";
 
 export async function GET(req: NextRequest, { params }: { params: { clientId: string } }) {
   try {
@@ -31,7 +32,7 @@ export async function GET(req: NextRequest, { params }: { params: { clientId: st
     }
     const pdfBuffer = await generatePDF(html);
     const clientSlug = data.clientName.replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-");
-    const filename = `${clientSlug}-Statement-${new Date().toISOString().slice(0, 10)}.pdf`;
+    const filename = `${clientSlug}-Statement-${todayPacific()}.pdf`;
     return new NextResponse(pdfBuffer as any, {
       status: 200,
       headers: {

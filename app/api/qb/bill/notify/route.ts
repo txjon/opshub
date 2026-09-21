@@ -154,7 +154,7 @@ export async function POST(req: NextRequest) {
     }
     const invoices: RemitInvoice[] = Object.values(byInv).map(v => ({ number: v.number, pos: v.pos.join(", "), amount: Math.round(v.amount * 100) / 100 }));
     const total = Math.round(invoices.reduce((s, i) => s + i.amount, 0) * 100) / 100;
-    const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+    const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" , timeZone: "America/Los_Angeles" });
 
     const b = await getPdfBranding();
     const pdf = await generatePDF(renderRemittanceHTML(b, vendorName, invoices, total, today));

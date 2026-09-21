@@ -15,6 +15,7 @@ import { vendorRiskFor } from "@/lib/house-model";
 import { closedReleaseMove } from "@/lib/release-lanes";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { deriveInvoice } from "@/lib/job/invoice-derive";
+import { addDays, todayPacific } from "@/lib/dates";
 
 const PURPLE = "#fd3aa3";
 const thumbSrc = (id: string, size = 300) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
@@ -76,7 +77,7 @@ export default function HousePage() {
         // the ledger (lib/release-lanes closedReleaseMove); buys attach below
         supabase.from("releases").select("*, clients(name), release_slots(id, line_id, item_id, sold_qtys, qtys, items!release_slots_item_id_fkey(id, name, received_qtys, buy_sheet_lines(size, qty_ordered)))").not("status", "in", "(cut,shelved,done)"),
         supabase.from("job_activity").select("message, created_at, jobs(job_number, clients(name))").order("created_at", { ascending: false }).limit(16),
-        god ? supabase.from("payment_records").select("id, job_id, amount, status, due_date, invoice_number, jobs!inner(id, job_number, title, phase, type_meta, qb_invoice_number, qb_invoice_id, clients(name))").in("status", ["sent", "viewed", "partial", "overdue"]).lt("due_date", new Date().toISOString().slice(0, 10)).not("jobs.phase", "eq", "cancelled").limit(8) : none,
+        god ? supabase.from("payment_records").select("id, job_id, amount, status, due_date, invoice_number, jobs!inner(id, job_number, title, phase, type_meta, qb_invoice_number, qb_invoice_id, clients(name))").in("status", ["sent", "viewed", "partial", "overdue"]).lt("due_date", todayPacific()).not("jobs.phase", "eq", "cancelled").limit(8) : none,
         supabase.from("pull_requests").select("id", { count: "exact", head: true }).in("status", ["pending", "partial"]),
         // post-production: shipped jobs whose invoice hasn't been finalized
         // with actuals yet (deriveInvoice filters the true reconcile set below)
@@ -184,8 +185,8 @@ export default function HousePage() {
     const press = J.flatMap((x: any) => x.items || []).filter((i: any) => i.pipeline_stage === "in_production")
       .reduce((a: number, i: any) => a + (i.buy_sheet_lines || []).reduce((s: number, l: any) => s + (Number(l.qty_ordered) || 0), 0), 0);
     // drops calls
-    const today = new Date().toISOString().slice(0, 10);
-    const soon = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+    const today = todayPacific();
+    const soon = addDays(todayPacific(), 3);
     const dropCalls = drops.filter((r: any) => {
       if (r.status === "ready") return true;
       // closed: only when there's a move — bought out + waiting on the vendor is not one
@@ -195,14 +196,14 @@ export default function HousePage() {
     });
     // vendor risk — the shared rule (lib/house-model), so the sidebar's
     // Production count and these cards are the same list
-    const soonV = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+    const soonV = addDays(todayPacific(), 3);
     const vendorRisk = J.map((x: any) => vendorRiskFor(x, today, soonV)).filter(Boolean) as any[];
     // studio calls: new ideas + unanswered client/designer words — the inbox
     // rule (lib/inbox), so this block and the sidebar badge agree
     const studioCalls = briefs.filter((b: any) => b.state === "draft" || b.has_unread_external);
     // the rest of the inbox: proof revisions + vendor flags
     const inboxWork = inbox.filter(i => i.kind !== "brief");
-    const overdue = ourJobs.filter((x: any) => x.target_ship_date && x.target_ship_date < new Date().toISOString().slice(0, 10));
+    const overdue = ourJobs.filter((x: any) => x.target_ship_date && x.target_ship_date < todayPacific());
     const dockJobs = J.filter((x: any) => (PHASE_VERB[x.phase] || {}).side === "distro");
     return { ourJobs, prepJobs, readyJobs, theirJobs, press, dropCalls, studioCalls, inboxWork, overdue, vendorRisk, dockJobs };
   }, [jobs, drops, briefs, inbox]);
@@ -311,7 +312,7 @@ export default function HousePage() {
               </div>
               <div className="hs-grid">
                 {model.dropCalls.map((r: any) => {
-                  const today2 = new Date().toISOString().slice(0, 10);
+                  const today2 = todayPacific();
                   const ended = r.status === "live" && r.window_close_date && r.window_close_date <= today2;
                   const closingSoon = r.status === "live" && !ended;
                   const launchOnly = r.model === "stock";
@@ -397,7 +398,7 @@ export default function HousePage() {
                 })}
                 {model.readyJobs.slice(0, 12).map((x: any) => {
                   const v = PHASE_VERB[x.phase];
-                  const late = x.target_ship_date && x.target_ship_date < new Date().toISOString().slice(0, 10);
+                  const late = x.target_ship_date && x.target_ship_date < todayPacific();
                   const ref = (x as any).qb_invoice_number ? `#${(x as any).qb_invoice_number}` : x.job_number;
                   const units = (x.items || []).reduce((a: number, i: any) => a + (i.buy_sheet_lines || []).reduce((s: number, l: any) => s + (Number(l.qty_ordered) || 0), 0), 0);
                   const dd = JOB_DIRECTIVES[x.phase];

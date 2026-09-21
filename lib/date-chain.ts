@@ -26,6 +26,7 @@
 // decorators.transit_defaults {ground, freight, ocean} (migration 123).
 
 import { addDays, daysUntilDay } from "./dates";
+import { todayPacific } from "@/lib/dates";
 
 export type TransitMethod = "ground" | "freight" | "ocean";
 export type ChainRoute = "drop_ship" | "ship_through" | "stage";
@@ -115,7 +116,7 @@ export function deriveDateChain(input: ChainInput): ChainResult {
   const poDay = input.poSentDate ? input.poSentDate.slice(0, 10) : null;
   const lead = typeof input.lead === "number" && Number.isFinite(input.lead) ? input.lead : null;
   const suggestedShipBy = lead != null
-    ? addDays(poDay || new Date().toISOString().slice(0, 10), lead)
+    ? addDays(poDay || todayPacific(), lead)
     : null;
 
   // arrival: box/item override wins; else ship-by + transit

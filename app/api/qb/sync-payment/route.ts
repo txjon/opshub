@@ -6,6 +6,7 @@ import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getAccessToken } from "@/lib/quickbooks";
 import { derivePaymentType } from "@/lib/payment-status";
 import { recalcJobPhase } from "@/lib/job-phase-recalc";
+import { todayPacific } from "@/lib/dates";
 
 const QB_BASE_URL = "https://quickbooks.api.intuit.com";
 
@@ -132,7 +133,7 @@ export async function POST(req: NextRequest) {
       // $100k, so an invoice legitimately receives several identical $100k
       // payments — keying on amount blocked manual recovery of the 2nd+.
       // (qb_payment_id, qb_invoice_id) records each distinct payment once.
-      const today = new Date().toISOString().split("T")[0];
+      const today = todayPacific();
       const { data: existing } = await admin
         .from("payment_records")
         .select("id")

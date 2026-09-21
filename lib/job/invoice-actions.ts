@@ -7,8 +7,9 @@
 // in the QB/PDF/variance routes is a SEPARATE, ticketed extraction (billing-derive).
 import { createClient } from "@/lib/supabase/client";
 import { logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
+import { todayPacific } from "@/lib/dates";
 
-const today = () => new Date().toISOString().split("T")[0];
+const today = () => todayPacific();
 
 export type QBPushResult =
   | { ok: true; data: any }

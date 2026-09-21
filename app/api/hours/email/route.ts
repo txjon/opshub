@@ -21,7 +21,7 @@ function fmtTime(t: string | null) {
   const ap = h < 12 ? "a" : "p"; const h12 = h % 12 === 0 ? 12 : h % 12;
   return `${h12}:${String(m).padStart(2, "0")}${ap}`;
 }
-function fmtDateShort(s: string) { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }); }
+function fmtDateShort(s: string) { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" , timeZone: "America/Los_Angeles" }); }
 function fmtMD(s: string) { const [, m, d] = s.split("-").map(Number); return `${m}/${d}`; }
 
 export async function POST(req: NextRequest) {

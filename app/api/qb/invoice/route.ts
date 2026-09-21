@@ -9,6 +9,7 @@ import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getOrCreateCustomer, createInvoice, updateInvoice, QBAmbiguousCustomerError, getCustomerById, type QBLineItem } from "@/lib/quickbooks";
 import { billableQtysForItem, sumForwarded } from "@/lib/job/billable-qtys";
 import { deductSamples } from "@/lib/qty";
+import { todayPacific, addDays } from "@/lib/dates";
 // Note: logs to job_activity after push so dashboard actions are traceable
 // Pricing source of truth: items.sell_per_unit (set by CostingTab, rounded to cent)
 
@@ -310,7 +311,7 @@ export async function POST(req: NextRequest) {
             type: "full_payment",
             amount: updTotal,
             status: "sent",
-            due_date: daysOut !== null ? new Date(Date.now() + daysOut * 86400000).toISOString().split("T")[0] : null,
+            due_date: daysOut !== null ? addDays(todayPacific(), daysOut) : null,
             paid_date: null,
           });
         }
@@ -379,9 +380,7 @@ export async function POST(req: NextRequest) {
         const today = new Date();
         const terms = (job.payment_terms || "") as string;
         const daysOut = terms === "net_15" ? 15 : terms === "net_30" ? 30 : null;
-        const dueDate = daysOut !== null
-          ? new Date(today.getTime() + daysOut * 86400000).toISOString().split("T")[0]
-          : null;
+        const dueDate = daysOut !== null ? addDays(todayPacific(), daysOut) : null;
         await admin.from("payment_records").insert({
           job_id: jobId,
           qb_invoice_id: result.invoiceId,

@@ -43,7 +43,7 @@ export function renderPOHTML(data: POData): string {
       month: "long",
       day: "numeric",
       year: "numeric",
-    });
+     timeZone: "America/Los_Angeles" });
 
   // Collect all unique sizes across line items
   const allSizes = Array.from(

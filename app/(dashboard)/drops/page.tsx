@@ -11,7 +11,7 @@ import { H, HUB_PAGE } from "@/components/hub/theme";
 import { useConfirm } from "@/components/useConfirm";
 import { backwardChain } from "@/lib/portal/drop-chain";
 import { isPipelineSlot, isRerunSlot, lineupIsPipelineOnly, lineUnits, lineState, lineLanded, LINE_LABELS, releaseNumbersDone, suggestNextBuy, lineCovered, lineBought, slotLedger, slotHasLedger, releaseCoverage, closedReleaseMove, sumQtys, type LineTone, type Ledger } from "@/lib/release-lanes";
-import { fmtDay as fmtDate, daysUntilDay as daysTo } from "@/lib/dates";
+import { daysUntilDay as daysTo, fmtDay as fmtDate, todayPacific } from "@/lib/dates";
 import { parseSalesCsv, matchSalesToSlots } from "@/lib/shopify-sales-import";
 import { sortSizes } from "@/lib/theme";
 
@@ -312,7 +312,7 @@ export default function DropsBoard() {
 
               {r.target_live_date && ["building", "ready", "live"].includes(r.status) && (() => {
                 const steps = backwardChain(r.target_live_date);
-                const today = new Date().toISOString().slice(0, 10);
+                const today = todayPacific();
                 const nextIdx = steps.findIndex((s: any) => s.date >= today);
                 return (
                   <div style={{ padding: "12px 22px 0" }}>

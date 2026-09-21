@@ -11,7 +11,7 @@ import { DISTRO_DIRECTIVES, HOUSE_EXTRA_DIRECTIVES } from "@/lib/directives";
 import { fulfillPullRequest, resolvePostShopifyPull } from "@/lib/handoff";
 import { logJobActivity } from "@/components/JobActivityPanel";
 
-import { fmtDay, daysUntilDay } from "@/lib/dates";
+import { daysUntilDay, fmtDay, todayPacific } from "@/lib/dates";
 import { TrackingLink } from "@/components/TrackingModal";
 
 // Radar row shapes — assembled server-side in page.tsx (the /distro arrival
@@ -80,7 +80,7 @@ export default function TheDistroView({ rows, drops }: { rows: ArrivalRow[]; dro
 
   useEffect(() => {
     (async () => {
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const todayStr = todayPacific();
       const [{ data: pr }, { data: fj }, { data: act }, { data: lateShips }] = await Promise.all([
         supabase.from("pull_requests").select("id, item_id, job_id, kind, qtys, reason, status, requested_by_name, created_at, items(id, name, status, sample_qtys, received_at_hpd, jobs(job_number, clients(name)))").in("status", ["pending", "partial"]).order("created_at").limit(20),
         supabase.from("jobs").select("id, job_number, fulfillment_status, target_ship_date, clients(name), items(id, name, received_at_hpd, webstore_entered_at)").eq("phase", "fulfillment"),

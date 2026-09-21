@@ -38,7 +38,7 @@ export function renderQuoteHTML(data: QuoteData): string {
       month: "long",
       day: "numeric",
       year: "numeric",
-    });
+     timeZone: "America/Los_Angeles" });
 
   const lineItemsHTML = data.line_items
     .map(

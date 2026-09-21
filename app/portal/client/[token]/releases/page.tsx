@@ -12,10 +12,11 @@ import { useClientPortal } from "../_shared/context";
 import { C, fmtDate } from "../_shared/theme";
 import { CHAIN_DEFAULTS } from "@/lib/portal/drop-chain";
 import { lineUnits, lineState, LINE_LABELS, type LineTone } from "@/lib/release-lanes";
+import { todayPacific } from "@/lib/dates";
 
 const thumbSrc = (id: string, size = 300) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
 // Honest landing copy: a past ETA reads "was due", never a confident future.
-const landsWord = (eta: string) => `${eta < new Date().toISOString().slice(0, 10) ? "was due" : "lands"} ${fmtDate(eta)}`;
+const landsWord = (eta: string) => `${eta < todayPacific() ? "was due" : "lands"} ${fmtDate(eta)}`;
 const TONE: Record<LineTone, string> = { green: C.green, amber: C.amber, blue: C.blue, purple: C.purple };
 
 // ONE health line per release (Phase 5 vocabulary, Aug 24 2026 — Jon:
