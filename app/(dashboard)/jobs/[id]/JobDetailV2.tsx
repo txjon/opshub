@@ -347,7 +347,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       } else {
         await (sb.from("item_files") as any).update({ approval: "pending", approved_at: null })
           .eq("item_id", itemId).eq("stage", "proof").is("superseded_at", null);
-        await (sb.from("proof_versions") as any).update({ state: "sent" })
+        // Clear the approval fields too. Leaving approved_at behind sent an
+        // un-approved proof into the hub payload carrying an approval date.
+        await (sb.from("proof_versions") as any)
+          .update({ state: "sent", approved_at: null, approved_by: null, approval_source: null })
           .eq("item_id", itemId).eq("state", "approved").is("superseded_at", null);
       }
       const [{ data: v }, { data: fresh }]: any = await Promise.all([

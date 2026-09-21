@@ -51,6 +51,8 @@ export async function currentVersion(db: any, itemId: string): Promise<ProofVers
 export async function approvedVersion(db: any, itemId: string): Promise<ProofVersion | null> {
   const { data } = await db.from("proof_versions")
     .select("*").eq("item_id", itemId).eq("state", "approved")
+    // A retired approval is history, not the current record.
+    .is("superseded_at", null)
     .order("version", { ascending: false }).limit(1);
   return ((data || [])[0] as ProofVersion) || null;
 }
@@ -189,12 +191,30 @@ export async function renderVersionPdf(versionId: string): Promise<{ ok: true; p
   const { getAccessToken } = await import("./drive-auth");
 
   // Already rendered once and kept: serve that, byte for byte.
+  //
+  // If it cannot be read, FAIL. This used to fall through and re-render, which
+  // quietly substituted a freshly drawn document for the archived evidence of a
+  // sign-off — and for migrated versions, whose spec is the item's CURRENT art,
+  // the two are not the same document. A transport error must never produce a
+  // substitute artifact (see the QuickBooks outage postmortem, Sep 2026).
   if (version.pdf_drive_file_id) {
     try {
       const token = await getAccessToken();
       const res = await fetch(`https://www.googleapis.com/drive/v3/files/${version.pdf_drive_file_id}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) return { ok: true, pdf: Buffer.from(await res.arrayBuffer()), fileName, cached: true };
-    } catch { /* fall through and render again */ }
+      console.error(`[proof-versions] archived proof ${version.pdf_drive_file_id} unreadable: HTTP ${res.status}`);
+    } catch (e: any) {
+      console.error(`[proof-versions] archived proof ${version.pdf_drive_file_id} unreadable:`, e?.message || e);
+    }
+    return { ok: false, error: "This approved proof is on file but could not be read just now. Please try again in a moment.", status: 502 };
+  }
+
+  // Nothing archived and nothing to draw. Migrated rows can carry no spec at
+  // all; rendering one produces a blank sheet under a real proof's filename,
+  // which is worse than an honest error.
+  const specKeys = version.spec && typeof version.spec === "object" ? Object.keys(version.spec).length : 0;
+  if (!specKeys) {
+    return { ok: false, error: "This proof has no saved document to draw. Open it in the proof editor and save it once.", status: 409 };
   }
 
   // Render from the frozen data.
@@ -238,7 +258,9 @@ export async function renderVersionPdf(versionId: string): Promise<{ ok: true; p
       const clientName = (item as any)?.jobs?.clients?.name || "Unknown Client";
       const projectTitle = (item as any)?.jobs?.title || jobNumber || "Untitled Project";
       const folderId = await getItemFolderId(clientName, projectTitle, itemName);
-      const up = await uploadFile(folderId, fileName, "application/pdf", pdf);
+      // NOT anyone-with-the-link: this file is only ever served through
+      // /api/proof/[versionId]/pdf, which checks the audience (Phase 0 rule).
+      const up = await uploadFile(folderId, fileName, "application/pdf", pdf, { public: false });
       await db.from("proof_versions").update({ pdf_drive_file_id: up.fileId, pdf_created_at: new Date().toISOString() })
         .eq("id", version.id).is("pdf_drive_file_id", null);
     } catch (e: any) { console.error("[proof-versions] keeping the approved PDF failed:", e?.message || e); }

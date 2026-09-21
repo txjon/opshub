@@ -121,13 +121,24 @@ export async function loadProofVersions(sb: any, itemIds: string[], opts?: { tok
   const ids = Array.from(new Set(itemIds.filter(Boolean)));
   const t = opts?.token ? `?t=${encodeURIComponent(opts.token)}` : "";
   for (let i = 0; i < ids.length; i += 150) {
-    const { data, error } = await sb.from("proof_versions")
-      .select("id, item_id, version, state, approved_at")
-      .in("item_id", ids.slice(i, i + 150))
-      .in("state", ["approved", "sent"])
-      .order("version", { ascending: false });
-    if (error) continue;
-    for (const v of (data || [])) {
+    // RANGED. The vendor portal loads every item across all of a vendor's
+    // jobs, so a chunk can exceed the 1000-row cap an un-ranged select is
+    // silently truncated at. Sorted version-desc, truncation drops the LOW
+    // versions first — an approved v1 would vanish and the printer would be
+    // shown a later, unapproved version in its place.
+    const rows: any[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await sb.from("proof_versions")
+        .select("id, item_id, version, state, approved_at")
+        .in("item_id", ids.slice(i, i + 150))
+        .in("state", ["approved", "sent"])
+        .order("version", { ascending: false })
+        .range(from, from + 999);
+      if (error) break;
+      rows.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
+    for (const v of rows) {
       const cur = out[v.item_id];
       // approved wins; otherwise the newest sent
       if (cur && (cur.state === "approved" || v.state !== "approved")) continue;

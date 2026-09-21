@@ -52,7 +52,9 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
   const tm = job?.type_meta || {};
 
   // Gather items + their active proofs (for the snapshot AND to approve).
-  const { data: items } = await sb.from("items").select("id, name, sell_per_unit").eq("job_id", jobId);
+  // artwork_status is selected because n_a items are excluded from version
+  // stamping below — without it every item looked like it needed a proof.
+  const { data: items } = await sb.from("items").select("id, name, sell_per_unit, artwork_status").eq("job_id", jobId);
   const itemIds = (items || []).map((i: any) => i.id);
   const nameById: Record<string, string> = Object.fromEntries((items || []).map((i: any) => [i.id, i.name]));
 
@@ -74,6 +76,8 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
 
   let proofFiles: any[] = [];
   const approvedVersions: any[] = [];
+  // Set once versions are stamped, so a later failure can put them back.
+  let approveUndo: (() => Promise<boolean>) | null = null;
   if (itemIds.length) {
     const { data: files } = await sb.from("item_files")
       .select("id, item_id, file_name, drive_file_id")
@@ -81,40 +85,81 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
     proofFiles = files || [];
 
     // The VERSION is the record of what the client signed off, so it is stamped
-    // FIRST and a failure aborts the whole approval.
+    // FIRST and the whole approval is all-or-nothing.
     //
     // This used to run last, inside a catch that logged and carried on. On
     // 2026-09-21 a hub approval flipped the job and the item to approved while
-    // the version stayed 'sent' — the client was told it worked, the team saw
-    // an approved item, and nothing recorded what had been agreed to. An
-    // approval that leaves no record is not an approval. Stamping before the
-    // derived statuses means a failure now leaves nothing half-approved.
-    const { approveVersion, currentVersion } = await import("@/lib/proof-versions");
-    for (const itemId of itemIds) {
-      // No version = no proof on this item (n_a, or a pre-versions record).
-      // Nothing to stamp, and nothing to fail over.
-      const live = await currentVersion(sb, itemId);
-      if (!live) continue;
-      let r = await approveVersion(sb, { itemId, approvedBy: ctx.via || "client", source: "client" });
-      // One retry: the failure we saw was not reproducible, so a transient
-      // hiccup is the likeliest cause and is worth absorbing silently.
-      if (!r.ok) r = await approveVersion(sb, { itemId, approvedBy: ctx.via || "client", source: "client" });
-      if (!r.ok || !r.version) {
-        throw new Error(`Could not record the approval for "${nameById[itemId] || "this item"}". Nothing has been approved — please try again.`);
+    // the version stayed 'sent': the client was told it worked, the team saw an
+    // approved item, and nothing recorded what had been agreed to. An approval
+    // that leaves no record is not an approval.
+    //
+    // Stamping exactly what the client was SHOWN (clientVisibleVersions) closes
+    // the other half: iterating every item and taking whatever version was
+    // newest could stamp a draft nobody ever sent, which the vendor portal then
+    // serves to the printer as the approved proof.
+    const { approveVersion, clientVisibleVersions } = await import("@/lib/proof-versions");
+    const { visible } = await clientVisibleVersions(sb, itemIds);
+    const noProofItems = new Set((items || []).filter((i: any) => i.artwork_status === "n_a").map((i: any) => i.id));
+    const stamped: { id: string; state: string; approvedAt: string | null }[] = [];
+
+    const undoStamps = async () => {
+      // Put back everything this call changed, so a failure leaves the job
+      // exactly as the client found it.
+      let clean = true;
+      for (const st of stamped) {
+        const { error } = await sb.from("proof_versions")
+          .update({ state: st.state, approved_at: st.approvedAt, approved_by: null, approval_source: null })
+          .eq("id", st.id);
+        if (error) { clean = false; console.error("[approval] could not undo a proof stamp:", st.id, error.message); }
       }
-      approvedVersions.push({
-        itemId, itemName: nameById[itemId] || null,
-        versionId: r.version.id, version: r.version.version,
-        proofUrl: `/api/proof/${r.version.id}/pdf`,
-      });
+      return clean;
+    };
+
+    try {
+      for (const [itemId, v] of visible) {
+        if (noProofItems.has(itemId)) continue;   // nothing was ever put to the client here
+        if (v.state === "approved") {
+          approvedVersions.push({ itemId, itemName: nameById[itemId] || null, versionId: v.id, version: v.version, proofUrl: `/api/proof/${v.id}/pdf` });
+          continue;
+        }
+        // Name the exact version, so what gets stamped is what was shown.
+        let r = await approveVersion(sb, { itemId, versionId: v.id, approvedBy: ctx.via || "client", source: "client" });
+        // One retry: the failure we saw was not reproducible, so a transient
+        // hiccup is the likeliest cause and is worth absorbing.
+        if (!r.ok) r = await approveVersion(sb, { itemId, versionId: v.id, approvedBy: ctx.via || "client", source: "client" });
+        if (!r.ok || !r.version) throw new Error(`Could not record the approval for "${nameById[itemId] || "this item"}".`);
+        stamped.push({ id: v.id, state: v.state, approvedAt: v.approved_at });
+        approvedVersions.push({ itemId, itemName: nameById[itemId] || null, versionId: r.version.id, version: r.version.version, proofUrl: `/api/proof/${r.version.id}/pdf` });
+      }
+    } catch (e: any) {
+      const clean = await undoStamps();
+      throw new Error(clean
+        ? `${e?.message || "The approval could not be recorded."} Nothing has been approved — please try again.`
+        : `${e?.message || "The approval could not be recorded."} Please contact us before approving again.`);
     }
 
-    // Derived state, only once the record exists.
-    await sb.from("item_files")
-      .update({ approval: "approved", approved_at: now })
-      .in("item_id", itemIds).eq("stage", "proof").is("superseded_at", null);
-    // n_a (no proof needed) stays n_a — the client never had a proof to approve on it.
-    await sb.from("items").update({ artwork_status: "approved" }).in("id", itemIds).neq("artwork_status", "n_a");
+    // Derived state, only once the record exists. If either of these fails the
+    // record is rolled back too — an approved proof under an unapproved job is
+    // the split state this whole ordering exists to prevent.
+    const failDerived = async (what: string, detail: string) => {
+      console.error(`[approval] ${what} write failed:`, detail);
+      const clean = await undoStamps();
+      throw new Error(clean
+        ? "Could not save the approval. Nothing has been approved — please try again."
+        : "Could not save the approval. Please contact us before approving again.");
+    };
+    {
+      const { error } = await sb.from("item_files")
+        .update({ approval: "approved", approved_at: now })
+        .in("item_id", itemIds).eq("stage", "proof").is("superseded_at", null);
+      if (error) await failDerived("proof files", error.message);
+    }
+    {
+      // n_a (no proof needed) stays n_a — the client never had a proof to approve on it.
+      const { error } = await sb.from("items").update({ artwork_status: "approved" }).in("id", itemIds).neq("artwork_status", "n_a");
+      if (error) await failDerived("item status", error.message);
+    }
+    approveUndo = undoStamps;
   }
 
   const snapshot: ApprovalSnapshot = {
@@ -132,8 +177,31 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
   };
 
   // Flip the quote gate + freeze the snapshot + clear any prior change request.
-  await sb.from("jobs").update({ quote_approved: true, quote_approved_at: now, quote_rejection_notes: null }).eq("id", jobId);
-  await mergeJobTypeMeta(sb, jobId, { approval_snapshot: snapshot, change_request: null });
+  //
+  // BOTH are checked. mergeJobTypeMeta returns {ok:false} rather than throwing,
+  // and the mig-176 type_meta guard can refuse a write outright — so an
+  // unchecked call here loses approval_snapshot, the only durable record of the
+  // per-line pricing the client agreed to, while everything else reads
+  // approved. See the type_meta silent-refusal rule.
+  {
+    const { error } = await sb.from("jobs")
+      .update({ quote_approved: true, quote_approved_at: now, quote_rejection_notes: null }).eq("id", jobId);
+    if (error) {
+      if (approveUndo) await approveUndo();
+      throw new Error("Could not save the approval. Nothing has been approved — please try again.");
+    }
+  }
+  {
+    const merged = await mergeJobTypeMeta(sb, jobId, { approval_snapshot: snapshot, change_request: null });
+    if (!merged.ok) {
+      // The gate is already open; rather than leave the money record missing in
+      // silence, put everything back and make the client retry.
+      await sb.from("jobs").update({ quote_approved: false, quote_approved_at: null }).eq("id", jobId);
+      if (approveUndo) await approveUndo();
+      await sb.from("items").update({ artwork_status: "not_started" }).in("id", itemIds).eq("artwork_status", "approved");
+      throw new Error("Could not save the approval record. Nothing has been approved — please try again.");
+    }
+  }
 
   await sb.from("job_activity").insert({
     job_id: jobId, user_id: null, type: "auto",
@@ -188,9 +256,14 @@ export async function requestChanges(sb: Sb, jobId: string, note: string, itemId
       // The VERSION has to reopen too, or the proof keeps reading "approved"
       // everywhere while the client is waiting on a revision. It drops back to
       // SENT — it did go out, it simply isn't signed off any more.
+      // ONLY the live version. Without the superseded filter this wiped
+      // approved_at / approved_by off every PAST approval of the item too —
+      // rows that are the signed record of earlier rounds, some with their
+      // signed PDF still on file. A routine client action must not destroy
+      // history.
       await sb.from("proof_versions")
         .update({ state: "sent", approved_at: null, approved_by: null, approval_source: null })
-        .in("item_id", taggedIds).eq("state", "approved");
+        .in("item_id", taggedIds).eq("state", "approved").is("superseded_at", null);
     }
   }
 
