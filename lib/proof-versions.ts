@@ -223,14 +223,21 @@ export async function renderVersionPdf(versionId: string): Promise<{ ok: true; p
   const { getPdfBranding } = await import("./branding");
   const branding: any = await getPdfBranding().catch(() => ({ name: "House Party Distro", logoSvg: "" }));
 
+  // The mockup is the item's ORIGINAL file, and the crop is applied at render
+  // time from its true pixel size — so nothing cropped is stored, and a zoomed
+  // mockup looks the same in the PDF as it does in the editor.
   let mockupUrl: string | null = null;
+  let mockupSize: { w: number; h: number } | null = null;
   if (version.mockup_drive_file_id) {
     try {
       const token = await getAccessToken();
       const res = await fetch(`https://www.googleapis.com/drive/v3/files/${version.mockup_drive_file_id}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) {
         const type = res.headers.get("content-type") || "image/png";
-        mockupUrl = `data:${type};base64,${Buffer.from(await res.arrayBuffer()).toString("base64")}`;
+        const bytes = Buffer.from(await res.arrayBuffer());
+        mockupUrl = `data:${type};base64,${bytes.toString("base64")}`;
+        const { imageSize } = await import("./image-size");
+        mockupSize = imageSize(bytes);
       }
     } catch { /* a proof without its mockup still renders */ }
   }
@@ -244,6 +251,7 @@ export async function renderVersionPdf(versionId: string): Promise<{ ok: true; p
       brandName: branding.name || "House Party Distro",
       logoSvg: branding.logoSvg || "",
       mockupUrl,
+      mockupSize,
     });
     pdf = (await generatePDF(html)) as Buffer;
   } catch (e: any) {

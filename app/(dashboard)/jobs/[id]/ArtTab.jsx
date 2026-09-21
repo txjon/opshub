@@ -847,18 +847,11 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     if (driveBakedSpecRef.current !== null && specSnap === driveBakedSpecRef.current) {
       return latestVersionRef.current;
     }
-    let mockupDriveFileId = null;
-    try {
-      if (croppedMockupUrl) {
-        const blob = await (await fetch(croppedMockupUrl)).blob();
-        const safeName = (item.name || "Item").replace(/[^\w\s-]/g, "");
-        const driveFile = await uploadToDrive({
-          blob, fileName: `${safeName} - Proof mockup.png`, mimeType: "image/png",
-          itemId: item.id, clientName, projectTitle, itemName: item.name || "",
-        });
-        mockupDriveFileId = driveFile?.fileId || null;
-      }
-    } catch (e) { console.error("[proof version] mockup upload failed:", e); }
+    // Point at the item's OWN mockup. This used to upload a cropped copy on
+    // every save, which left a file per version in the item's Drive folder and
+    // tracked nothing: a proof is data, and a cropped picture is derived data.
+    // The crop lives on the spec and the renderer applies it (lib/proof-html).
+    const mockupDriveFileId = mockupFile?.drive_file_id || null;
     const res = await fetch(`/api/items/${item.id}/proof/versions`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ spec: JSON.parse(specSnap), mockupDriveFileId, rendererVersion: PROOF_RENDERER_VERSION, state }),

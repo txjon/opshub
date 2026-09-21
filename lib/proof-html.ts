@@ -1,4 +1,4 @@
-import { MOCKUP_FRAME_ASPECT } from "@/lib/mockup-crop";
+import { MOCKUP_FRAME_ASPECT, computeMockupLayout } from "@/lib/mockup-crop";
 
 // THE CURE (2026-07-20): the proof PDF is rendered from the SAME component as
 // the web proof — ProofDocBody — via renderToStaticMarkup → Browserless. Any
@@ -11,9 +11,19 @@ import { MOCKUP_FRAME_ASPECT } from "@/lib/mockup-crop";
 // module. Dynamic import keeps this server-only at runtime and dodges the guard.
 // This function is only ever called from the nodejs route /api/pdf/proof.
 //
-// The mockup can't render server-side (MockupFrame needs client measurement),
-// so the caller passes a PRE-CROPPED image (baked to the 2:1 frame on the
-// client); we render it as a plain contained <img> and strip spec.mockupCrop.
+// The mockup's crop is three numbers on the spec (zoom, offsetX, offsetY), and
+// this renders them.
+//
+// It used to need a PRE-CROPPED image because MockupFrame measures the picture
+// in a browser and nothing here could. Now the caller passes `mockupSize` (read
+// from the file's own header, lib/image-size) and the same computeMockupLayout
+// the editor uses places the image, expressed in percentages so it holds at any
+// rendered width. No second copy of every mockup in Drive, and a crop no longer
+// silently disappears from the PDF.
+//
+// WITHOUT `mockupSize` the old contract still applies: the image is assumed to
+// be pre-cropped and spec.mockupCrop is stripped. /api/pdf/proof still works
+// that way, and passing both would crop twice.
 
 export async function renderProofHtml(opts: {
   spec: any;
@@ -22,6 +32,8 @@ export async function renderProofHtml(opts: {
   brandName?: string;
   logoSvg?: string;
   mockupUrl?: string | null;
+  /** The mockup's true pixel size. Present = apply spec.mockupCrop here. */
+  mockupSize?: { w: number; h: number } | null;
   font?: string;
   mono?: string;
 }): Promise<string> {
@@ -32,6 +44,7 @@ export async function renderProofHtml(opts: {
     brandName = "",
     logoSvg = "",
     mockupUrl = null,
+    mockupSize = null,
     font = "Inter, system-ui, sans-serif",
     mono = "'IBM Plex Mono', ui-monospace, monospace",
   } = opts;
@@ -42,7 +55,17 @@ export async function renderProofHtml(opts: {
     import("@/components/ProofDocBody"),
   ]);
 
+  // Keep the crop on the spec only when we are the ones applying it.
+  const applyCrop = !!(mockupSize && mockupSize.w > 0 && mockupSize.h > 0);
   const specForRender = { ...(spec || {}), mockupCrop: null };
+
+  // Percentages, so the same numbers hold whatever width the frame renders at.
+  const placed = applyCrop ? (() => {
+    const FW = 1000, FH = FW / MOCKUP_FRAME_ASPECT;
+    const l = computeMockupLayout(mockupSize!.w, mockupSize!.h, FW, FH, (spec || {}).mockupCrop);
+    const pct = (n: number, of: number) => `${(n / of) * 100}%`;
+    return { left: pct(l.left, FW), top: pct(l.top, FH), width: pct(l.dispW, FW), height: pct(l.dispH, FH) };
+  })() : null;
 
   // Static mockup slot — the pre-cropped image in the same 2:1 frame the web
   // MockupFrame uses (contained). No measurement/hooks → server-renderable.
@@ -56,7 +79,14 @@ export async function renderProofHtml(opts: {
         React.createElement(
           "div",
           { style: { position: "relative", width: "72%", margin: "0 auto", aspectRatio: `${MOCKUP_FRAME_ASPECT}`, overflow: "hidden", borderRadius: 10, background: "#fff" } },
-          React.createElement("img", { src: mockupUrl, alt: "", style: { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain" } })
+          React.createElement("img", {
+            src: mockupUrl, alt: "",
+            style: placed
+              // Zoomed/panned: placed exactly as the editor places it.
+              ? { position: "absolute", left: placed.left, top: placed.top, width: placed.width, height: placed.height, objectFit: "fill" }
+              // No crop to apply: let it fit the frame.
+              : { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain" },
+          })
         )
       )
     : null;
