@@ -115,7 +115,19 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       // INTERNALLY (artwork_status — client PO / verbal / email sign-off)
       // settles its proofs too: same disjunction the internal lifecycle
       // gate uses, never a parallel state machine.
+      // A proof is a VERSION now, and no 'pending' file row is ever written for
+      // one — so counting only those made this permanently 0, and the hub
+      // stopped telling clients a proof was waiting anywhere but inside the
+      // order itself. Versions first, file rows for items that have no version.
+      const { clientVisibleVersions } = await import("@/lib/proof-versions");
+      const { visible: visibleVersions } = await clientVisibleVersions(db, Object.keys(jobIdByItem));
+      for (const [itemId, v] of visibleVersions) {
+        if (v.state === "approved" || internallyApprovedItems.has(itemId)) continue;
+        const jid = jobIdByItem[itemId];
+        if (jid) pendingProofsByJob[jid] = (pendingProofsByJob[jid] || 0) + 1;
+      }
       for (const f of (files || [])) {
+        if (visibleVersions.has(f.item_id)) continue;   // the version already spoke for this item
         if (f.stage === "proof" && f.approval === "pending" && !internallyApprovedItems.has(f.item_id)) {
           const jid = jobIdByItem[f.item_id];
           if (jid) pendingProofsByJob[jid] = (pendingProofsByJob[jid] || 0) + 1;

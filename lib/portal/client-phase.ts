@@ -47,7 +47,12 @@ export function itemClientPhase(it: {
   const proofs = (it.proofs || []).filter(p => p.stage === "proof");
   if (proofs.some(p => p.approval === "revision_requested")) return { label: "Revising your proof", tone: "warn" };
   const allApproved = proofs.length > 0 && proofs.every(p => p.approval === "approved");
-  if (allApproved || it.internalApproved) return { label: "Approved · preparing", tone: "done" };
+  // A live proof the client has not answered OUTRANKS an internal approval.
+  // Otherwise an item approved internally before its proof existed read
+  // "Approved · preparing" while the client still had it sitting in front of
+  // them, and it never appeared in the Needs-you rail.
+  const awaitingThem = proofs.some(p => p.approval === "pending");
+  if (allApproved || (it.internalApproved && !awaitingThem)) return { label: "Approved · preparing", tone: "done" };
   // A sent proof is awaiting the client's approval — even before any PDF is baked,
   // the client approves the live proof_spec doc in the hub.
   if (proofs.length > 0 || it.proofSentAt) return { label: "Awaiting your approval", tone: "warn" };

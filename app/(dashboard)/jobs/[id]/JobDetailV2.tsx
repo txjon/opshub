@@ -922,8 +922,15 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       // gone (Jon, Sep 2026).
       // Everything in the package that is still awaiting the client. An
       // already-approved proof is not re-sent, so its date must not move.
+      // The VERSION decides, not the item's status. Excluding every
+      // artwork_status==='approved' item meant a job whose quote was approved
+      // BEFORE the art existed (the usual order) never marked its proofs sent:
+      // the version stayed a draft, so the client was shown no proof at all
+      // while the hub read "Approved · preparing" — after the proofs email had
+      // already gone out. An already-approved VERSION is still skipped, so a
+      // signed-off proof never has its date moved.
       const sentIds = items.filter((it: any) => needsProof(it) && !carriedApproved(it) && it.proof_spec
-        && it.artwork_status !== "approved" && proofByItem[it.id]?.state !== "approved").map((it: any) => it.id);
+        && proofByItem[it.id]?.state !== "approved").map((it: any) => it.id);
       for (const id of sentIds) { try { await fetch(`/api/items/${id}/proof/versions`, { method: "PATCH" }); } catch { /* the send still counts */ } }
       if (sentIds.length) {
         const nowP = new Date().toISOString();
