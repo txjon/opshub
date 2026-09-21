@@ -3084,33 +3084,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           onChange={e => { const f = e.target.files?.[0]; if (f) uploadArt(it, uploadStage, f); e.currentTarget.value = ""; }} />
                       </label>
                     </div>
-                    {/* proof editor — reuses the classic ProofModal (methods/locations/colors/crop/bake) */}
-                    {(() => {
-                      const mockupFile = files.find((f: any) => f.stage === "mockup") || files.find((f: any) => f.file_name?.toLowerCase().includes("mockup"));
-                      const hasProof = !!it.proof_spec;
-                      // No spec but a baked proof PDF exists (older copied items) —
-                      // offer the PDF itself, and don't push "Generate": a fresh
-                      // draft here won't match the already-approved document.
-                      const proofPdf = !hasProof ? files.find((f: any) => f.stage === "proof") : null;
-                      const revisedPend = files.some((f: any) => f.stage === "proof" && f.revision_pending_send);
-                      if (proofByItem[it.id]) return null;
-                      return (
-                        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.border}44`, flexWrap: "wrap" }}>
-                          <span style={wlbl}>Proof</span>
-                          {/* One document, one place. "View" used to open the live
-                              web proof while the version strip opened the PDF, and
-                              the two could differ — which is the confusion this
-                              whole model removes (Jon, Sep 2026). */}
-                          {hasProof && !proofByItem[it.id] && <button onClick={() => { setProofMode("preview"); setProofItemId(it.id); }} style={ghostBtn}>View</button>}
-                          {mockupFile && <button onClick={() => { setProofMode("edit"); setProofItemId(it.id); }}
-                            style={hasProof || proofPdf ? ghostBtn : { ...actBtn, background: T.amber, color: "#fff" }}>{hasProof ? "Edit proof" : "Generate proof"}</button>}
-                          {!mockupFile && <span style={{ fontSize: 12, color: T.faint }}>Upload a mockup first — the proof is built on it.</span>}
-                          {hasProof && carriedApproved(it) && <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.green }}>Approved · carried from {carriedFrom(it)?.jobNumber || "reorder"}</span>}
-                          {hasProof && !carriedApproved(it) && !it.proof_sent_at && !revisedPend && <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.muted }}>Ready · not sent</span>}
-                          {revisedPend && <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.amber }}>Revised · send</span>}
-                        </div>
-                      );
-                    })()}
+                    {/* The proof lives in one place now: the line and button at
+                        the top of this tab, and the proof card in the strip.
+                        The old row below repeated both (Jon: two buttons). */}
                     <div style={{ fontSize: 11, color: T.muted, marginTop: 12 }}>Files open full-size in a new tab. Proofs are sent from the Client section and the client approves in their hub. If they okay it verbally, use Mark approved on the proof line.</div>
                   </div>
                 );
