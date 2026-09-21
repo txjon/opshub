@@ -294,7 +294,16 @@ export async function clientVisibleVersions(db: any, itemIds: string[]): Promise
       if (error) break;
       for (const v of (data || []) as ProofVersion[]) {
         hasAny.add(v.item_id);
-        if (v.state !== "sent" && v.state !== "approved") continue;
+        // What the client is entitled to keep seeing is the last thing we
+        // actually SENT them — even once it has been superseded.
+        //
+        // Filtering superseded rows out made a client's proof VANISH the moment
+        // anyone edited it: freezeVersion retires the previous sent version, so
+        // a client mid-review lost the document and the order silently read as
+        // settled (empty .every() is true). They keep the last sent proof until
+        // a newer one is sent.
+        const wasPutToTheClient = v.state === "sent" || v.state === "approved" || !!v.sent_at;
+        if (!wasPutToTheClient) continue;
         const held = visible.get(v.item_id);
         if (!held || held.version < v.version) visible.set(v.item_id, v);
       }

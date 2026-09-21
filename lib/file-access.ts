@@ -70,7 +70,7 @@ export async function resolveOwners(db: any, driveFileId: string): Promise<Owner
     db.from(table).select(select).eq(column, driveFileId).limit(25)
       .then((r: any) => { if (r.error) throw new Error(`${table}.${column}: ${r.error.message}`); return r.data || []; });
 
-  const [items, briefs, briefPreviews, lineups, lineupPreviews, clientDocs, legacy, products, lab] = await Promise.all([
+  const [items, briefs, briefPreviews, lineups, lineupPreviews, clientDocs, legacy, products, lab, proofPdfs, proofMockups] = await Promise.all([
     rows("item_files", "drive_file_id", "id, item_id, stage, superseded_at"),
     rows("art_brief_files", "drive_file_id", "id, brief_id"),
     rows("art_brief_files", "preview_drive_file_id", "id, brief_id"),
@@ -83,6 +83,11 @@ export async function resolveOwners(db: any, driveFileId: string): Promise<Owner
     // The public Lab page renders a stored URL that carries the Drive id.
     db.from("lab_order_requests").select("id").ilike("design_file_url", `%${driveFileId}%`).limit(1)
       .then((r: any) => { if (r.error) throw new Error(`lab_order_requests: ${r.error.message}`); return r.data || []; }),
+    // A proof version's files have no item_files row at all. Without these the
+    // judge returns "unknown file", which shadow mode serves — so flipping
+    // enforcement on would blank every proof mockup in every client hub.
+    rows("proof_versions", "pdf_drive_file_id", "id, item_id"),
+    rows("proof_versions", "mockup_drive_file_id", "id, item_id"),
   ]);
 
   const out: Owner[] = [];
@@ -93,6 +98,11 @@ export async function resolveOwners(db: any, driveFileId: string): Promise<Owner
   for (const a of legacy) out.push({ kind: "legacy_art", id: a.id, clientId: a.client_id ?? null });
   for (const p of products) out.push({ kind: "product_mockup", id: p.id });
   for (const l of lab) out.push({ kind: "lab_request", id: l.id });
+  // A proof version's file belongs to its item, judged by the same rule as any
+  // other proof on that item.
+  for (const v of [...proofPdfs, ...proofMockups]) {
+    out.push({ kind: "item_file", id: v.id, itemId: v.item_id, stage: "proof", superseded: false });
+  }
   return out;
 }
 

@@ -165,7 +165,7 @@ export async function GET(
     // one — never a draft, and never `items.proof_spec`, which is our live
     // working copy and would show art nobody sent.
     const { clientVisibleVersions, portalProofEntry } = await import("@/lib/proof-versions");
-    const { visible: visibleVersions, hasAny: versionedItems } = await clientVisibleVersions(sb, itemIds);
+    const { visible: visibleVersions } = await clientVisibleVersions(sb, itemIds);
 
     const { data: payments } = await sb
       .from("payment_records")
@@ -349,11 +349,18 @@ export async function GET(
       const manualApproved = item.artwork_status === "approved";
       const vv = visibleVersions.get(item.id) || null;
       const changeReq = (typeMeta.change_request || null) as any;
-      const revisionRequested = !!changeReq && Array.isArray(changeReq.itemIds) && changeReq.itemIds.includes(item.id) && vv?.state !== "approved";
+      const revisionRequested = !!changeReq && Array.isArray(changeReq.itemIds) && changeReq.itemIds.includes(item.id) && vv?.state !== "approved"
+        // ...and only until the revision actually goes out. Left open-ended,
+        // the hub kept saying "Revising your proof" (we owe them) while the
+        // approval panel said the updated proof was ready (they owe us).
+        && !(vv?.sent_at && changeReq.at && new Date(vv.sent_at) > new Date(changeReq.at));
       const itemProofs = proofFiles
         // An item governed by the version model gets ONE proof entry, built
         // from the version. Its old baked file rows are history.
-        .filter((f: any) => f.item_id === item.id && !(versionedItems.has(item.id) && f.stage === "proof"))
+        // Replace the old baked proof rows ONLY where a version actually
+        // stands in for them. An item whose versions are all drafts keeps the
+        // legacy path, or the client would be shown nothing at all.
+        .filter((f: any) => f.item_id === item.id && !(vv && f.stage === "proof"))
         .map((f: any) => ({
           id: f.id,
           fileName: f.file_name,
@@ -436,11 +443,10 @@ export async function GET(
         noProofNeeded: item.artwork_status === "n_a",
         // The FROZEN spec the client was sent. Only an item with no versions at
         // all falls back to the live working copy (pre-migration records).
-        proofSpec: versionedItems.has(item.id) ? (vv?.spec || null) : (item.proof_spec || null),
+        proofSpec: vv ? (vv.spec || null) : (item.proof_spec || null),
         // A migrated version can be missing its own send date; the item-level
         // stamp is the same event. Nothing sent at all stays null.
-        proofSentAt: vv ? (vv.sent_at || item.proof_sent_at || null)
-          : (versionedItems.has(item.id) ? null : item.proof_sent_at || null),
+        proofSentAt: vv ? (vv.sent_at || item.proof_sent_at || null) : (item.proof_sent_at || null),
       };
     });
 

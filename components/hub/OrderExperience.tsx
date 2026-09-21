@@ -25,7 +25,16 @@ const LBL: React.CSSProperties = { fontSize: 10, fontWeight: 800, letterSpacing:
 // ?t= carries the portal token (job or client hub) so the file routes know
 // who is asking (lib/file-access).
 const thumbSrc = (driveId: string, size = 500, token?: string | null) => `/api/files/thumbnail?id=${driveId}&thumb=1&size=${size}${token ? `&t=${encodeURIComponent(token)}` : ""}`;
-const mockupOf = (it: any) => (it.proofs || []).find((f: any) => f.stage === "mockup") || (it.proofs || []).find((f: any) => f.stage === "proof") || null;
+// The FROZEN mockup wins. The item's live mockup row is replaced in the Art tab
+// with no send at all, so preferring it drew the sent proof around today's
+// unsent artwork — the drift this model exists to remove, re-entering through
+// the image. The live mockup is only used when the version carries none.
+const mockupOf = (it: any) => {
+  const proofs = (it.proofs || []) as any[];
+  const frozen = proofs.find(f => f.stage === "proof" && f.driveFileId);
+  if (frozen) return frozen;
+  return proofs.find(f => f.stage === "mockup") || proofs.find(f => f.stage === "proof") || null;
+};
 
 export function OrderExperience({ data, token, onAction }: {
   data: any;               // the /api/portal/[token] payload

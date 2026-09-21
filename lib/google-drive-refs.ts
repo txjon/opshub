@@ -30,6 +30,13 @@ const REF_TABLES: RefTable[] = [
   { table: "lineup_options", column: "drive_file_id" },
   { table: "client_files", column: "drive_file_id" },
   { table: "legacy_art_files", column: "drive_file_id" },
+  // A proof is a VERSION now, and its files live ONLY here — the kept PDF of an
+  // approved proof is the evidence of a client's sign-off, and the frozen
+  // mockup is what that document is drawn from. Neither has an item_files row,
+  // so without these two lines every proof file from here on is outside the
+  // reference-counted delete (Sep 2026 review, before launch).
+  { table: "proof_versions", column: "pdf_drive_file_id" },
+  { table: "proof_versions", column: "mockup_drive_file_id" },
 ];
 
 /** Where else (outside item_files) does this Drive file id appear? */

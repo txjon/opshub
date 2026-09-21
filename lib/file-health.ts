@@ -40,6 +40,24 @@ async function referencedFileIds(db: any): Promise<Map<string, { file_name: stri
     if (!data || data.length < 1000) break;
     from += 1000;
   }
+  // Proof versions keep their files nowhere else: the kept PDF of an approved
+  // proof IS the sign-off record, and 337 approved versions have no saved spec,
+  // so that PDF is the only copy that can ever exist. Watch both columns.
+  for (const col of ["pdf_drive_file_id", "mockup_drive_file_id"] as const) {
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await db.from("proof_versions")
+        .select(`${col}, item_id, version`).not(col, "is", null).range(from, from + 999);
+      if (error) break;
+      for (const r of (data || [])) {
+        const id = (r as any)[col];
+        if (!out.has(id)) out.set(id, {
+          file_name: col === "pdf_drive_file_id" ? `Proof v${(r as any).version} (PDF)` : `Proof v${(r as any).version} mockup`,
+          stage: "proof", item_id: (r as any).item_id,
+        });
+      }
+      if (!data || data.length < 1000) break;
+    }
+  }
   // Brief art and client documents matter too — a designer's final can be an
   // item's print file, and a tax document going missing is worth knowing.
   for (const [table, stage] of [["art_brief_files", "brief"], ["client_files", "client-document"]] as const) {

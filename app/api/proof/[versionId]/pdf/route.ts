@@ -44,6 +44,14 @@ export async function GET(req: NextRequest, { params }: { params: { versionId: s
   }]);
   if (!verdict.ok) return new NextResponse("Not found", { status: 404 });
 
+  // A DRAFT is ours, not theirs. Nothing client- or vendor-facing emits a draft
+  // id today, so this guards the rule rather than patching a leak — but this is
+  // the route whose whole job is to enforce it, and it wasn't.
+  const isStaff = !!userId;
+  if (!isStaff && (version as any).state === "draft") {
+    return new NextResponse("Not found", { status: 404 });
+  }
+
   const out = await renderVersionPdf(params.versionId);
   if (!out.ok) return new NextResponse(out.error, { status: out.status });
 
