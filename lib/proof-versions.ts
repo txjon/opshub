@@ -78,8 +78,17 @@ export async function freezeVersion(db: any, opts: {
   const prev = (last || [])[0];
 
   // Identical art, still open for approval: keep the version we have rather
-  // than pile up duplicates.
-  if (prev && prev.state !== "approved" && JSON.stringify(prev.spec) === JSON.stringify(opts.spec)) {
+  // than pile up duplicates. Keys are sorted first — jsonb hands back a
+  // different key order than the editor emits, so a plain stringify never
+  // matched and every close made a new version.
+  const canon = (v: any): any => Array.isArray(v) ? v.map(canon)
+    : (v && typeof v === "object") ? Object.keys(v).sort().reduce((o: any, k) => { o[k] = canon(v[k]); return o; }, {})
+    : v;
+  // Identical art NEVER makes a new version — including over an approved one.
+  // Opening an approved proof and closing it must change nothing, or the item
+  // silently leaves approved and the ordering gate shuts (caught in review
+  // before it shipped, Sep 2026).
+  if (prev && JSON.stringify(canon(prev.spec)) === JSON.stringify(canon(opts.spec))) {
     const { data: unchanged } = await db.from("proof_versions").select("*").eq("id", prev.id).single();
     return { ok: true, version: unchanged as ProofVersion };
   }
@@ -133,13 +142,15 @@ export async function approveVersion(db: any, opts: {
     const { data } = await db.from("proof_versions").select("*").eq("id", opts.versionId).maybeSingle();
     target = (data as ProofVersion) || null;
   } else {
-    // The NEWEST version, not the last approved one. After an edit the newest
-    // is the draft that needs signing off; approving anything else would bless
-    // a document nobody is looking at any more.
+    // The version the client actually saw: the newest SENT one. Only if
+    // nothing has been sent does the newest draft stand in — otherwise an edit
+    // made after a send would get blessed by an approval meant for the
+    // document that went out.
     const { data } = await db.from("proof_versions").select("*")
       .eq("item_id", opts.itemId).is("superseded_at", null)
-      .order("version", { ascending: false }).limit(1);
-    target = ((data || [])[0] as ProofVersion) || null;
+      .order("version", { ascending: false });
+    const rows = (data || []) as ProofVersion[];
+    target = rows.find(r => r.state === "sent" || r.sent_at) || rows[0] || null;
   }
   if (!target) return { ok: false, error: "no proof version to approve" };
   if (target.state === "approved") return { ok: true, version: target };

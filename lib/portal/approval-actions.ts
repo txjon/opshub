@@ -73,6 +73,7 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
     .map((l: any) => ({ description: String(l.description || ""), amount: Number(l.amount) || 0 }));
 
   let proofFiles: any[] = [];
+  const approvedVersions: any[] = [];
   if (itemIds.length) {
     const { data: files } = await sb.from("item_files")
       .select("id, item_id, file_name, drive_file_id")
@@ -90,7 +91,12 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
     try {
       const { approveVersion } = await import("@/lib/proof-versions");
       for (const itemId of itemIds) {
-        await approveVersion(sb, { itemId, approvedBy: ctx.via || "client", source: "client" });
+        const r = await approveVersion(sb, { itemId, approvedBy: ctx.via || "client", source: "client" });
+        if (r.ok && r.version) approvedVersions.push({
+          itemId, itemName: nameById[itemId] || null,
+          versionId: r.version.id, version: r.version.version,
+          proofUrl: `/api/proof/${r.version.id}/pdf`,
+        });
       }
     } catch (e: any) { console.error("[approval] proof version stamp failed:", e?.message || e); }
   }
@@ -99,7 +105,11 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
     at: now,
     quoteTotal: quoteTotalOf(job),
     terms: job?.payment_terms || null,
-    proofs: proofFiles.map((f: any) => ({ itemId: f.item_id, itemName: nameById[f.item_id] || null, driveFileId: f.drive_file_id, fileName: f.file_name })),
+    // The paper trail: what the client approved. A proof is a VERSION now, so
+    // the snapshot records versions and falls back to any file rows that exist.
+    proofs: (approvedVersions.length ? approvedVersions : proofFiles.map((f: any) => ({
+      itemId: f.item_id, itemName: nameById[f.item_id] || null, driveFileId: f.drive_file_id, fileName: f.file_name,
+    }))) as any,
     via: ctx.via || "portal",
     lines,
     extras,

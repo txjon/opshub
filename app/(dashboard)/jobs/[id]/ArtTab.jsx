@@ -839,8 +839,14 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
   async function freezeProofVersion(state = "draft") {
     if (!specLoaded) return null;
     const specSnap = JSON.stringify(buildSpec());
-    // Same art as the version on record: nothing to freeze.
-    if (latestVersionRef.current?.spec && JSON.stringify(latestVersionRef.current.spec) === specSnap) return latestVersionRef.current;
+    // Nothing changed in this session: do not freeze anything. Both sides come
+    // from buildSpec(), so the comparison is meaningful — comparing against a
+    // spec read back from the database can never match, because jsonb does not
+    // keep key order, and every Exit was silently making a new version (and
+    // un-approving the item).
+    if (driveBakedSpecRef.current !== null && specSnap === driveBakedSpecRef.current) {
+      return latestVersionRef.current;
+    }
     let mockupDriveFileId = null;
     try {
       if (croppedMockupUrl) {

@@ -332,6 +332,36 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       const r = bakeResolveRef.current; bakeResolveRef.current = null; setBakeIds(null); r();
     }, 60000);
   };
+  // Approval lives in three places the app reads: the item, its proof file row
+  // (what the ordering gate checks) and the proof version. Writing one and not
+  // the others is how "Undo approval" left a job still cleared to order.
+  const setItemApproval = async (itemId: string, itemName: string, approved: boolean) => {
+    const sb = createClient();
+    try {
+      await (sb.from("items") as any).update({ artwork_status: approved ? "approved" : "not_started" }).eq("id", itemId);
+      setItems(prev => prev.map(x => x.id === itemId ? { ...x, artwork_status: approved ? "approved" : "not_started" } : x));
+      if (approved) {
+        try { await fetch(`/api/items/${itemId}/proof/approve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "internal" }) }); } catch { /* status still saved */ }
+        await (sb.from("item_files") as any).update({ approval: "approved", approved_at: new Date().toISOString() })
+          .eq("item_id", itemId).eq("stage", "proof").is("superseded_at", null);
+      } else {
+        await (sb.from("item_files") as any).update({ approval: "pending", approved_at: null })
+          .eq("item_id", itemId).eq("stage", "proof").is("superseded_at", null);
+        await (sb.from("proof_versions") as any).update({ state: "sent" })
+          .eq("item_id", itemId).eq("state", "approved").is("superseded_at", null);
+      }
+      const [{ data: v }, { data: fresh }]: any = await Promise.all([
+        sb.from("proof_versions").select("id, item_id, version, state, approved_at, sent_at")
+          .eq("item_id", itemId).is("superseded_at", null).order("version", { ascending: false }).limit(1),
+        sb.from("item_files").select(FILE_COLS).eq("item_id", itemId).is("superseded_at", null).order("created_at"),
+      ]);
+      if (v?.[0]) setProofByItem(m => ({ ...m, [itemId]: v[0] }));
+      if (fresh) setFilesByItem(m => ({ ...m, [itemId]: fresh }));
+      logJobActivity(job.id, approved ? `${itemName} approved internally` : `${itemName} internal approval removed`);
+      recalcPhase();
+    } catch (e) { failed("Approval not saved", e); }
+  };
+
   const bakeProofPdfs = (ids: string[]) => new Promise<void>(resolve => {
     if (!ids.length) return resolve();
     bakeRemainRef.current = new Set(ids);
@@ -887,7 +917,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       // including revised ones that went out before. Stamping only the
       // never-sent items left a revised proof reading 'not sent' after it had
       // gone (Jon, Sep 2026).
-      const sentIds = items.filter((it: any) => needsProof(it) && !carriedApproved(it) && it.proof_spec).map((it: any) => it.id);
+      // Everything in the package that is still awaiting the client. An
+      // already-approved proof is not re-sent, so its date must not move.
+      const sentIds = items.filter((it: any) => needsProof(it) && !carriedApproved(it) && it.proof_spec
+        && it.artwork_status !== "approved" && proofByItem[it.id]?.state !== "approved").map((it: any) => it.id);
       for (const id of sentIds) { try { await fetch(`/api/items/${id}/proof/versions`, { method: "PATCH" }); } catch { /* the send still counts */ } }
       if (sentIds.length) {
         const nowP = new Date().toISOString();
@@ -2908,12 +2941,20 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       </span>
                     </div>
                     {!proofByItem[it.id] && (
-                      <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 10 }}>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", fontSize: 12.5, color: T.muted, marginBottom: 10 }}>
                         {it.artwork_status === "n_a"
                           ? <b style={{ color: T.text }}>No proof needed for this item</b>
                           : carriedApproved(it)
                             ? <><b style={{ color: T.green }}>Approved</b> · carried from {carriedFrom(it)?.jobNumber || "a re-order"}</>
-                            : <b style={{ color: T.text }}>No proof yet</b>}
+                            : it.artwork_status === "approved"
+                              /* approved with no proof document — true on 17 live items */
+                              ? <><b style={{ color: T.green }}>Approved</b> · no proof document on file</>
+                              : <b style={{ color: T.text }}>No proof yet</b>}
+                        {it.artwork_status !== "n_a" && !carriedApproved(it) && (
+                          it.artwork_status === "approved"
+                            ? <button onClick={() => setItemApproval(it.id, it.name, false)} style={{ ...ghostBtn, padding: "3px 9px", fontSize: 11 }}>Undo approval</button>
+                            : <button onClick={() => setItemApproval(it.id, it.name, true)} title="They okayed it verbally or by email" style={{ ...ghostBtn, padding: "3px 9px", fontSize: 11 }}>Mark approved</button>
+                        )}
                       </div>
                     )}
                     {proofByItem[it.id] && (() => {
@@ -2950,9 +2991,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                                 : " · not sent yet — goes out with the next proof send"}
                           </span>
                           {approved
-                            ? <button onClick={() => setStatus("not_started", `${it.name} internal approval removed`)}
+                            ? <button onClick={() => setItemApproval(it.id, it.name, false)}
                                 style={{ ...ghostBtn, padding: "3px 9px", fontSize: 11 }}>Undo approval</button>
-                            : <button onClick={() => setStatus("approved", `${it.name} approved internally`)}
+                            : <button onClick={() => setItemApproval(it.id, it.name, true)}
                                 title="They okayed it verbally or by email"
                                 style={{ ...ghostBtn, padding: "3px 9px", fontSize: 11 }}>Mark approved</button>}
                         </div>
