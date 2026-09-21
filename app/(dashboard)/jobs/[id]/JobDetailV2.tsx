@@ -226,7 +226,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     // (PSD drop / pickers) must keep their files across reloads.
     const ids = (itemsRef.current || itemsProp || []).map((i: any) => i.id).filter(Boolean);
     if (!ids.length) return;
-    createClient().from("proof_versions").select("id, item_id, version, state, approved_at, sent_at")
+    createClient().from("proof_versions").select("id, item_id, version, state, approved_at, sent_at, mockup_drive_file_id")
       .in("item_id", ids).in("state", ["approved", "sent", "draft"]).is("superseded_at", null)
       .order("version", { ascending: false })
       .then(({ data }: any) => {
@@ -351,7 +351,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           .eq("item_id", itemId).eq("state", "approved").is("superseded_at", null);
       }
       const [{ data: v }, { data: fresh }]: any = await Promise.all([
-        sb.from("proof_versions").select("id, item_id, version, state, approved_at, sent_at")
+        sb.from("proof_versions").select("id, item_id, version, state, approved_at, sent_at, mockup_drive_file_id")
           .eq("item_id", itemId).is("superseded_at", null).order("version", { ascending: false }).limit(1),
         sb.from("item_files").select(FILE_COLS).eq("item_id", itemId).is("superseded_at", null).order("created_at"),
       ]);
@@ -928,7 +928,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         setItems(prev => prev.map(x => sentIds.includes(x.id) ? { ...x, proof_sent_at: nowP } : x));
         // Pull the stamped versions back so the item lines read 'sent' at once.
         const { data: fresh }: any = await createClient().from("proof_versions")
-          .select("id, item_id, version, state, approved_at, sent_at")
+          .select("id, item_id, version, state, approved_at, sent_at, mockup_drive_file_id")
           .in("item_id", sentIds).is("superseded_at", null).order("version", { ascending: false });
         if (fresh) setProofByItem(m => { const next = { ...m }; for (const v of fresh) if (!next[v.item_id] || next[v.item_id].version < v.version) next[v.item_id] = v; return next; });
       }
@@ -2906,7 +2906,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 return (
                   <div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                      <span style={wlbl}>Files · {files.length}</span>
+                      <span style={wlbl}>Files · {files.length + (proofByItem[it.id] ? 1 : 0)}</span>
                       <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         {/* The choice depends on where the item is: no proof yet
                             means make one or say it doesn't need one; a proof
@@ -2969,7 +2969,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           setItems(prev => prev.map(x => x.id === it.id ? { ...x, artwork_status: next } : x));
                           if (next === "approved") {
                             try { await fetch(`/api/items/${it.id}/proof/approve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source: "internal" }) }); } catch { /* status still saved */ }
-                            const { data: v }: any = await createClient().from("proof_versions").select("id, item_id, version, state, approved_at, sent_at").eq("item_id", it.id).is("superseded_at", null).order("version", { ascending: false }).limit(1);
+                            const { data: v }: any = await createClient().from("proof_versions").select("id, item_id, version, state, approved_at, sent_at, mockup_drive_file_id").eq("item_id", it.id).is("superseded_at", null).order("version", { ascending: false }).limit(1);
                             if (v?.[0]) setProofByItem(m => ({ ...m, [it.id]: v[0] }));
                           }
                           logJobActivity(job.id, msg);
@@ -3038,9 +3038,17 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                                 onClick={e => { e.preventDefault(); e.stopPropagation(); window.location.href = `/api/proof/${pv.id}/pdf?download=1`; }}
                                 style={{ position: "absolute", top: 4, left: 4, zIndex: 1, width: 20, height: 20, borderRadius: 999, border: "none", background: "rgba(10,10,10,0.6)", color: "#fff", fontSize: 11, lineHeight: "20px", textAlign: "center", padding: 0, cursor: "pointer" }}>⬇</button>
                               <div style={{ aspectRatio: "1 / 1", background: "#fff", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${approved ? T.green + "66" : T.border}` }}>
-                                {proofFile
-                                  ? <img src={thumbSrc(proofFile.drive_file_id)} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
-                                  : <span style={{ fontSize: 22 }}>📄</span>}
+                                {/* Show the art the proof is about. A stored PDF
+                                    (older proofs) previews itself; a fresh one has
+                                    no file yet, so the version's own mockup stands
+                                    in rather than a blank page icon. */}
+                                {(() => {
+                                  const thumbId = proofFile?.drive_file_id || pv.mockup_drive_file_id
+                                    || files.find((f: any) => f.stage === "mockup")?.drive_file_id;
+                                  return thumbId
+                                    ? <img src={thumbSrc(thumbId)} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+                                    : <span style={{ fontSize: 22 }}>📄</span>;
+                                })()}
                               </div>
                               <div style={{ fontSize: 10, color: T.muted, marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Proof v{pv.version}</div>
                               <div style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: approved ? T.green : T.faint }}>PROOF{approved ? " ✓" : ""}</div>
@@ -3380,7 +3388,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                     try {
                       const sb = createClient();
                       const [{ data: v }, { data: fresh }]: any = await Promise.all([
-                        sb.from("proof_versions").select("id, item_id, version, state, approved_at, sent_at")
+                        sb.from("proof_versions").select("id, item_id, version, state, approved_at, sent_at, mockup_drive_file_id")
                           .eq("item_id", id).is("superseded_at", null).order("version", { ascending: false }).limit(1),
                         sb.from("item_files").select(FILE_COLS).eq("item_id", id).is("superseded_at", null).order("created_at"),
                       ]);

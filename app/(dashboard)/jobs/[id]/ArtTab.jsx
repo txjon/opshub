@@ -1062,8 +1062,11 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
               <button onClick={() => setPreviewMode(false)} title="Edit this proof"
                 style={{ border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 12, fontWeight: 600, padding: "7px 14px", borderRadius: 8, cursor: "pointer", fontFamily: font }}>Edit</button>
             )}
-            <button onClick={handleClose} disabled={closingBake} title="Exit — saves your work and rebuilds the PDF if the art changed"
-              style={{ border: "none", background: T.text, color: "#0a0a0a", fontSize: 12, fontWeight: 700, padding: "7px 16px", borderRadius: 8, cursor: closingBake ? "default" : "pointer", fontFamily: font, opacity: closingBake ? 0.6 : 1 }}>{closingBake ? "Rebuilding PDF…" : "Exit"}</button>
+            {/* The button says what it does: this is the save. Leaving it
+                labelled "Exit" made the only control in the editor look like a
+                way out rather than the way to keep the proof (Jon, Sep 2026). */}
+            <button onClick={handleClose} disabled={closingBake} title="Saves the proof and closes"
+              style={{ border: "none", background: T.text, color: "#0a0a0a", fontSize: 12, fontWeight: 700, padding: "7px 16px", borderRadius: 8, cursor: closingBake ? "default" : "pointer", fontFamily: font, opacity: closingBake ? 0.6 : 1 }}>{closingBake ? "Saving the proof…" : (specLoaded && isDriveDirty() ? "Save proof" : "Close")}</button>
           </div>
         </div>
 
