@@ -40,6 +40,8 @@ import { InvoiceVarianceReviewModal } from "@/components/InvoiceVarianceReviewMo
 import { deriveInvoice } from "@/lib/job/invoice-derive";
 import { DestinationsPanel } from "@/components/DestinationsPanel";
 import { loadJobShipTo, type ShipTo } from "@/lib/destinations";
+import { BlankRepOrderModal } from "@/components/BlankRepOrderModal";
+import { loadBlankRepOrders, type BlankRepOrder } from "@/lib/blank-rep-order";
 import { applyPoSentToVendorItems, revertPoSentFromVendorItems } from "@/lib/po-actions";
 import { recalcJobPhase } from "@/lib/job-phase-recalc";
 import { PROOF_RENDERER_VERSION } from "@/lib/proof-client";
@@ -819,6 +821,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // exactly. Faithful port of BlanksTab.applyBulkOrder.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkTotal, setBulkTotal] = useState("");
+  // Blank orders emailed to a supplier rep (mig 183): which items went that way.
+  const [repOrders, setRepOrders] = useState<BlankRepOrder[]>([]);
+  const [repOrderOpen, setRepOrderOpen] = useState(false);
+  useEffect(() => { loadBlankRepOrders(createClient(), job.id).then(setRepOrders).catch(() => {}); }, [job.id]);
+  const repOrderFor = (itemId: string) => repOrders.find(o => (o.items || []).some((x: any) => x.item_id === itemId)) || null;
   const toggleSel = (id: string) => setSelectedIds(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const applyBulk = async () => {
     const total = parseFloat(String(bulkTotal).replace(/[^0-9.\-]/g, ""));
@@ -2388,6 +2395,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                             <span style={{ color: T.muted }}>= {qtyOf(item).toLocaleString()} u</span>
                           </div>
                         )}
+                        {(() => { const ro = repOrderFor(item.id); return ro ? (
+                          <div title={`Sent to ${ro.to_email}`} style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: T.blue, marginTop: 3 }}>
+                            Ordered via rep · {ro.supplier} · {new Date(ro.sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          </div>
+                        ) : null; })()}
                       </div>
                       {isMobile ? (
                         <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -2423,6 +2435,12 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               <button onClick={applyBulk} disabled={!bulkTotal.trim()}
                 style={{ fontSize: 12, fontWeight: 800, color: bulkTotal.trim() ? "#0a0a0a" : T.faint, background: bulkTotal.trim() ? T.accent : "transparent", border: `1px solid ${bulkTotal.trim() ? T.accent : T.border}`, borderRadius: 999, padding: "7px 16px", cursor: bulkTotal.trim() ? "pointer" : "default", fontFamily: font }}>Apply to selected</button>
               <span style={{ fontSize: 11, color: T.faint }}>split proportional to each item's estimate</span>
+              <span style={{ flex: 1 }} />
+              {/* Some blanks are ordered through a supplier rep by email instead of a card checkout (S&S). */}
+              <button onClick={() => setRepOrderOpen(true)}
+                style={{ fontSize: 12, fontWeight: 800, color: T.text, background: "transparent", border: `1px solid ${T.border}`, borderRadius: 999, padding: "7px 13px", cursor: "pointer", fontFamily: font }}>
+                Email blank order to rep →
+              </button>
             </div>
           )}
 
@@ -3535,6 +3553,17 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         );
       })()}
 
+      {repOrderOpen && (
+        <BlankRepOrderModal jobId={job.id} jobNumber={job.job_number} clientName={client} invoiceNumber={job.qb_invoice_number || null} senderName={null}
+          items={items.filter((it: any) => selectedIds.has(it.id)).map((it: any) => ({
+            itemId: it.id, letter: letterOf(it.id), name: it.name, style: it.blank_vendor || null, color: it.blank_sku || null,
+            supplier: cpFor(it)?.supplier || null, qtys: it.qtys || {},
+          }))}
+          decoratorIds={Array.from(new Set(items.filter((it: any) => selectedIds.has(it.id)).map((it: any) => it.decorator_assignments?.[0]?.decorator_id).filter(Boolean)))}
+          onClose={() => setRepOrderOpen(false)}
+          onSent={() => { setRepOrderOpen(false); setSelectedIds(new Set()); loadBlankRepOrders(createClient(), job.id).then(setRepOrders).catch(() => {}); }}
+          onError={failed} />
+      )}
       {/* ── cost request modals (shared with classic) ── */}
       {rfqOpen && (
         <RfqModal job={job} costProds={allAssembled} decoratorRecords={decoratorRecords}

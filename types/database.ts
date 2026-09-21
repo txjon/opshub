@@ -605,6 +605,89 @@ export type Database = {
           { foreignKeyName: "blank_catalog_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] }
         ];
       };
+      blank_rep_orders: {
+        Row: {
+          id: string;
+          company_id: string | null;
+          job_id: string;
+          supplier: string;
+          to_email: string;
+          cc_emails: string[];
+          subject: string;
+          body: string;
+          ship_to: string | null;
+          items: Json;
+          resend_message_id: string | null;
+          sent_by: string | null;
+          sent_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id?: string | null;
+          job_id: string;
+          supplier: string;
+          to_email: string;
+          cc_emails: string[];
+          subject: string;
+          body: string;
+          ship_to?: string | null;
+          items: Json;
+          resend_message_id?: string | null;
+          sent_by?: string | null;
+          sent_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string | null;
+          job_id?: string;
+          supplier?: string;
+          to_email?: string;
+          cc_emails?: string[];
+          subject?: string;
+          body?: string;
+          ship_to?: string | null;
+          items?: Json;
+          resend_message_id?: string | null;
+          sent_by?: string | null;
+          sent_at?: string;
+        };
+        Relationships: [
+          { foreignKeyName: "blank_rep_orders_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] },
+          { foreignKeyName: "blank_rep_orders_job_id_fkey"; columns: ["job_id"]; isOneToOne: false; referencedRelation: "jobs"; referencedColumns: ["id"] }
+        ];
+      };
+      blank_supplier_contacts: {
+        Row: {
+          id: string;
+          company_id: string | null;
+          supplier: string;
+          rep_name: string | null;
+          rep_email: string;
+          cc_emails: string[];
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id?: string | null;
+          supplier: string;
+          rep_name?: string | null;
+          rep_email: string;
+          cc_emails: string[];
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string | null;
+          supplier?: string;
+          rep_name?: string | null;
+          rep_email?: string;
+          cc_emails?: string[];
+          updated_at?: string;
+        };
+        Relationships: [
+          { foreignKeyName: "blank_supplier_contacts_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] }
+        ];
+      };
       buy_sheet_lines: {
         Row: {
           id: string;
