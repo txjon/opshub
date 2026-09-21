@@ -49,7 +49,7 @@ import { backOrigin } from "@/lib/back-nav";
 import { patchJobTypeMeta } from "@/lib/job-type-meta";
 import { useConfirm } from "@/components/useConfirm";
 import { similarClients } from "@/lib/client-match";
-import { calculatePriority } from "@/lib/dates";
+import { calculatePriority, todayStr } from "@/lib/dates";
 import { PRODUCTION_STAGES, releaseFor, itemDrift } from "@/lib/po-release";
 import { SHIP_METHODS } from "@/lib/ship-methods";
 import { proofCounts, needsProof, proofPdfMissing, carriedApproved, carriedFrom, hasApprovedProof } from "@/lib/proof-gate";
@@ -1025,7 +1025,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     if (amt <= 0) { setActErr("Enter an amount."); return; }
     setActBusy(true); setActErr("");
     try {
-      await recordPayment(job, { type: payForm.type, amount: amt, invoice_number: invNum || null, paid_date: payForm.paid_date || new Date().toISOString().slice(0, 10) });
+      await recordPayment(job, { type: payForm.type, amount: amt, invoice_number: invNum || null, paid_date: payForm.paid_date || todayStr() });
       const { data: freshPay }: any = await createClient().from("payment_records").select("*").eq("job_id", job.id).order("created_at");
       if (freshPay) setPayments(freshPay);
       setPayForm({ type: "full_payment", amount: "", paid_date: "" });
@@ -1281,7 +1281,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       // and without the snapshot the billing queue re-priced them off the
       // live rate card (Jon, Sep 17 2026).
       try { await fetch(`/api/jobs/${job.id}/snapshot-po`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ vendor }) }); } catch {}
-      const sentOn = new Date().toISOString().slice(0, 10);
+      // LOCAL date. toISOString() is UTC, so a PO sent after 5pm in Las Vegas
+      // was stamped with tomorrow (lib/dates todayStr).
+      const sentOn = todayStr();
       const r = await patchJobTypeMeta(supabase, job.id, tm => ({ ...tm, po_sent_vendors: Array.from(new Set([...(tm.po_sent_vendors || []), vendor])), po_sent_dates: { ...(tm.po_sent_dates || {}), [vendor]: sentOn } }));
       if (!r.ok) throw new Error(r.error);
       setJob((j: any) => ({ ...j, type_meta: { ...j.type_meta, po_sent_vendors: Array.from(new Set([...(j.type_meta?.po_sent_vendors || []), vendor])), po_sent_dates: { ...(j.type_meta?.po_sent_dates || {}), [vendor]: sentOn } } }));
@@ -1349,7 +1351,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       try { await fetch(`/api/jobs/${job.id}/snapshot-po`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ vendor: poVendor }) }); } catch {}
       // record the send on the LIVE row (the server just added the cost
       // snapshot + sent-PDF refs; a stale whole-blob write is refused)
-      const sentOn = new Date().toISOString().slice(0, 10);
+      // LOCAL date. toISOString() is UTC, so a PO sent after 5pm in Las Vegas
+      // was stamped with tomorrow (lib/dates todayStr).
+      const sentOn = todayStr();
       const r2 = await patchJobTypeMeta(supabase, job.id, tm => ({ ...tm, po_sent_vendors: Array.from(new Set([...(tm.po_sent_vendors || []), poVendor])), po_sent_dates: { ...(tm.po_sent_dates || {}), [poVendor]: sentOn } }));
       if (!r2.ok) throw new Error(`PO emailed, but recording it failed: ${r2.error}`);
       refetchTypeMeta();
