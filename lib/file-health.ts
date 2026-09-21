@@ -30,9 +30,12 @@ async function referencedFileIds(db: any): Promise<Map<string, { file_name: stri
   for (;;) {
     const { data, error } = await db.from("item_files")
       .select("drive_file_id, file_name, stage, item_id")
-      // Approved proofs stay monitored after they are superseded — they are
-      // the record of a client sign-off (Sep 2026 review).
-      .or("superseded_at.is.null,and(stage.eq.proof,approval.eq.approved)")
+      // Live rows only. Superseded APPROVED proofs used to stay monitored here
+      // because item_files WAS the proof record — a client's sign-off. It isn't
+      // any more: proof_versions is, and that table is scanned below with the
+      // same approved-forever protection. Keeping this clause reported 22
+      // replaced proof files as losses on items whose proof is perfectly fine.
+      .is("superseded_at", null)
       .not("drive_file_id", "is", null)
       .range(from, from + 999);
     if (error) break;
@@ -44,16 +47,17 @@ async function referencedFileIds(db: any): Promise<Map<string, { file_name: stri
   // proof IS the sign-off record, and 337 approved versions have no saved spec,
   // so that PDF is the only copy that can ever exist. Watch both columns.
   //
-  // SUPERSEDED versions are excluded unless approved — exactly the rule the
-  // item_files clause above uses. A replaced proof's PDF is meant to be gone:
-  // watching those reported 168 "missing" files on the first run, all of them
-  // old rounds that were correctly cleaned up, which buried the real losses.
+  // LIVE versions only. A superseded version is a previous round, and its files
+  // were cleaned up when it was replaced — including approved ones, because an
+  // approved version is only superseded by a NEWER approved version, which is
+  // watched in its place. Watching retired rounds reported 190 "missing" files
+  // that were all meant to be gone, burying the real losses.
   for (const col of ["pdf_drive_file_id", "mockup_drive_file_id"] as const) {
     for (let from = 0; ; from += 1000) {
       const { data, error } = await db.from("proof_versions")
         .select(`${col}, item_id, version, state, superseded_at`)
         .not(col, "is", null)
-        .or("superseded_at.is.null,state.eq.approved")
+        .is("superseded_at", null)
         .range(from, from + 999);
       if (error) break;
       for (const r of (data || [])) {
