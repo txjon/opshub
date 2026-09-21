@@ -20,13 +20,21 @@ export type RepOrderItem = {
   qtys: SizeQtys;
 };
 export const SUPPLIERS = ["S&S", "AS Colour", "LA Apparel", "Cotton Collective"];
-// Best guess for the email's supplier: the most common known supplier among the
-// selected items, else the first in the list.
+// The suppliers to offer = the ones the picker recorded on the selected items
+// (items.blank_supplier). Only when none is known, fall back to the full list.
+export function supplierChoices(items: RepOrderItem[]): string[] {
+  const known = Array.from(new Set(items.map(i => i.supplier).filter(Boolean))) as string[];
+  return known.length ? known : SUPPLIERS;
+}
+// Best guess: the most common known supplier among the selected items.
 export function suggestSupplier(items: RepOrderItem[]): string {
   const cnt = new Map<string, number>();
   for (const it of items) if (it.supplier) cnt.set(it.supplier, (cnt.get(it.supplier) || 0) + 1);
   return Array.from(cnt.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] || SUPPLIERS[0];
 }
+// Our PO number for a set of items = invoice number (job number pre-invoice) +
+// the items' letters — the same number the vendor PO prints (e.g. 4511ABCDEF).
+export const poNumber = (jobNumber: string, invoiceNumber: string | null, letters: string[]) => `${invoiceNumber || jobNumber}${letters.join("")}`;
 export type ShipToOption = { key: string; label: string; address: string };
 
 export type SupplierContact = { supplier: string; rep_name: string | null; rep_email: string; cc_emails: string[] };
@@ -44,18 +52,23 @@ export function draftBlankOrderEmail(args: {
   repName: string | null; clientName: string; jobNumber: string; invoiceNumber: string | null;
   items: RepOrderItem[]; shipTo: string; note: string; senderName: string | null;
 }): { subject: string; body: string } {
-  const ref = `${args.clientName} · ${args.jobNumber}${args.invoiceNumber ? ` (#${args.invoiceNumber})` : ""}`;
-  const subject = `Blank order · ${ref}`;
+  // Reference = OUR PO number + letters (what the vendor PO prints), never the
+  // internal job number. Each item is its own order at the supplier, so each
+  // line carries its own ATTN: PO<number><letter>.
+  const base = args.invoiceNumber || args.jobNumber;
+  const po = poNumber(args.jobNumber, args.invoiceNumber, args.items.map(i => i.letter));
+  const subject = `Blank order · PO ${po} · ${args.clientName}`;
   const total = args.items.reduce((a, it) => a + sumQ(it.qtys), 0);
   const lines: string[] = [];
   lines.push(`Hi ${args.repName?.trim() || "there"},`);
   lines.push("");
-  lines.push(`Please place the following blank order for ${ref}.`);
+  lines.push(`Please place the following blank orders for ${args.clientName}, PO ${po}. Each line is its own order; please reference the ATTN on each.`);
   lines.push("");
   for (const it of args.items) {
     const head = [it.style, it.color].filter(Boolean).join(" · ") || it.name;
     lines.push(`${it.letter ? it.letter + " · " : ""}${head}${it.style || it.color ? `  (${it.name})` : ""}`);
     lines.push(`    ${sizesLine(it.qtys)}  =  ${sumQ(it.qtys)}`);
+    lines.push(`    ATTN: PO${base}${it.letter}`);
     lines.push("");
   }
   lines.push(`Total: ${total.toLocaleString()} units`);

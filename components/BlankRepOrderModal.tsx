@@ -9,7 +9,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { T, font, mono } from "@/lib/theme";
 import { createClient } from "@/lib/supabase/client";
 import { ModalShell } from "@/components/board-kit";
-import { draftBlankOrderEmail, loadShipToOptions, loadSupplierContact, sendBlankRepOrder, sizesLine, suggestSupplier, SUPPLIERS, type RepOrderItem, type ShipToOption } from "@/lib/blank-rep-order";
+import { draftBlankOrderEmail, loadShipToOptions, loadSupplierContact, sendBlankRepOrder, sizesLine, suggestSupplier, supplierChoices, type RepOrderItem, type ShipToOption } from "@/lib/blank-rep-order";
 
 const LBL: React.CSSProperties = { fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: T.faint };
 const INPUT: React.CSSProperties = { padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 13, fontFamily: font, outline: "none", boxSizing: "border-box", width: "100%", colorScheme: "dark" };
@@ -28,6 +28,7 @@ export function BlankRepOrderModal({ jobId, jobNumber, clientName, invoiceNumber
   const [supplier, setSupplier] = useState<string>(() => suggestSupplier(items));
   const [otherSupplier, setOtherSupplier] = useState("");
   const knownSuppliers = Array.from(new Set(items.map(i => i.supplier).filter(Boolean))) as string[];
+  const choices = supplierChoices(items);
   const mixed = knownSuppliers.length > 1;
 
   const [repName, setRepName] = useState("");
@@ -82,11 +83,11 @@ export function BlankRepOrderModal({ jobId, jobNumber, clientName, invoiceNumber
         <div>
           <div style={{ ...LBL, marginBottom: 6 }}>Supplier</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            {SUPPLIERS.map(s => <button key={s} style={SEG(s === supplier)} onClick={() => { setSupplier(s); setBodyTouched(false); }}>{s}</button>)}
+            {choices.map(s => <button key={s} style={SEG(s === supplier)} onClick={() => { setSupplier(s); setBodyTouched(false); }}>{s}</button>)}
             <input id="rep-supplier-other" style={{ ...INPUT, width: 160 }} placeholder="Other…" value={otherSupplier}
               onChange={e => { setOtherSupplier(e.target.value); if (e.target.value.trim()) { setSupplier(e.target.value.trim()); setBodyTouched(false); } }} />
           </div>
-          {mixed && <div style={{ fontSize: 12, color: T.amber, fontWeight: 600, marginTop: 6 }}>Costing lists more than one supplier on these items ({knownSuppliers.join(", ")}). One email goes to one rep, so check the selection.</div>}
+          {mixed && <div style={{ fontSize: 12, color: T.amber, fontWeight: 600, marginTop: 6 }}>The selected items came from more than one supplier ({knownSuppliers.join(", ")}). One email goes to one rep, so check the selection.</div>}
         </div>
         <div>
           <div style={{ ...LBL, marginBottom: 6 }}>{supplier || "Supplier"} · {orderItems.length} item{orderItems.length > 1 ? "s" : ""} · {total.toLocaleString()} units</div>

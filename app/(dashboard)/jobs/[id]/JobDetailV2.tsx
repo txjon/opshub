@@ -1107,6 +1107,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     try {
       await (supabase.from("items") as any).update({
         blank_vendor: patch.blank_vendor || null, blank_sku: patch.blank_sku || null,
+        blank_supplier: patch.blank_supplier || null,   // which catalog it came from (mig 184)
         cost_per_unit: patch.cost_per_unit || null,
         blank_costs: patch.blankCosts && Object.keys(patch.blankCosts).length ? patch.blankCosts : null,
         garment_type: patch.garment_type || null, is_fleece: !!(item.is_fleece || patch.is_fleece),
@@ -3557,7 +3558,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         <BlankRepOrderModal jobId={job.id} jobNumber={job.job_number} clientName={client} invoiceNumber={job.qb_invoice_number || null} senderName={null}
           items={items.filter((it: any) => selectedIds.has(it.id)).map((it: any) => ({
             itemId: it.id, letter: letterOf(it.id), name: it.name, style: it.blank_vendor || null, color: it.blank_sku || null,
-            supplier: cpFor(it)?.supplier || null, qtys: it.qtys || {},
+            supplier: it.blank_supplier || null, qtys: it.qtys || {},
           }))}
           decoratorIds={Array.from(new Set(items.filter((it: any) => selectedIds.has(it.id)).map((it: any) => it.decorator_assignments?.[0]?.decorator_id).filter(Boolean)))}
           onClose={() => setRepOrderOpen(false)}

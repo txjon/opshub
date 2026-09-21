@@ -2566,6 +2566,7 @@ export type Database = {
           ship_est: string | null;
           proof_sent_at: string | null;
           release_slot_id: string | null;
+          blank_supplier: string | null;
         };
         Insert: {
           id?: string;
@@ -2630,6 +2631,7 @@ export type Database = {
           ship_est?: string | null;
           proof_sent_at?: string | null;
           release_slot_id?: string | null;
+          blank_supplier?: string | null;
         };
         Update: {
           id?: string;
@@ -2694,6 +2696,7 @@ export type Database = {
           ship_est?: string | null;
           proof_sent_at?: string | null;
           release_slot_id?: string | null;
+          blank_supplier?: string | null;
         };
         Relationships: [
           { foreignKeyName: "items_job_id_fkey"; columns: ["job_id"]; isOneToOne: false; referencedRelation: "jobs"; referencedColumns: ["id"] },
