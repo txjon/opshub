@@ -73,7 +73,10 @@ export async function freezeVersion(db: any, opts: {
   createdBy?: string | null;
   state?: Extract<ProofState, "draft" | "sent">;
   note?: string | null;
-}): Promise<{ ok: true; version: ProofVersion } | { ok: false; error: string }> {
+  /** `created` tells the caller whether a NEW version was actually written, or
+   *  whether identical art returned the one already there. Callers that reopen
+   *  an approval must check it: re-saving unchanged art changes nothing. */
+}): Promise<{ ok: true; version: ProofVersion; created: boolean } | { ok: false; error: string }> {
   const { data: last } = await db.from("proof_versions")
     .select("version, spec, state, id").eq("item_id", opts.itemId)
     .order("version", { ascending: false }).limit(1);
@@ -92,7 +95,7 @@ export async function freezeVersion(db: any, opts: {
   // before it shipped, Sep 2026).
   if (prev && JSON.stringify(canon(prev.spec)) === JSON.stringify(canon(opts.spec))) {
     const { data: unchanged } = await db.from("proof_versions").select("*").eq("id", prev.id).single();
-    return { ok: true, version: unchanged as ProofVersion };
+    return { ok: true, version: unchanged as ProofVersion, created: false };
   }
 
   const version = (prev?.version || 0) + 1;
@@ -116,7 +119,7 @@ export async function freezeVersion(db: any, opts: {
     await db.from("proof_versions").update({ state: "superseded", superseded_at: new Date().toISOString() })
       .eq("item_id", opts.itemId).lt("version", version).neq("state", "approved");
   }
-  return { ok: true, version: data as ProofVersion };
+  return { ok: true, version: data as ProofVersion, created: true };
 }
 
 /**

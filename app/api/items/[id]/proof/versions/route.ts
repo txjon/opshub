@@ -36,18 +36,24 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   });
   if (!res.ok) return NextResponse.json({ error: res.error }, { status: 500 });
 
-  // A NEW version over an approved one means the art moved on: the item is no
-  // longer approved, and the client has to look again. Any new version counts,
-  // draft or sent — otherwise the screen reads "approved" over a document
-  // nobody has seen (Jon caught exactly this, Sep 2026).
-  if (res.version.state !== "approved") {
-    const { data: hadApproved } = await db.from("proof_versions")
-      .select("id, version").eq("item_id", params.id).eq("state", "approved").limit(1);
-    if ((hadApproved || []).length && (hadApproved as any)[0].version < res.version.version) {
-      await db.from("items").update({ artwork_status: "not_started" }).eq("id", params.id).eq("artwork_status", "approved");
-      await db.from("item_files").update({ approval: "pending", approved_at: null })
-        .eq("item_id", params.id).eq("stage", "proof").is("superseded_at", null).eq("approval", "approved");
-    }
+  // A new version means the newest document on this item is NOT approved, so
+  // the item must stop reading approved. Any new version counts, draft or sent.
+  //
+  // This used to fire only when a PRIOR APPROVED VERSION existed, which left
+  // two holes. An item approved by the blanket package approval before any art
+  // existed kept reading approved once a proof was finally made — so the gate
+  // that clears POs was open over a document nobody had ever shown the client.
+  // Legacy items approved through a proof FILE had the same gap. Both close by
+  // asking the simpler question: is the current document approved?
+  //
+  // Saving an unchanged proof does NOT reach here — freezeVersion dedupes and
+  // returns the existing version, so opening a proof and closing it still
+  // changes nothing.
+  if (res.created && res.version.state !== "approved") {
+    await db.from("items").update({ artwork_status: "not_started" })
+      .eq("id", params.id).eq("artwork_status", "approved");
+    await db.from("item_files").update({ approval: "pending", approved_at: null })
+      .eq("item_id", params.id).eq("stage", "proof").is("superseded_at", null).eq("approval", "approved");
   }
   return NextResponse.json({ version: res.version });
 }
