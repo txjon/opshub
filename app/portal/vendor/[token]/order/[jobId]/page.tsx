@@ -38,7 +38,7 @@ type OrderItem = {
 type Order = {
   jobId: string; jobNumber: string; jobTitle: string; clientName: string;
   phase: string; shipDate: string | null; shippingRoute: string;
-  poSent: boolean; poSentDate: string | null; release: { version: number; sentAt: string } | null; shipTo: any; shipMethod: string | null;
+  poSent: boolean; preview?: boolean; poSentDate: string | null; release: { version: number; sentAt: string } | null; shipTo: any; shipMethod: string | null;
   shippingAccount: string; grandTotal: number; totalUnits: number;
   items: OrderItem[];
 };
@@ -154,6 +154,14 @@ export default function VendorOrderPage({ params }: { params: { token: string; j
           style={{ background: "none", border: "none", color: C.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", padding: "2px 0", fontFamily: C.font, marginBottom: 12 }}>
           ‹ All orders
         </button>
+
+        {/* Staff preview: the PO has not gone out, so the vendor cannot open
+            this page at all. Say so, or a preview reads as the live thing. */}
+        {order.preview && (
+          <div style={{ border: `1px solid ${C.border}`, background: "#fffbeb", color: "#92400e", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 13, lineHeight: 1.5 }}>
+            <b>Preview.</b> This PO has not been sent yet, so {order.clientName ? "the vendor" : "they"} cannot open this page. Send the PO and this link goes live for them.
+          </div>
+        )}
 
         {/* Order hero */}
         <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 14, flexWrap: "wrap", marginBottom: 14 }}>

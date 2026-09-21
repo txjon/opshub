@@ -12,6 +12,7 @@ import { ensureTracker } from "@/lib/inbound-tracking";
 import { loadProductionFiles, loadProofVersions, releaseFor, itemDrift } from "@/lib/production-files";
 import { withPortalCookie } from "@/lib/file-access";
 import { todayPacific } from "@/lib/dates";
+import { createClient as createServerClient } from "@/lib/supabase/server";
 
 // costProds in ITEM sort order — "first item in a share group" (who carries
 // the screen fees) resolves by array position in the pricing engine; every
@@ -157,6 +158,15 @@ export async function GET(
       .eq("id", decorator.id);
     const printers = buildPrintersMap(allDecs || []);
 
+    // A real OpsHub session, not the vendor token: staff previewing a PO see
+    // exactly what the vendor will, before it is released to them.
+    let isStaff = false;
+    try {
+      const supa = await createServerClient();
+      const { data: { user } } = await supa.auth.getUser();
+      isStaff = !!user;
+    } catch { isStaff = false; }
+
     // For each active job, find items that belong to this decorator
     const orders: any[] = [];
     const completed: any[] = [];
@@ -196,8 +206,13 @@ export async function GET(
       const poSent = (typeMeta.po_sent_vendors || []).includes(decorator.name) ||
                      (typeMeta.po_sent_vendors || []).includes(decorator.short_code);
 
-      // Only show jobs where PO has been sent to this decorator
-      if (!poSent) continue;
+      // Only show jobs where the PO has been sent to this decorator — unless a
+      // logged-in staff member is looking, who gets it as a PREVIEW. Checking
+      // the PO's own production-files link before sending used to land on
+      // "Order not found on this account", which reads as a broken link on a
+      // PO you are about to email a vendor (Jon, Sep 2026). The order carries
+      // `preview` so the page can say the vendor cannot see it yet.
+      if (!poSent && !isStaff) continue;
 
       const mockupByItem = pre.mockupByItem;
       const filesByItem = pre.filesByItem;
@@ -300,6 +315,8 @@ export async function GET(
         shipDate: vendorShipDate,
         shippingRoute: job.shipping_route,
         poSent,
+        // Surfaced to staff before the PO went out: the vendor cannot open this.
+        preview: !poSent,
         poSentDate,
         release: release ? { version: release.version, sentAt: release.sent_at } : null,
         shipTo: poShipTo,
