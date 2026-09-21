@@ -4,7 +4,7 @@
 import { allocateForward, type ItemDestination } from "../lib/destinations";
 let pass = 0, fail = 0;
 const ok = (c: boolean, l: string) => { if (c) pass++; else { fail++; console.log("  ✗ " + l); } };
-const loc = (id: string, label: string): ItemDestination["shipTo"] => ({ locationId: id, label, address: label + "\n1 St", contactName: null, contactPhone: null });
+const loc = (id: string, label: string): ItemDestination["shipTo"] => ({ locationId: id, label, address: label + "\n1 St", attn: null, contactName: null, contactPhone: null });
 const A = loc("a", "Main"), B = loc("b", "Marketing");
 const dests = (aQ: any, bQ: any): ItemDestination[] => [{ shipTo: A, qtys: aQ, sortOrder: 0 }, { shipTo: B, qtys: bQ, sortOrder: 1 }];
 const none = new Map<string, any>();

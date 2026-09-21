@@ -92,3 +92,13 @@ export async function clearItemSplit(sb: Sb, itemId: string): Promise<void> {
   const { error } = await sb.from("item_destinations").delete().eq("item_id", itemId);
   if (error) throw new Error(error.message);
 }
+
+// The project's ATTN line (usually the client's PO number). Printed as the last
+// line of every destination address on the job.
+export async function setJobShipAttn(sb: Sb, jobId: string, attn: string | null): Promise<string | null> {
+  const v = (attn || "").trim() || null;
+  const { error } = await sb.from("jobs").update({ ship_attn: v }).eq("id", jobId);
+  if (error) throw new Error(error.message);
+  return v;
+}
+

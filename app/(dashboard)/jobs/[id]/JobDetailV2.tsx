@@ -2569,8 +2569,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
           {/* Destinations: the project's ship-to (client address book) + per-item
               per-size split across addresses. Mig 180. */}
           <DestinationsPanel jobId={job.id} clientId={job.client_id || null} route={route} shipToLocationId={job.ship_to_location_id || null}
+            shipAttn={job.ship_attn || null} clientPoNumber={tm.client_po_number || null}
             items={items.map((x: any) => ({ id: x.id, name: x.name, qtys: x.qtys || {} }))} isMobile={isMobile}
-            onShipToChange={(st) => { setShipTo(st); setJob((j: any) => ({ ...j, ship_to_location_id: st.locationId })); }}
+            onShipToChange={(st) => { setShipTo(st); setJob((j: any) => ({ ...j, ship_to_location_id: st.locationId, ship_attn: st.attn })); }}
             onError={failed} />
           {/* packing slips — frozen per outbound shipment, or the live job-level slip */}
           {(() => {

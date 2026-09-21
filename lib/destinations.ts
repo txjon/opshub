@@ -38,18 +38,23 @@ export type LocationRow = {
 export type ShipTo = {
   locationId: string | null;
   label: string;
-  address: string;
+  address: string;             // the location's address PLUS the job's ATTN line (last line) — what every surface prints
+  attn: string | null;         // the job's ATTN line on its own (jobs.ship_attn), for editing
   contactName: string | null;
   contactPhone: string | null;
 };
+
+// "ATTN: PO-21724" as the last address line. One place decides the format.
+export const withAttn = (address: string, attn: string | null | undefined) =>
+  attn && attn.trim() ? `${address.trim()}\nATTN: ${attn.trim()}` : address.trim();
 
 export type ItemDestination = { shipTo: ShipTo; qtys: SizeQtys; sortOrder: number };
 
 export const sumQ = (q: SizeQtys | null | undefined) =>
   Object.values(q || {}).reduce((a, n) => a + (Number(n) || 0), 0);
 
-const toShipTo = (l: LocationRow): ShipTo => ({
-  locationId: l.id, label: l.label, address: l.address,
+const toShipTo = (l: LocationRow, attn: string | null | undefined): ShipTo => ({
+  locationId: l.id, label: l.label, address: withAttn(l.address, attn), attn: attn?.trim() || null,
   contactName: l.contact_name ?? null, contactPhone: l.contact_phone ?? null,
 });
 
@@ -59,12 +64,12 @@ const toShipTo = (l: LocationRow): ShipTo => ({
 //   1. jobs.ship_to_location_id (set in Logistics; the backfill set it for every
 //      job that existed at mig 180)
 //   2. the client's default book entry
-export function resolveJobShipTo(job: { ship_to_location_id?: string | null }, locations: LocationRow[]): ShipTo | null {
+export function resolveJobShipTo(job: { ship_to_location_id?: string | null; ship_attn?: string | null }, locations: LocationRow[]): ShipTo | null {
   const byId = new Map(locations.map(l => [l.id, l]));
   const chosen = job.ship_to_location_id ? byId.get(job.ship_to_location_id) : undefined;
-  if (chosen) return toShipTo(chosen);
+  if (chosen) return toShipTo(chosen, job.ship_attn);
   const def = locations.find(l => l.is_default && !l.job_id && l.active);
-  return def ? toShipTo(def) : null;
+  return def ? toShipTo(def, job.ship_attn) : null;
 }
 
 // Where an item's units go. No split rows → everything to the project default.
@@ -77,11 +82,12 @@ export function itemDestinations(args: {
   locations: LocationRow[];
 }): ItemDestination[] {
   const byId = new Map(args.locations.map(l => [l.id, l]));
+  const attn = args.jobShipTo?.attn ?? null;   // the job's ATTN line rides on every destination
   const rows = args.splits
     .map(s => ({ loc: byId.get(s.location_id), qtys: s.qtys || {}, sortOrder: s.sort_order }))
     .filter(r => !!r.loc)
     .sort((a, b) => a.sortOrder - b.sortOrder);
-  if (rows.length) return rows.map(r => ({ shipTo: toShipTo(r.loc!), qtys: r.qtys, sortOrder: r.sortOrder }));
+  if (rows.length) return rows.map(r => ({ shipTo: toShipTo(r.loc!, attn), qtys: r.qtys, sortOrder: r.sortOrder }));
   if (!args.jobShipTo) return [];
   return [{ shipTo: args.jobShipTo, qtys: args.ordered, sortOrder: 0 }];
 }
@@ -143,7 +149,7 @@ export async function loadLocations(sb: Sb, clientId: string | null, jobId?: str
 
 export async function loadJobShipTo(sb: Sb, jobId: string): Promise<ShipTo | null> {
   const { data: job } = await sb.from("jobs")
-    .select("id, client_id, ship_to_location_id").eq("id", jobId).single();
+    .select("id, client_id, ship_to_location_id, ship_attn").eq("id", jobId).single();
   if (!job) return null;
   const locations = await loadLocations(sb, job.client_id, jobId);
   return resolveJobShipTo(job, locations);
@@ -156,7 +162,7 @@ export async function loadJobDestinations(sb: Sb, jobId: string): Promise<{
   byItem: Map<string, ItemDestination[]>;
 }> {
   const { data: job } = await sb.from("jobs")
-    .select("id, client_id, ship_to_location_id, items(id, buy_sheet_lines(size, qty_ordered))")
+    .select("id, client_id, ship_to_location_id, ship_attn, items(id, buy_sheet_lines(size, qty_ordered))")
     .eq("id", jobId).single();
   if (!job) return { shipTo: null, locations: [], byItem: new Map() };
   const locations = await loadLocations(sb, job.client_id, jobId);

@@ -13,7 +13,7 @@ import { createClient } from "@/lib/supabase/client";
 import { ModalShell } from "@/components/board-kit";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { addressLines, resolveJobShipTo, sumQ, type LocationRow, type ShipTo, type SizeQtys } from "@/lib/destinations";
-import { createLocation, saveItemSplit, setJobShipTo, type SplitRow } from "@/lib/destination-actions";
+import { createLocation, saveItemSplit, setJobShipTo, setJobShipAttn, type SplitRow } from "@/lib/destination-actions";
 
 type Item = { id: string; name: string; qtys?: Record<string, number> | null };
 type SplitByItem = Record<string, { location_id: string; qtys: SizeQtys; sort_order: number }[]>;
@@ -25,11 +25,13 @@ const LINK: React.CSSProperties = { background: "none", border: "none", padding:
 const BTN: React.CSSProperties = { fontSize: 12.5, fontWeight: 800, padding: "8px 14px", borderRadius: 999, border: `1px solid ${T.border}`, background: T.card, color: T.text, cursor: "pointer", fontFamily: font };
 const BTN_PRIMARY: React.CSSProperties = { ...BTN, background: T.accent, color: "#111", border: `1px solid ${T.accent}` };
 
-export function DestinationsPanel({ jobId, clientId, route, shipToLocationId, items, isMobile, onShipToChange, onError }: {
+export function DestinationsPanel({ jobId, clientId, route, shipToLocationId, shipAttn, clientPoNumber, items, isMobile, onShipToChange, onError }: {
   jobId: string;
   clientId: string | null;
   route: string;                       // job route; stage = no client destination
   shipToLocationId: string | null;
+  shipAttn: string | null;             // jobs.ship_attn — the per-project ATTN line
+  clientPoNumber: string | null;       // type_meta.client_po_number — the usual ATTN value, offered as a one-tap fill
   items: Item[];
   isMobile: boolean;
   onShipToChange: (shipTo: ShipTo) => void;   // keeps the job page's ship-to in step
@@ -44,6 +46,10 @@ export function DestinationsPanel({ jobId, clientId, route, shipToLocationId, it
   const [editor, setEditor] = useState(false);
   const [localShipToId, setLocalShipToId] = useState<string | null>(shipToLocationId);
   useEffect(() => setLocalShipToId(shipToLocationId), [shipToLocationId]);
+  const [attn, setAttn] = useState<string | null>(shipAttn);
+  useEffect(() => setAttn(shipAttn), [shipAttn]);
+  const [attnEditing, setAttnEditing] = useState(false);
+  const [attnDraft, setAttnDraft] = useState("");
 
   const reload = async () => {
     if (!clientId) { setLocations([]); setSplits({}); setLoaded(true); return; }
@@ -60,7 +66,16 @@ export function DestinationsPanel({ jobId, clientId, route, shipToLocationId, it
   };
   useEffect(() => { reload(); }, [clientId, jobId, items.length]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  const shipTo = resolveJobShipTo({ ship_to_location_id: localShipToId }, locations);
+  const shipTo = resolveJobShipTo({ ship_to_location_id: localShipToId, ship_attn: attn }, locations);
+  const saveAttn = async (v: string | null) => {
+    try {
+      const saved = await setJobShipAttn(sb, jobId, v);
+      setAttn(saved); setAttnEditing(false);
+      const st = resolveJobShipTo({ ship_to_location_id: localShipToId, ship_attn: saved }, locations);
+      if (st) onShipToChange(st);
+      logJobActivity(jobId, saved ? `Ship-to ATTN set to ${saved}` : "Ship-to ATTN cleared");
+    } catch (e) { onError("ATTN save failed — not saved", e); }
+  };
   const book = locations.filter(l => !l.job_id);
   const projectOnly = locations.filter(l => l.job_id);
   const locById = useMemo(() => new Map(locations.map(l => [l.id, l])), [locations]);
@@ -69,7 +84,7 @@ export function DestinationsPanel({ jobId, clientId, route, shipToLocationId, it
     try {
       await setJobShipTo(sb, jobId, loc);
       setLocalShipToId(loc.id); setPicking(false);
-      onShipToChange({ locationId: loc.id, label: loc.label, address: loc.address, contactName: loc.contact_name ?? null, contactPhone: loc.contact_phone ?? null });
+      onShipToChange(resolveJobShipTo({ ship_to_location_id: loc.id, ship_attn: attn }, [...locations.filter(l => l.id !== loc.id), loc])!);
       logJobActivity(jobId, `Ship-to set to ${loc.label}`);
     } catch (e) { onError("Ship-to save failed — not saved", e); }
   };
@@ -96,8 +111,28 @@ export function DestinationsPanel({ jobId, clientId, route, shipToLocationId, it
           shipTo ? (
             <div style={{ fontSize: 13, lineHeight: 1.4 }}>
               <div style={{ ...LBL, color: T.muted, marginBottom: 3 }}>{shipTo.label}</div>
-              {addressLines(shipTo.address).map((l, i) => <div key={i} style={{ fontWeight: 700 }}>{l}</div>)}
+              {addressLines(shipTo.address).filter(l => !l.startsWith("ATTN:")).map((l, i) => <div key={i} style={{ fontWeight: 700 }}>{l}</div>)}
               {shipTo.contactName && <div style={{ color: T.muted, fontSize: 12, marginTop: 3 }}>{shipTo.contactName}{shipTo.contactPhone ? ` · ${shipTo.contactPhone}` : ""}</div>}
+              {/* ATTN — per project, prints as the last address line on every destination. Dotted underline = click to edit. */}
+              {attnEditing ? (
+                <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
+                  <span style={{ ...LBL, color: T.muted }}>ATTN</span>
+                  <input id="ship-attn" autoFocus value={attnDraft} onChange={e => setAttnDraft(e.target.value)} placeholder="PO number, name, department…"
+                    onKeyDown={e => { if (e.key === "Enter") saveAttn(attnDraft); if (e.key === "Escape") setAttnEditing(false); }}
+                    style={{ ...INPUT, width: 220, padding: "5px 8px" }} />
+                  <button style={LINK} onClick={() => saveAttn(attnDraft)}>Save</button>
+                  {attn && <button style={{ ...LINK, color: T.red }} onClick={() => saveAttn(null)}>Clear</button>}
+                  <button style={{ ...LINK, color: T.muted }} onClick={() => setAttnEditing(false)}>Cancel</button>
+                </div>
+              ) : (
+                <div style={{ marginTop: 6, fontSize: 13, display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+                  <span onClick={() => { setAttnDraft(attn || ""); setAttnEditing(true); }} title="Click to edit"
+                    style={{ cursor: "pointer", borderBottom: "1px dotted currentColor", color: attn ? T.text : T.muted, fontWeight: attn ? 700 : 400 }}>
+                    {attn ? `ATTN: ${attn}` : "Add ATTN line"}
+                  </span>
+                  {!attn && clientPoNumber && <button style={LINK} onClick={() => saveAttn(clientPoNumber)}>Use client PO {clientPoNumber}</button>}
+                </div>
+              )}
             </div>
           ) : <div style={{ fontSize: 13, color: T.amber, fontWeight: 700 }}>No address on file</div>
         )}

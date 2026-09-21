@@ -2786,6 +2786,7 @@ export type Database = {
           ship_to_location_id: string | null;
           qb_invoice_number: string | null;
           qb_invoice_id: string | null;
+          ship_attn: string | null;
         };
         Insert: {
           id?: string;
@@ -2826,6 +2827,7 @@ export type Database = {
           ship_to_location_id?: string | null;
           qb_invoice_number?: string | null;
           qb_invoice_id?: string | null;
+          ship_attn?: string | null;
         };
         Update: {
           id?: string;
@@ -2866,6 +2868,7 @@ export type Database = {
           ship_to_location_id?: string | null;
           qb_invoice_number?: string | null;
           qb_invoice_id?: string | null;
+          ship_attn?: string | null;
         };
         Relationships: [
           { foreignKeyName: "jobs_client_id_fkey"; columns: ["client_id"]; isOneToOne: false; referencedRelation: "clients"; referencedColumns: ["id"] },
@@ -3936,7 +3939,7 @@ export type Database = {
           item_id: string;
           version: number;
           state: string;
-          spec: Json;
+          spec: Json | null;
           item_snapshot: Json | null;
           mockup_drive_file_id: string | null;
           renderer_version: number | null;
@@ -3957,7 +3960,7 @@ export type Database = {
           item_id: string;
           version: number;
           state?: string;
-          spec: Json;
+          spec?: Json | null;
           item_snapshot?: Json | null;
           mockup_drive_file_id?: string | null;
           renderer_version?: number | null;
@@ -3978,7 +3981,7 @@ export type Database = {
           item_id?: string;
           version?: number;
           state?: string;
-          spec?: Json;
+          spec?: Json | null;
           item_snapshot?: Json | null;
           mockup_drive_file_id?: string | null;
           renderer_version?: number | null;

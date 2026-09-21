@@ -218,7 +218,7 @@ export type BoardStrip = {
 export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
   const { data: allJobs } = await sb
     .from("jobs")
-    .select("id, job_number, title, phase, priority, target_ship_date, shipping_route, type_meta, qb_invoice_number, qb_invoice_id, costing_data, client_id, ship_to_location_id, clients(name)")
+    .select("id, job_number, title, phase, priority, target_ship_date, shipping_route, type_meta, qb_invoice_number, qb_invoice_id, costing_data, client_id, ship_to_location_id, ship_attn, clients(name)")
     .not("phase", "in", '("complete","cancelled","on_hold")');
   const jobs = (allJobs || []).filter((j: any) => ((j.type_meta?.po_sent_vendors || []) as string[]).length > 0);
   const jobById = new Map<string, any>((jobs || []).map((j: any) => [j.id, j]));
@@ -572,7 +572,7 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
     for (const r of sRows || []) { const a = byIt.get(r.item_id) || []; a.push(r); byIt.set(r.item_id, a); }
     for (const [itemId, rows] of Array.from(byIt.entries())) {
       const dests = rows.sort((a, b) => a.sort_order - b.sort_order).filter(r => locById.has(r.location_id))
-        .map(r => ({ shipTo: { locationId: r.location_id, label: locById.get(r.location_id).label, address: locById.get(r.location_id).address, contactName: null, contactPhone: null }, qtys: r.qtys || {}, sortOrder: r.sort_order }));
+        .map(r => ({ shipTo: { locationId: r.location_id, label: locById.get(r.location_id).label, address: locById.get(r.location_id).address, attn: null, contactName: null, contactPhone: null }, qtys: r.qtys || {}, sortOrder: r.sort_order }));
       const tag = splitTag(dests); if (tag) splitTagByItem.set(itemId, tag);
     }
   }
@@ -753,7 +753,7 @@ export type ShippingJob = {
 
 export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
   const { data: jobs } = await sb.from("jobs")
-    .select("id, job_number, title, phase, shipping_route, type_meta, qb_invoice_number, qb_invoice_id, client_id, ship_to_location_id, clients(name)")
+    .select("id, job_number, title, phase, shipping_route, type_meta, qb_invoice_number, qb_invoice_id, client_id, ship_to_location_id, ship_attn, clients(name)")
     .in("phase", ["receiving", "shipping", "fulfillment"]);
   if (!jobs?.length) return [];
   const jobById = new Map<string, any>((jobs as any[]).map(j => [j.id, j]));
