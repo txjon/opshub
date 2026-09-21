@@ -111,6 +111,10 @@ export async function GET(
         .order("created_at", { ascending: false });
       proofFiles = files || [];
     }
+    // Same rule as the Client Hub: the client sees the frozen SENT version,
+    // never our live working copy (lib/proof-versions).
+    const { clientVisibleVersions, portalProofEntry } = await import("@/lib/proof-versions");
+    const { visible: visibleVersions, hasAny: versionedItems } = await clientVisibleVersions(sb, itemIds);
 
     // Payment records
     const { data: payments } = await sb
@@ -292,8 +296,13 @@ export async function GET(
 
     const itemsWithProofs = (items || []).map((item: any) => {
       const manualApproved = item.artwork_status === "approved";
+      const vv = visibleVersions.get(item.id) || null;
+      const changeReq = ((job.type_meta as any) || {}).change_request as any;
+      const revisionRequested = !!changeReq && Array.isArray(changeReq.itemIds) && changeReq.itemIds.includes(item.id) && vv?.state !== "approved";
       const itemProofs = proofFiles
-        .filter((f: any) => f.item_id === item.id)
+        // One proof entry per versioned item, built from the version; its old
+        // baked file rows are history.
+        .filter((f: any) => f.item_id === item.id && !(versionedItems.has(item.id) && f.stage === "proof"))
         .map((f: any) => ({
           id: f.id,
           fileName: f.file_name,
@@ -305,6 +314,7 @@ export async function GET(
           driveFileId: f.drive_file_id,
           createdAt: f.created_at,
         }));
+      if (vv) itemProofs.unshift(portalProofEntry(vv, { revisionRequested }) as any);
       // Per-item lifecycle fields — the client-safe phase labels derive from
       // the SAME truth the internal engine reads (Jon's rule: never a parallel
       // state machine). Units/sizes feed the P1 item cards.
@@ -328,8 +338,11 @@ export async function GET(
         noProofNeeded: item.artwork_status === "n_a",
         // The proof document's content — the overlay renders the REAL proof
         // (ProofDocView, same single source as the PDF), not a flat image.
-        proofSpec: item.proof_spec || null,
-        proofSentAt: item.proof_sent_at || null,
+        proofSpec: versionedItems.has(item.id) ? (vv?.spec || null) : (item.proof_spec || null),
+        // A migrated version can be missing its own send date; the item-level
+        // stamp is the same event. Nothing sent at all stays null.
+        proofSentAt: vv ? (vv.sent_at || item.proof_sent_at || null)
+          : (versionedItems.has(item.id) ? null : item.proof_sent_at || null),
       };
     });
 

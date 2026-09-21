@@ -169,6 +169,12 @@ export async function requestChanges(sb: Sb, jobId: string, note: string, itemId
       // must reopen the gate for these items (other statuses untouched).
       await sb.from("items").update({ artwork_status: "not_started" })
         .in("id", taggedIds).eq("artwork_status", "approved");
+      // The VERSION has to reopen too, or the proof keeps reading "approved"
+      // everywhere while the client is waiting on a revision. It drops back to
+      // SENT — it did go out, it simply isn't signed off any more.
+      await sb.from("proof_versions")
+        .update({ state: "sent", approved_at: null, approved_by: null, approval_source: null })
+        .in("item_id", taggedIds).eq("state", "approved");
     }
   }
 

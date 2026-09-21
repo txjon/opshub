@@ -246,3 +246,64 @@ export async function renderVersionPdf(versionId: string): Promise<{ ok: true; p
 
   return { ok: true, pdf, fileName, cached: false };
 }
+
+/**
+ * What the CLIENT is allowed to see, per item.
+ *
+ * A draft never reaches a client: the newest version that has actually been
+ * sent (or approved) is the document they review. Serving `items.proof_spec`
+ * instead would show them art nobody sent — the same drift this model exists
+ * to remove, re-entering through the portal door.
+ *
+ * Newest wins, so a revision sent over an approved version correctly reopens
+ * the gate in the hub.
+ */
+export async function clientVisibleVersions(db: any, itemIds: string[]): Promise<{ visible: Map<string, ProofVersion>; hasAny: Set<string> }> {
+  const visible = new Map<string, ProofVersion>();
+  const hasAny = new Set<string>();
+  if (!itemIds.length) return { visible, hasAny };
+  // Chunked + ranged: an un-ranged select is silently capped at 1000 rows.
+  for (let i = 0; i < itemIds.length; i += 200) {
+    const slice = itemIds.slice(i, i + 200);
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await db.from("proof_versions")
+        .select("*").in("item_id", slice)
+        .order("version", { ascending: false }).range(from, from + 999);
+      if (error) break;
+      for (const v of (data || []) as ProofVersion[]) {
+        hasAny.add(v.item_id);
+        if (v.state !== "sent" && v.state !== "approved") continue;
+        const held = visible.get(v.item_id);
+        if (!held || held.version < v.version) visible.set(v.item_id, v);
+      }
+      if (!data || data.length < 1000) break;
+    }
+  }
+  return { visible, hasAny };
+}
+
+/**
+ * The synthesized proof entry the portal surfaces consume. Keeps the shape the
+ * hub already reads (stage/approval/driveFileId), so the version model reaches
+ * the client without rewriting every consumer.
+ *
+ * `revisionRequested` comes from the job's change request — that note IS the
+ * record of a client asking for a revision; there is no file row to flag any
+ * more.
+ */
+export function portalProofEntry(v: ProofVersion, opts: { revisionRequested?: boolean } = {}) {
+  return {
+    id: v.id,
+    versionId: v.id,
+    version: v.version,
+    fileName: `Proof v${v.version}`,
+    stage: "proof" as const,
+    approval: v.state === "approved" ? "approved" : (opts.revisionRequested ? "revision_requested" : "pending"),
+    approvedAt: v.approved_at,
+    sentAt: v.sent_at,
+    driveFileId: v.mockup_drive_file_id,
+    driveLink: `/api/proof/${v.id}/pdf`,
+    downloadUrl: `/api/proof/${v.id}/pdf`,
+    createdAt: v.created_at,
+  };
+}

@@ -161,6 +161,11 @@ export async function GET(
         .order("created_at", { ascending: false });
       proofFiles = files || [];
     }
+    // A proof is a VERSION now. The client sees the newest SENT (or approved)
+    // one — never a draft, and never `items.proof_spec`, which is our live
+    // working copy and would show art nobody sent.
+    const { clientVisibleVersions, portalProofEntry } = await import("@/lib/proof-versions");
+    const { visible: visibleVersions, hasAny: versionedItems } = await clientVisibleVersions(sb, itemIds);
 
     const { data: payments } = await sb
       .from("payment_records")
@@ -342,8 +347,13 @@ export async function GET(
 
     const itemsWithProofs = (items || []).map((item: any) => {
       const manualApproved = item.artwork_status === "approved";
+      const vv = visibleVersions.get(item.id) || null;
+      const changeReq = (typeMeta.change_request || null) as any;
+      const revisionRequested = !!changeReq && Array.isArray(changeReq.itemIds) && changeReq.itemIds.includes(item.id) && vv?.state !== "approved";
       const itemProofs = proofFiles
-        .filter((f: any) => f.item_id === item.id)
+        // An item governed by the version model gets ONE proof entry, built
+        // from the version. Its old baked file rows are history.
+        .filter((f: any) => f.item_id === item.id && !(versionedItems.has(item.id) && f.stage === "proof"))
         .map((f: any) => ({
           id: f.id,
           fileName: f.file_name,
@@ -354,6 +364,7 @@ export async function GET(
           driveFileId: f.drive_file_id,
           createdAt: f.created_at,
         }));
+      if (vv) itemProofs.unshift(portalProofEntry(vv, { revisionRequested }) as any);
       // Total qty from buy sheet lines (pre-ship). Status per the
       // canonical resolver so this list reads with the same vocabulary
       // as the Items tab and the order row's hover summary.
@@ -423,8 +434,13 @@ export async function GET(
         shipTracking: item.ship_tracking || null,
         internalApproved: manualApproved,
         noProofNeeded: item.artwork_status === "n_a",
-        proofSpec: item.proof_spec || null,
-        proofSentAt: item.proof_sent_at || null,
+        // The FROZEN spec the client was sent. Only an item with no versions at
+        // all falls back to the live working copy (pre-migration records).
+        proofSpec: versionedItems.has(item.id) ? (vv?.spec || null) : (item.proof_spec || null),
+        // A migrated version can be missing its own send date; the item-level
+        // stamp is the same event. Nothing sent at all stays null.
+        proofSentAt: vv ? (vv.sent_at || item.proof_sent_at || null)
+          : (versionedItems.has(item.id) ? null : item.proof_sent_at || null),
       };
     });
 
