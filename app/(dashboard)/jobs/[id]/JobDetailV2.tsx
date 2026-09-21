@@ -1248,6 +1248,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     setRecips(sel);
     setPoShipDate((job.type_meta?.po_ship_dates || {})[vendor] || "");
     setPoMethod((job.type_meta?.po_ship_methods || {})[vendor] || decFor(vendor)?.default_ship_method || "");
+    // One-off addresses never carry between sends — the last PO's extra
+    // recipient must not ride along on the next vendor's.
+    setManualEmails([]); setManualInput("");
     setActErr(""); setPoVendor(vendor);
   };
   // Per-item PO fields (items table).
@@ -1317,8 +1320,14 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const doSendPO = async () => {
     if (!poVendor) return;
     const cl = decFor(poVendor)?.contacts_list || [];
-    const emails = cl.filter((c: any) => c.email && recips[c.email]).map((c: any) => c.email);
-    if (!emails.length) { setActErr("Select a recipient (or add contacts on the decorator)."); return; }
+    // A typed address counts as a recipient: sending a PO to a vendor's one-off
+    // contact, or to ourselves to check it, must not require editing the
+    // decorator's contact list (Jon, Sep 2026).
+    const emails = [
+      ...cl.filter((c: any) => c.email && recips[c.email]).map((c: any) => c.email),
+      ...manualEmails,
+    ];
+    if (!emails.length) { setActErr("Select a recipient, or type an email address below."); return; }
     if (!poShipDate) { setActErr("Set a ship date."); return; }
     setActBusy(true); setActErr("");
     try {
@@ -3191,13 +3200,26 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               </div>
               <div style={{ ...lbl, marginBottom: 4 }}>Recipients</div>
               {cl.length === 0 ? (
-                <div style={{ fontSize: 13, color: T.amber }}>No contacts on this decorator — add them on the Decorators page first.</div>
+                <div style={{ fontSize: 13, color: T.muted }}>No contacts on this decorator. Type an address below, or add contacts on the Decorators page.</div>
               ) : cl.map((c: any) => (
                 <label key={c.email} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13, color: T.text, padding: "4px 0" }}>
                   <input type="checkbox" checked={!!recips[c.email]} onChange={() => setRecips(r => ({ ...r, [c.email]: !r[c.email] }))} style={{ accentColor: T.accent }} />
                   <span>{c.name || c.email}<span style={{ color: T.faint }}> · {c.email}{c.role ? " · " + c.role : ""}</span></span>
                 </label>
               ))}
+              {manualEmails.map(m => (
+                <label key={m} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 13, color: T.text, padding: "4px 0" }}>
+                  <input type="checkbox" checked onChange={() => setManualEmails(x => x.filter(e => e !== m))} style={{ accentColor: T.accent }} />
+                  <span>{m}<span style={{ color: T.faint }}> · added</span></span>
+                </label>
+              ))}
+              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                <input value={manualInput} onChange={e => setManualInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addManualEmail(); } }}
+                  placeholder="Add another email…" type="email"
+                  style={{ flex: 1, padding: "8px 11px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: font, outline: "none" }} />
+                <button onClick={addManualEmail} disabled={!manualInput.trim()} style={{ ...ghostBtn, opacity: manualInput.trim() ? 1 : 0.5 }}>Add</button>
+              </div>
               {(() => {
                 // Proof-less warning (HPD-2607-032: PO went out with only PSD +
                 // mockup in the folders). Soft nudge, not a gate — some runs
@@ -3214,7 +3236,13 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               })()}
               {actErr && <div style={{ color: T.red, fontSize: 12, marginTop: 10 }}>{actErr}</div>}
               <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-                <button disabled={actBusy || cl.length === 0} onClick={doSendPO} style={{ ...actBtn, opacity: actBusy || cl.length === 0 ? 0.6 : 1 }}>{actBusy ? "Sending…" : "Send PO"}</button>
+                {(() => {
+                  const noRecipient = cl.filter((c: any) => c.email && recips[c.email]).length === 0 && manualEmails.length === 0;
+                  return (
+                    <button disabled={actBusy || noRecipient} onClick={doSendPO}
+                      style={{ ...actBtn, opacity: actBusy || noRecipient ? 0.6 : 1 }}>{actBusy ? "Sending…" : "Send PO"}</button>
+                  );
+                })()}
                 <button disabled={actBusy} onClick={() => setPoVendor(null)} style={ghostBtn}>Cancel</button>
               </div>
             </div>
