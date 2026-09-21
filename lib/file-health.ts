@@ -43,10 +43,18 @@ async function referencedFileIds(db: any): Promise<Map<string, { file_name: stri
   // Proof versions keep their files nowhere else: the kept PDF of an approved
   // proof IS the sign-off record, and 337 approved versions have no saved spec,
   // so that PDF is the only copy that can ever exist. Watch both columns.
+  //
+  // SUPERSEDED versions are excluded unless approved — exactly the rule the
+  // item_files clause above uses. A replaced proof's PDF is meant to be gone:
+  // watching those reported 168 "missing" files on the first run, all of them
+  // old rounds that were correctly cleaned up, which buried the real losses.
   for (const col of ["pdf_drive_file_id", "mockup_drive_file_id"] as const) {
     for (let from = 0; ; from += 1000) {
       const { data, error } = await db.from("proof_versions")
-        .select(`${col}, item_id, version`).not(col, "is", null).range(from, from + 999);
+        .select(`${col}, item_id, version, state, superseded_at`)
+        .not(col, "is", null)
+        .or("superseded_at.is.null,state.eq.approved")
+        .range(from, from + 999);
       if (error) break;
       for (const r of (data || [])) {
         const id = (r as any)[col];
