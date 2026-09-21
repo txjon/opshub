@@ -26,6 +26,34 @@ export type MissingFile = {
 /** Every distinct Drive file id a live OpsHub record points at. */
 async function referencedFileIds(db: any): Promise<Map<string, { file_name: string; stage: string; item_id: string | null }>> {
   const out = new Map<string, { file_name: string; stage: string; item_id: string | null }>();
+
+  // Items belonging to a DECOMMISSIONED tenant are not watched. A retired
+  // company's jobs are closed and its files are not coming back, so reporting
+  // them is a permanent, unactionable line in the daily email (IHM, Sep 2026).
+  // companies.is_active is the existing flag; flip it and the tenant drops out.
+  const retiredItems = new Set<string>();
+  {
+    const { data: dead } = await db.from("companies").select("id").eq("is_active", false);
+    const deadIds = (dead || []).map((c: any) => c.id);
+    if (deadIds.length) {
+      const jobIds: string[] = [];
+      for (let f = 0; ; f += 1000) {
+        const { data, error } = await db.from("jobs").select("id").in("company_id", deadIds).range(f, f + 999);
+        if (error) break;
+        jobIds.push(...(data || []).map((j: any) => j.id));
+        if (!data || data.length < 1000) break;
+      }
+      for (let i = 0; i < jobIds.length; i += 200) {
+        for (let f = 0; ; f += 1000) {
+          const { data, error } = await db.from("items").select("id").in("job_id", jobIds.slice(i, i + 200)).range(f, f + 999);
+          if (error) break;
+          for (const it of (data || [])) retiredItems.add(it.id);
+          if (!data || data.length < 1000) break;
+        }
+      }
+    }
+  }
+
   let from = 0;
   for (;;) {
     const { data, error } = await db.from("item_files")
@@ -39,7 +67,10 @@ async function referencedFileIds(db: any): Promise<Map<string, { file_name: stri
       .not("drive_file_id", "is", null)
       .range(from, from + 999);
     if (error) break;
-    for (const r of (data || [])) if (!out.has(r.drive_file_id)) out.set(r.drive_file_id, { file_name: r.file_name, stage: r.stage, item_id: r.item_id });
+    for (const r of (data || [])) {
+      if (r.item_id && retiredItems.has(r.item_id)) continue;
+      if (!out.has(r.drive_file_id)) out.set(r.drive_file_id, { file_name: r.file_name, stage: r.stage, item_id: r.item_id });
+    }
     if (!data || data.length < 1000) break;
     from += 1000;
   }
@@ -62,6 +93,7 @@ async function referencedFileIds(db: any): Promise<Map<string, { file_name: stri
       if (error) break;
       for (const r of (data || [])) {
         const id = (r as any)[col];
+        if ((r as any).item_id && retiredItems.has((r as any).item_id)) continue;
         if (!out.has(id)) out.set(id, {
           file_name: col === "pdf_drive_file_id" ? `Proof v${(r as any).version} (PDF)` : `Proof v${(r as any).version} mockup`,
           stage: "proof", item_id: (r as any).item_id,
