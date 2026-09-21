@@ -105,12 +105,15 @@ export async function loadShipToOptions(sb: Sb, decoratorIds: string[]): Promise
   if (decoratorIds.length) {
     const { data: decs } = await sb.from("decorators").select("id, name, address, city, state, zip, ship_from_address, ship_from_city, ship_from_state, ship_from_zip").in("id", decoratorIds);
     for (const d of decs || []) {
-      // vendor records are patchy (a ship-from street with no city, a main
-      // address with no state) — take the best of both; the block is editable.
-      const street = (d.ship_from_address || d.address || "").trim();
-      const city = d.ship_from_city || d.city;
-      const state = d.ship_from_state || d.state;
-      const zip = d.ship_from_zip || d.zip;
+      // Blanks are DELIVERED to the vendor: use their main (receiving) address.
+      // ship_from_* is where their goods leave, not where ours arrive (Icon's
+      // Grove Ave ship-from vs Eckhoff receiving, Jon Sep 21). Ship-from is
+      // only a fallback when no main address exists. The block stays editable.
+      const useMain = !!(d.address || "").trim();
+      const street = ((useMain ? d.address : d.ship_from_address) || "").trim();
+      const city = useMain ? d.city : d.ship_from_city;
+      const state = useMain ? d.state : d.ship_from_state;
+      const zip = useMain ? d.zip : d.ship_from_zip;
       const cityLine = [city, [state, zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
       out.push({ key: `dec:${d.id}`, label: d.name, address: [d.name, street, cityLine].filter(Boolean).join("\n") });
     }
