@@ -57,18 +57,19 @@ export function draftBlankOrderEmail(args: {
   // line carries its own ATTN: PO<number><letter>.
   const base = args.invoiceNumber || args.jobNumber;
   const po = poNumber(args.jobNumber, args.invoiceNumber, args.items.map(i => i.letter));
-  const subject = `Blank order · PO ${po} · ${args.clientName}`;
+  // The rep needs the ATTN, the blank style, the color and the size counts —
+  // no client name, no in-house item names (Jon, Sep 21).
+  const subject = `Blank order · PO ${po}`;
   const total = args.items.reduce((a, it) => a + sumQ(it.qtys), 0);
   const lines: string[] = [];
   lines.push(`Hi ${args.repName?.trim() || "there"},`);
   lines.push("");
-  lines.push(`Please place the following blank orders for ${args.clientName}, PO ${po}. Each line is its own order; please reference the ATTN on each.`);
+  lines.push(`Please place the following blank orders under PO ${po}. Each block is its own order; please reference the ATTN on each.`);
   lines.push("");
   for (const it of args.items) {
-    const head = [it.style, it.color].filter(Boolean).join(" · ") || it.name;
-    lines.push(`${it.letter ? it.letter + " · " : ""}${head}${it.style || it.color ? `  (${it.name})` : ""}`);
-    lines.push(`    ${sizesLine(it.qtys)}  =  ${sumQ(it.qtys)}`);
-    lines.push(`    ATTN: PO${base}${it.letter}`);
+    lines.push(`ATTN: PO${base}${it.letter}`);
+    lines.push([it.style, it.color].filter(Boolean).join(" · ") || "Blank not assigned");
+    lines.push(`${sizesLine(it.qtys)}  =  ${sumQ(it.qtys)}`);
     lines.push("");
   }
   lines.push(`Total: ${total.toLocaleString()} units`);
