@@ -77,10 +77,15 @@ export async function freezeVersion(db: any, opts: {
    *  whether identical art returned the one already there. Callers that reopen
    *  an approval must check it: re-saving unchanged art changes nothing. */
 }): Promise<{ ok: true; version: ProofVersion; created: boolean } | { ok: false; error: string }> {
-  const { data: last } = await db.from("proof_versions")
-    .select("version, spec, state, id").eq("item_id", opts.itemId)
-    .order("version", { ascending: false }).limit(1);
-  const prev = (last || [])[0];
+  const { data: recent } = await db.from("proof_versions")
+    .select("version, spec, state, id, mockup_drive_file_id, superseded_at").eq("item_id", opts.itemId)
+    .order("version", { ascending: false });
+  const prev = (recent || [])[0];
+  // The live approved version, if there is one. Art returned to exactly what a
+  // client signed off should land back ON that approval, not make a new
+  // version — otherwise undoing an edit asks them to approve the same artwork
+  // twice.
+  const approved = (recent || []).find((r: any) => r.state === "approved" && !r.superseded_at);
 
   // Identical art, still open for approval: keep the version we have rather
   // than pile up duplicates. Keys are sorted first — jsonb hands back a
@@ -93,13 +98,22 @@ export async function freezeVersion(db: any, opts: {
   // Opening an approved proof and closing it must change nothing, or the item
   // silently leaves approved and the ordering gate shuts (caught in review
   // before it shipped, Sep 2026).
-  if (prev && JSON.stringify(canon(prev.spec)) === JSON.stringify(canon(opts.spec))) {
-    const { data: unchanged } = await db.from("proof_versions").select("*").eq("id", prev.id).single();
+  // The mockup counts as part of the document: replacing the image without
+  // touching the spec used to return the old version, which kept pointing at
+  // the replaced file and rendered the proof with artwork nobody could see in
+  // the editor.
+  const wantMockup = opts.mockupDriveFileId || null;
+  const identical = (r: any) => r
+    && JSON.stringify(canon(r.spec)) === JSON.stringify(canon(opts.spec))
+    && (r.mockup_drive_file_id || null) === wantMockup;
+  const match = identical(prev) ? prev : (identical(approved) ? approved : null);
+  if (match) {
+    const { data: unchanged } = await db.from("proof_versions").select("*").eq("id", match.id).single();
     return { ok: true, version: unchanged as ProofVersion, created: false };
   }
 
-  const version = (prev?.version || 0) + 1;
-  const { data, error } = await db.from("proof_versions").insert({
+  let version = (prev?.version || 0) + 1;
+  const row = () => ({
     item_id: opts.itemId,
     version,
     state: opts.state || "draft",
@@ -110,7 +124,17 @@ export async function freezeVersion(db: any, opts: {
     created_by: opts.createdBy || null,
     sent_at: opts.state === "sent" ? new Date().toISOString() : null,
     note: opts.note || null,
-  }).select("*").single();
+  });
+  let { data, error } = await db.from("proof_versions").insert(row()).select("*").single();
+  // Two saves on one item race: both compute the same next number and the
+  // unique constraint rejects the loser. Recompute once and take the next slot
+  // rather than handing the user a failed save.
+  if (error && /duplicate key|unique/i.test(error.message || "")) {
+    const { data: again } = await db.from("proof_versions")
+      .select("version").eq("item_id", opts.itemId).order("version", { ascending: false }).limit(1);
+    version = (((again || [])[0] as any)?.version || version) + 1;
+    ({ data, error } = await db.from("proof_versions").insert(row()).select("*").single());
+  }
   if (error) return { ok: false, error: error.message };
 
   // Earlier DRAFTS are retired — an approved version is left alone, it is the
@@ -127,11 +151,22 @@ export async function freezeVersion(db: any, opts: {
  * Guessing a send date from the item's history put "sent Sep 16" on a version
  * created days later (Jon spotted it, Sep 2026).
  */
-export async function markVersionSent(db: any, itemId: string): Promise<ProofVersion | null> {
-  const { data } = await db.from("proof_versions").select("*")
-    .eq("item_id", itemId).is("superseded_at", null)
-    .order("version", { ascending: false }).limit(1);
-  const v = ((data || [])[0] as ProofVersion) || null;
+export async function markVersionSent(db: any, itemId: string, versionId?: string | null): Promise<ProofVersion | null> {
+  // The CALLER names the version it sent where it can. Stamping "whatever is
+  // newest when this lands" put 'sent' on a draft somebody froze in the seconds
+  // between the email going out and this call arriving.
+  let v: ProofVersion | null = null;
+  if (versionId) {
+    const { data: named } = await db.from("proof_versions").select("*").eq("id", versionId).maybeSingle();
+    v = (named as ProofVersion) || null;
+    if (v && v.item_id !== itemId) v = null;      // never stamp another item's version
+  }
+  if (!v) {
+    const { data } = await db.from("proof_versions").select("*")
+      .eq("item_id", itemId).is("superseded_at", null)
+      .order("version", { ascending: false }).limit(1);
+    v = ((data || [])[0] as ProofVersion) || null;
+  }
   if (!v || v.state === "approved" || v.sent_at) return v;
   const { data: updated } = await db.from("proof_versions")
     .update({ state: "sent", sent_at: new Date().toISOString() }).eq("id", v.id).select("*").single();

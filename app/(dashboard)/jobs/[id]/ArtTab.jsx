@@ -856,7 +856,13 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ spec: JSON.parse(specSnap), mockupDriveFileId, rendererVersion: PROOF_RENDERER_VERSION, state }),
     });
-    if (!res.ok) { console.error("[proof version] freeze failed"); return null; }
+    if (!res.ok) {
+      // Loudly. This returned null and closed the editor, so a failed save —
+      // two people saving the same proof at once collides on the version
+      // number — threw the edit away without a word.
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error || "The proof could not be saved. Your edits are still on screen — try again.");
+    }
     const { version } = await res.json();
     // Remember what this version holds, so the next exit knows whether the art
     // moved on.
@@ -953,9 +959,16 @@ export function ProofModal({ item, clientName, projectTitle, mockupFile, files, 
     flushSpecSave();
     if (specLoaded) {
       setClosingBake(true);
-      try { await freezeProofVersion("draft"); }
-      catch (e) { console.error("[ProofModal close freeze]", e); }
-      finally { setClosingBake(false); }
+      try {
+        await freezeProofVersion("draft");
+      } catch (e) {
+        // Stay open. Closing on a failed save is how the edit disappeared.
+        console.error("[ProofModal close freeze]", e);
+        setError(e?.message || "The proof could not be saved. Your edits are still here — try again.");
+        setClosingBake(false);
+        return;
+      }
+      setClosingBake(false);
     }
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     onClose(false);

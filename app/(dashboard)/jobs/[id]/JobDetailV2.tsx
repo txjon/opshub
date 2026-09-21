@@ -938,7 +938,16 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       // signed-off proof never has its date moved.
       const sentIds = items.filter((it: any) => needsProof(it) && !carriedApproved(it) && it.proof_spec
         && proofByItem[it.id]?.state !== "approved").map((it: any) => it.id);
-      for (const id of sentIds) { try { await fetch(`/api/items/${id}/proof/versions`, { method: "PATCH" }); } catch { /* the send still counts */ } }
+      for (const id of sentIds) {
+        try {
+          // Name the version that was on screen when the email went, so a
+          // freeze landing in between can't be stamped as the sent document.
+          await fetch(`/api/items/${id}/proof/versions`, {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ versionId: proofByItem[id]?.id || null }),
+          });
+        } catch { /* the send still counts */ }
+      }
       if (sentIds.length) {
         const nowP = new Date().toISOString();
         await (createClient().from("items") as any).update({ proof_sent_at: nowP }).in("id", sentIds);

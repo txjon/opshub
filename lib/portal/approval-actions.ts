@@ -138,6 +138,13 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
         : `${e?.message || "The approval could not be recorded."} Please contact us before approving again.`);
     }
 
+    // Which items this call actually flips. A rollback must put back only
+    // these: reverting every approved item on the job would wipe approvals
+    // recorded internally long before this client ever clicked.
+    const newlyApproved = (items || [])
+      .filter((i: any) => i.artwork_status !== "approved" && i.artwork_status !== "n_a")
+      .map((i: any) => i.id);
+
     // Derived state, only once the record exists. If either of these fails the
     // record is rolled back too — an approved proof under an unapproved job is
     // the split state this whole ordering exists to prevent.
@@ -159,7 +166,14 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
       const { error } = await sb.from("items").update({ artwork_status: "approved" }).in("id", itemIds).neq("artwork_status", "n_a");
       if (error) await failDerived("item status", error.message);
     }
-    approveUndo = undoStamps;
+    approveUndo = async () => {
+      const clean = await undoStamps();
+      if (newlyApproved.length) {
+        await sb.from("items").update({ artwork_status: "not_started" })
+          .in("id", newlyApproved).eq("artwork_status", "approved");
+      }
+      return clean;
+    };
   }
 
   const snapshot: ApprovalSnapshot = {
@@ -198,7 +212,6 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
       // silence, put everything back and make the client retry.
       await sb.from("jobs").update({ quote_approved: false, quote_approved_at: null }).eq("id", jobId);
       if (approveUndo) await approveUndo();
-      await sb.from("items").update({ artwork_status: "not_started" }).in("id", itemIds).eq("artwork_status", "approved");
       throw new Error("Could not save the approval record. Nothing has been approved — please try again.");
     }
   }

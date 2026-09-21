@@ -70,10 +70,13 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 // Mark the current version as SENT — the document the client is now looking
 // at. Only the send flow calls this, and the date is stamped here, so a version
 // can never claim a send that did not happen.
-export async function PATCH(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await createServerClient();
   const { data: { user } } = await session.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const version = await markVersionSent(admin(), params.id);
+  // The sender names the version it put in front of the client, so a draft
+  // frozen in the meantime cannot be stamped as the document that went out.
+  const body = await req.json().catch(() => ({} as any));
+  const version = await markVersionSent(admin(), params.id, body?.versionId || null);
   return NextResponse.json({ version });
 }

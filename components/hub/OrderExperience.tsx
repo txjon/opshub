@@ -31,9 +31,14 @@ const thumbSrc = (driveId: string, size = 500, token?: string | null) => `/api/f
 // the image. The live mockup is only used when the version carries none.
 const mockupOf = (it: any) => {
   const proofs = (it.proofs || []) as any[];
+  // A proof entry with no mockup id is not a picture: emitting it produced
+  // <img src="…id=null">, a broken image inside the proof a client is being
+  // asked to approve. Two live versions are in that state.
   const frozen = proofs.find(f => f.stage === "proof" && f.driveFileId);
   if (frozen) return frozen;
-  return proofs.find(f => f.stage === "mockup") || proofs.find(f => f.stage === "proof") || null;
+  return proofs.find(f => f.stage === "mockup" && f.driveFileId)
+    || proofs.find(f => f.stage === "proof" && f.driveFileId)
+    || null;
 };
 
 export function OrderExperience({ data, token, onAction }: {
