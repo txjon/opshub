@@ -2918,7 +2918,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                     )}
                     {proofByItem[it.id] && (() => {
                       const pv = proofByItem[it.id];
-                      const approved = pv.state === "approved";
+                      // The item's own approval wins: a version whose state lags
+                      // must never make an approved item read as a draft, which
+                      // is what the ordering gate would then contradict.
+                      const approved = pv.state === "approved" || it.artwork_status === "approved";
                       const setStatus = async (next: string, msg: string) => {
                         try {
                           await (createClient().from("items") as any).update({ artwork_status: next }).eq("id", it.id);
@@ -2985,7 +2988,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(88px, 1fr))", gap: 10 }}>
                         {proofByItem[it.id] && (() => {
                           const pv = proofByItem[it.id];
-                          const approved = pv.state === "approved";
+                          const approved = pv.state === "approved" || it.artwork_status === "approved";
                           const proofFile = files.find((f: any) => f.stage === "proof");
                           return (
                             <a key={`proof-${pv.id}`} href={`/api/proof/${pv.id}/pdf`} target="_blank" rel="noreferrer" title={`Proof v${pv.version}`}
