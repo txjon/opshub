@@ -217,9 +217,10 @@ export default function HoursPage() {
             Manual entry
           </button>
         );
+        // Clock Out is blue, not red: Dante is red-green colorblind and red/green read the same.
         const clockBtn = (flex: boolean) => open ? (
           <button onClick={() => clockOut(open.id)}
-            style={{ flex: flex ? 1 : undefined, background: T.red, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontSize: 13, fontWeight: 700, fontFamily: font, cursor: "pointer", whiteSpace: "nowrap" }}>
+            style={{ flex: flex ? 1 : undefined, background: T.blue, color: T.bg, border: "none", borderRadius: 8, padding: "10px 18px", fontSize: 13, fontWeight: 700, fontFamily: font, cursor: "pointer", whiteSpace: "nowrap" }}>
             Clock Out
           </button>
         ) : (
