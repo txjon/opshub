@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { useConfirm } from "@/components/useConfirm";
+import { entryHours } from "@/lib/hours";
 
 // Contractor hours → QuickBooks (billing-gated). Hours are logged rate-blind in
 // /hours; here the owner/bookkeeper applies the hourly rate per contractor for a
@@ -18,13 +19,6 @@ const money = (n: number) => `$${(n || 0).toLocaleString(undefined, { minimumFra
 const lbl = { fontSize: 9.5, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: T.faint } as const;
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 function mondayOf(d: Date) { const x = new Date(d); const day = (x.getDay() + 6) % 7; x.setDate(x.getDate() - day); x.setHours(0, 0, 0, 0); return x; }
-function entryHours(e: Entry): number {
-  if (!e.time_in || !e.time_out) return 0;
-  const [ih, im] = e.time_in.split(":").map(Number); const [oh, om] = e.time_out.split(":").map(Number);
-  let mins = (oh * 60 + om) - (ih * 60 + im); if (mins < 0) mins += 1440;
-  mins -= Number(e.break_minutes || 0);
-  return Math.max(0, mins) / 60;
-}
 const shortDate = (s: string) => { const [y, m, d] = s.split("-"); return `${m}/${d}`; };
 
 export function ContractorHoursView() {

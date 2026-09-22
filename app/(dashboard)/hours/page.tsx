@@ -4,11 +4,16 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { useIsMobile } from "@/lib/useIsMobile";
+import { entryHours, fmtHours, fmtTime, toMin, weekSnapshot } from "@/lib/hours";
 
 type EntryModal = { id: string | null; contractorId: string; contractorName: string; date: string; timeIn: string; timeOut: string; breakMin: string };
 
 type Contractor = { id: string; name: string; active: boolean; sort_order: number };
-type Entry = { id: string; contractor_id: string; work_date: string; time_in: string | null; time_out: string | null; break_minutes: number; notes: string | null };
+type Entry = { id: string; contractor_id: string; work_date: string; time_in: string | null; time_out: string | null; break_minutes: number; notes: string | null; pay_run_id: string | null };
+type WeekStatus = {
+  submission: { submitted_at: string; submitted_by_name: string | null; total_hours: number; snapshot: string } | null;
+  payRuns: { id: string; contractor_id: string; pushed_at: string; qb_paid_at: string | null }[];
+};
 
 // ── date helpers (local, no TZ drift) ──
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -20,24 +25,8 @@ function mondayOf(d: Date): Date {
 }
 const addDays = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 const fmtMD = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
+const fmtStamp = (iso: string) => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()}`; };
 function fmtDateLong(s: string) { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }); }
-
-// ── hours math ──
-const toMin = (t: string | null) => { if (!t) return null; const [h, m] = t.split(":").map(Number); return h * 60 + m; };
-function entryHours(e: Entry): number {
-  const a = toMin(e.time_in), b = toMin(e.time_out);
-  if (a == null || b == null) return 0;
-  let mins = b - a; if (mins < 0) mins += 24 * 60; // tolerate an overnight shift
-  mins -= (e.break_minutes || 0);
-  return Math.max(0, mins) / 60;
-}
-const fmtHours = (h: number) => (Math.round(h * 100) / 100).toString();
-function fmtTime(t: string | null) {
-  if (!t) return "—";
-  const [h, m] = t.split(":").map(Number);
-  const ap = h < 12 ? "a" : "p"; const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}:${String(m).padStart(2, "0")}${ap}`;
-}
 
 export default function HoursPage() {
   const supabase = createClient();
@@ -69,6 +58,15 @@ export default function HoursPage() {
   }, [supabase, weekStart, weekEnd]);
   useEffect(() => { load(); }, [load]);
 
+  // Submitted? Billed/paid? (Pay-run dates come via the API — the table itself is AP-gated.)
+  const [status, setStatus] = useState<WeekStatus>({ submission: null, payRuns: [] });
+  const loadStatus = useCallback(async () => {
+    setStatus({ submission: null, payRuns: [] });
+    const res = await fetch(`/api/hours/week-status?start=${ymd(weekStart)}&end=${ymd(weekEnd)}`);
+    if (res.ok) setStatus(await res.json());
+  }, [weekStart, weekEnd]);
+  useEffect(() => { loadStatus(); }, [loadStatus]);
+
   const loadToday = useCallback(async () => {
     const { data: open } = await supabase.from("contractor_time_entries").select("*").is("time_out", null).not("time_in", "is", null);
     setOpenShifts(open || []);
@@ -79,6 +77,8 @@ export default function HoursPage() {
   useEffect(() => { const t = setInterval(() => setNowTick(n => n + 1), 30000); return () => clearInterval(t); }, []);
 
   const activeContractors = contractors.filter(c => c.active);
+  // Clock In/Out stamps TODAY, so it only belongs on the current week.
+  const isCurrentWeek = ymd(weekStart) === ymd(mondayOf(new Date()));
 
   // ── Clock in/out (kiosk) ──
   const nowHHMM = () => { const d = new Date(); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
@@ -133,6 +133,7 @@ export default function HoursPage() {
       });
       if (!res.ok) throw new Error();
       setEmailing("sent"); setTimeout(() => setEmailing(""), 2500);
+      loadStatus();
     } catch { setEmailing("error"); setTimeout(() => setEmailing(""), 3000); }
   }
   async function renameContractor(id: string, name: string) { await supabase.from("contractors").update({ name }).eq("id", id); setContractors(p => p.map(c => c.id === id ? { ...c, name } : c)); }
@@ -141,6 +142,9 @@ export default function HoursPage() {
   const entriesByContractor = (cid: string) => entries.filter(e => e.contractor_id === cid).sort((a, b) => a.work_date.localeCompare(b.work_date));
   const contractorTotal = (cid: string) => entriesByContractor(cid).reduce((a, e) => a + entryHours(e), 0);
   const grandTotal = entries.reduce((a, e) => a + entryHours(e), 0);
+  const sub = status.submission;
+  const changedSinceSubmit = !!sub && sub.snapshot !== weekSnapshot(entries);
+  const submitLocked = !!sub && !changedSinceSubmit; // nothing new to send
 
   const inp = { background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, color: T.text, fontFamily: font, fontSize: 13, padding: "7px 10px", outline: "none", boxSizing: "border-box" as const };
   const lbl = { fontSize: 10, color: T.faint, textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 3, display: "block" };
@@ -151,10 +155,16 @@ export default function HoursPage() {
       {/* Header + week selector */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>Hours</h1>
-        <button onClick={emailSummary} disabled={emailing === "sending" || grandTotal === 0}
-          style={{ background: emailing === "sent" ? T.greenDim : T.accent, color: emailing === "sent" ? T.green : "#0a0a0a", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 700, fontFamily: font, cursor: (emailing === "sending" || grandTotal === 0) ? "default" : "pointer", opacity: grandTotal === 0 ? 0.5 : 1 }}>
-          {emailing === "sending" ? "Submitting…" : emailing === "sent" ? "✓ Submitted" : emailing === "error" ? "Failed — retry" : "Submit Hours"}
-        </button>
+        {(() => {
+          const done = emailing === "sent" || (submitLocked && emailing === "");
+          const idle = emailing === "sending" || grandTotal === 0 || done;
+          return (
+            <button onClick={emailSummary} disabled={idle}
+              style={{ background: done ? T.greenDim : T.accent, color: done ? T.green : T.bg, border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 700, fontFamily: font, cursor: idle ? "default" : "pointer", opacity: grandTotal === 0 && !done ? 0.5 : 1 }}>
+              {emailing === "sending" ? "Submitting…" : done ? "✓ Submitted" : emailing === "error" ? "Failed — retry" : changedSinceSubmit ? "Resubmit Hours" : "Submit Hours"}
+            </button>
+          );
+        })()}
         <div style={{ flex: 1 }} />
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button onClick={() => setWeekStart(addDays(weekStart, -7))} style={{ ...inp, cursor: "pointer", padding: "6px 12px", fontWeight: 700 }}>←</button>
@@ -167,8 +177,14 @@ export default function HoursPage() {
       {/* Unified per-contractor list: clock in/out + manual entry + week's
           punches, all in one card per contractor. */}
       <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-        <h2 style={{ fontSize: 11, fontWeight: 800, color: T.muted, letterSpacing: "0.08em", textTransform: "uppercase", margin: 0 }}>This week</h2>
+        <h2 style={{ fontSize: 11, fontWeight: 800, color: T.muted, letterSpacing: "0.08em", textTransform: "uppercase", margin: 0 }}>{isCurrentWeek ? "This week" : `Week of ${fmtMD(weekStart)}`}</h2>
         <span style={{ fontSize: 12, color: T.muted }}>Total <strong style={{ color: T.text, fontFamily: mono }}>{fmtHours(grandTotal)}</strong> hrs</span>
+        {sub && (
+          <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.5, textTransform: "uppercase", color: changedSinceSubmit ? T.amber : T.green }}>
+            Submitted {fmtStamp(sub.submitted_at)}{sub.submitted_by_name ? ` · ${sub.submitted_by_name.split(" ")[0]}` : ""}
+            {changedSinceSubmit && " · edited since, resubmit"}
+          </span>
+        )}
       </div>
 
       {activeContractors.length === 0 && (
@@ -182,7 +198,16 @@ export default function HoursPage() {
         const total = contractorTotal(c.id);
         const open = openShiftOf(c.id);
         const td = todayHours(c.id);
-        const status = open
+        // Paid = QB recorded the bill payment; Billed = pushed, not yet paid.
+        const runs = status.payRuns.filter(r => r.contractor_id === c.id);
+        const paidAt = runs.map(r => r.qb_paid_at).filter(Boolean).sort().pop() as string | undefined;
+        const billedAt = runs.map(r => r.pushed_at).sort().pop();
+        const payStamp = paidAt
+          ? <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.5, color: T.green, whiteSpace: "nowrap" }}>PAID {fmtStamp(paidAt)}</span>
+          : billedAt
+            ? <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.5, color: T.muted, whiteSpace: "nowrap" }}>BILLED {fmtStamp(billedAt)}</span>
+            : null;
+        const cardStatus = !isCurrentWeek ? null : open
           ? <>On the clock · since {fmtTime(open.time_in)} · <strong style={{ fontFamily: mono }}>{elapsedLabel(open.time_in)}</strong></>
           : (td > 0 ? <>Clocked out · {fmtHours(td)} hrs today</> : "Not clocked in");
         // Small, de-emphasized — Clock In stays the primary action.
@@ -210,11 +235,13 @@ export default function HoursPage() {
               <div style={{ padding: "12px 14px", borderBottom: es.length ? `1px solid ${T.border}` : "none" }}>
                 <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
                   <div style={{ fontSize: 16, fontWeight: 700 }}>{c.name}</div>
+                  <div style={{ flex: 1 }} />
+                  {payStamp}
                   <div style={{ fontSize: 15, fontWeight: 800, fontFamily: mono, color: total > 0 ? T.text : T.faint }}>{fmtHours(total)} <span style={{ fontSize: 11, fontWeight: 600, color: T.muted, fontFamily: font }}>hrs</span></div>
                 </div>
-                <div style={{ fontSize: 12, color: open ? T.green : T.faint, marginTop: 2 }}>{status}</div>
+                {cardStatus && <div style={{ fontSize: 12, color: open ? T.green : T.faint, marginTop: 2 }}>{cardStatus}</div>}
                 <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
-                  {clockBtn(true)}
+                  {isCurrentWeek && clockBtn(true)}
                   {manualBtn()}
                 </div>
               </div>
@@ -222,11 +249,12 @@ export default function HoursPage() {
               <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderBottom: es.length ? `1px solid ${T.border}` : "none" }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 700 }}>{c.name}</div>
-                  <div style={{ fontSize: 11, color: open ? T.green : T.faint, marginTop: 1 }}>{status}</div>
+                  {cardStatus && <div style={{ fontSize: 11, color: open ? T.green : T.faint, marginTop: 1 }}>{cardStatus}</div>}
                 </div>
+                {payStamp}
                 <div style={{ fontSize: 15, fontWeight: 800, fontFamily: mono, color: total > 0 ? T.text : T.faint }}>{fmtHours(total)} <span style={{ fontSize: 11, fontWeight: 600, color: T.muted, fontFamily: font }}>hrs</span></div>
                 {manualBtn()}
-                {clockBtn(false)}
+                {isCurrentWeek && clockBtn(false)}
               </div>
             )}
 
@@ -242,10 +270,17 @@ export default function HoursPage() {
                     <div style={{ fontSize: 11, color: T.faint, marginTop: 1 }}>{fmtDateLong(e.work_date)}{e.break_minutes ? ` · ${e.break_minutes}m break` : ""}</div>
                   </div>
                   <div style={{ fontFamily: mono, fontWeight: 700, color: openRow ? T.green : T.text }}>{openRow ? "—" : fmtHours(entryHours(e))} <span style={{ fontSize: 10, fontWeight: 600, color: T.muted, fontFamily: font }}>hrs</span></div>
+                  {e.pay_run_id ? (
+                    // Billed to QB — editing would drift from the bill. Fixes go through /billing.
+                    <span title="Billed to QuickBooks: locked" style={{ width: 49, textAlign: "center", color: T.faint, lineHeight: 0 }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="11" width="16" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
+                    </span>
+                  ) : (<>
                   <button onClick={() => openEditEntry(c, e)} title="Edit" style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", padding: 6, lineHeight: 0 }}>
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg>
                   </button>
                   <button onClick={() => delEntry(e.id)} title="Delete" style={{ background: "none", border: "none", color: T.faint, fontSize: 16, cursor: "pointer", lineHeight: 1, padding: "0 2px" }}>×</button>
+                  </>)}
                 </div>
               );
             })}
@@ -270,7 +305,7 @@ export default function HoursPage() {
             ))}
             <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
               <input value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === "Enter" && addContractor()} placeholder="New contractor name" style={{ ...inp, flex: 1 }} />
-              <button onClick={addContractor} disabled={!newName.trim()} style={{ background: T.accent, color: "#0a0a0a", border: "none", borderRadius: 6, padding: "7px 16px", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: newName.trim() ? "pointer" : "default", opacity: newName.trim() ? 1 : 0.5 }}>Add</button>
+              <button onClick={addContractor} disabled={!newName.trim()} style={{ background: T.accent, color: T.bg, border: "none", borderRadius: 6, padding: "7px 16px", fontSize: 12, fontWeight: 700, fontFamily: font, cursor: newName.trim() ? "pointer" : "default", opacity: newName.trim() ? 1 : 0.5 }}>Add</button>
             </div>
           </div>
         )}

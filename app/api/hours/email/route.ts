@@ -4,23 +4,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { resendForSlug } from "@/lib/resend-client";
 import { renderBrandedEmail } from "@/lib/email-template";
+import { entryHours, fmtHours, fmtTime, weekSnapshot } from "@/lib/hours";
 
-// ── hours math (mirrors app/(dashboard)/hours/page.tsx) ──
-const toMin = (t: string | null) => { if (!t) return null; const [h, m] = t.split(":").map(Number); return h * 60 + m; };
-function entryHours(e: any): number {
-  const a = toMin(e.time_in), b = toMin(e.time_out);
-  if (a == null || b == null) return 0;
-  let mins = b - a; if (mins < 0) mins += 24 * 60;
-  mins -= (e.break_minutes || 0);
-  return Math.max(0, mins) / 60;
-}
-const fmtHours = (h: number) => (Math.round(h * 100) / 100).toString();
-function fmtTime(t: string | null) {
-  if (!t) return "—";
-  const [h, m] = t.split(":").map(Number);
-  const ap = h < 12 ? "a" : "p"; const h12 = h % 12 === 0 ? 12 : h % 12;
-  return `${h12}:${String(m).padStart(2, "0")}${ap}`;
-}
 function fmtDateShort(s: string) { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" , timeZone: "America/Los_Angeles" }); }
 function fmtMD(s: string) { const [, m, d] = s.split("-").map(Number); return `${m}/${d}`; }
 
@@ -78,9 +63,24 @@ export async function POST(req: NextRequest) {
       closing: "—\nHouse Party Distro",
     });
 
+    // Record the submission first — it's what tells /hours the week was sent.
+    // If the email then fails, drop the record so the week doesn't read as submitted.
+    const { data: prof } = await supabase.from("profiles").select("full_name").eq("id", user.id).single();
+    const { data: sub, error: subErr } = await supabase.from("hours_submissions").insert({
+      week_start: weekStart, week_end: weekEnd,
+      total_hours: Math.round(grandTotal * 100) / 100,
+      snapshot: weekSnapshot(entries || []),
+      submitted_by: user.id, submitted_by_name: prof?.full_name || user.email || null,
+    }).select("id").single();
+    if (subErr || !sub) return NextResponse.json({ error: "Couldn't record submission: " + (subErr?.message || "unknown") }, { status: 500 });
+
     const resend = resendForSlug("hpd");
     const from = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
-    await resend.emails.send({ from, to, subject: `Contractor hours · ${fmtMD(weekStart)}–${fmtMD(weekEnd)}`, html });
+    const sent = await resend.emails.send({ from, to, subject: `Contractor hours · ${fmtMD(weekStart)}–${fmtMD(weekEnd)}`, html });
+    if (sent.error) {
+      await supabase.from("hours_submissions").delete().eq("id", sub.id);
+      return NextResponse.json({ error: sent.error.message || "Email failed" }, { status: 500 });
+    }
 
     return NextResponse.json({ success: true, sentTo: to });
   } catch (e: any) {
