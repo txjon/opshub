@@ -71,7 +71,7 @@ export function ConfirmDialog({
             onClick={onConfirm}
             style={{
               background: confirmColor, border: "none", borderRadius: 7,
-              color: "#fff", fontSize: 12, fontFamily: font, fontWeight: 600,
+              color: confirmColor === T.accent ? "#0a0a0a" : "#fff", fontSize: 12, fontFamily: font, fontWeight: 600,
               padding: "7px 16px", cursor: "pointer",
             }}
           >

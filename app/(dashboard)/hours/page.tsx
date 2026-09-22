@@ -152,7 +152,7 @@ export default function HoursPage() {
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>Hours</h1>
         <button onClick={emailSummary} disabled={emailing === "sending" || grandTotal === 0}
-          style={{ background: emailing === "sent" ? T.greenDim : T.accent, color: emailing === "sent" ? T.green : "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 700, fontFamily: font, cursor: (emailing === "sending" || grandTotal === 0) ? "default" : "pointer", opacity: grandTotal === 0 ? 0.5 : 1 }}>
+          style={{ background: emailing === "sent" ? T.greenDim : T.accent, color: emailing === "sent" ? T.green : "#0a0a0a", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 700, fontFamily: font, cursor: (emailing === "sending" || grandTotal === 0) ? "default" : "pointer", opacity: grandTotal === 0 ? 0.5 : 1 }}>
           {emailing === "sending" ? "Submitting…" : emailing === "sent" ? "✓ Submitted" : emailing === "error" ? "Failed — retry" : "Submit Hours"}
         </button>
         <div style={{ flex: 1 }} />
