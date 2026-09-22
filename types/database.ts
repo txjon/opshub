@@ -2198,6 +2198,41 @@ export type Database = {
           { foreignKeyName: "history_vendor_costs_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] }
         ];
       };
+      hours_submissions: {
+        Row: {
+          id: string;
+          week_start: string;
+          week_end: string;
+          total_hours: number;
+          snapshot: string;
+          submitted_by: string | null;
+          submitted_by_name: string | null;
+          submitted_at: string;
+        };
+        Insert: {
+          id?: string;
+          week_start: string;
+          week_end: string;
+          total_hours: number;
+          snapshot: string;
+          submitted_by?: string | null;
+          submitted_by_name?: string | null;
+          submitted_at?: string;
+        };
+        Update: {
+          id?: string;
+          week_start?: string;
+          week_end?: string;
+          total_hours?: number;
+          snapshot?: string;
+          submitted_by?: string | null;
+          submitted_by_name?: string | null;
+          submitted_at?: string;
+        };
+        Relationships: [
+
+        ];
+      };
       inbox_cleared: {
         Row: {
           id: string;
