@@ -11,6 +11,7 @@ import { contentDisposition } from "@/lib/pdf/filename";
 import { getPdfBranding } from "@/lib/branding";
 import { sizeMatrixHtml } from "@/lib/size-grid";
 import { loadProductionFiles } from "@/lib/production-files";
+import { driveImageDataUri } from "@/lib/drive-proxy";
 
 // RFQ PDF — mirrors PO layout (so the cohesive look carries when the
 // same decorator later receives the actual PO) but strips per-line cost
@@ -280,7 +281,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
 
     const sortedItems = [...(items || [])].sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
 
-    const allMapped = sortedItems.map((it: any, sortedIdx: number) => {
+    const allMapped = await Promise.all(sortedItems.map(async (it: any, sortedIdx: number) => {
       const qtys: Record<string, number> = {};
       for (const l of (it.buy_sheet_lines || [])) { qtys[l.size] = l.qty_ordered || 0; }
       const totalQty = Object.values(qtys).reduce((a: number, v: any) => a + v, 0);
@@ -295,7 +296,9 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         blank_vendor: it.blank_vendor,
         blank_sku: it.blank_sku,
         files: filesByItem[it.id] || [],
-        mockupThumb: mockupFileId ? `https://lh3.googleusercontent.com/d/${mockupFileId}=w300` : null,
+        // Inlined, not linked: the renderer is anonymous and a Google URL only
+        // works while the file is public to the whole internet.
+        mockupThumb: mockupFileId ? await driveImageDataUri(mockupFileId, 300) : null,
         incoming_goods: it.incoming_goods,
         production_notes_po: it.production_notes_po,
         packing_notes: it.packing_notes,
@@ -306,7 +309,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         decoSpec,
         letter: String.fromCharCode(65 + sortedIdx),
       };
-    });
+    }));
 
     let mappedItems = allMapped.filter((it: any) => it.totalQty > 0);
     if (itemIdsFilter && itemIdsFilter.length > 0) {

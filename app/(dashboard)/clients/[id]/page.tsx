@@ -1226,7 +1226,7 @@ function ArchiveRail({ archive, briefs, clientId, secHead }: any) {
   }
   const crumb = path ? path.split("/") : [];
   const fileCard = (r: any) => (
-    <a key={r.id} className="cs-card" href={`https://drive.google.com/file/d/${r.drive_file_id}/view`} target="_blank" rel="noreferrer">
+    <a key={r.id} className="cs-card" href={`/api/files/view/${encodeURIComponent(r.name || r.file_name || "file")}?id=${r.drive_file_id}`} target="_blank" rel="noreferrer">
       <div style={{ background: "#fff", aspectRatio: "1", position: "relative" }}>
         <img src={thumbSrc(r.drive_file_id)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "contain" }}
           onError={(e: any) => { e.target.style.display = "none"; e.target.parentElement.style.background = "#1e1e1e"; }} />

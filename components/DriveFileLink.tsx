@@ -91,7 +91,14 @@ function DriveFileModal({
   // PSDs, docs, sheets, videos, etc.
   const isImage = !!mimeType && mimeType.startsWith("image/");
   const thumbSrc = `/api/files/thumbnail?id=${driveFileId}`;
-  const iframeSrc = `https://drive.google.com/file/d/${driveFileId}/preview`;
+  // A PDF renders itself from OpsHub. Anything else Drive would have shown in
+  // its own viewer (PSD, AI, video) has no browser preview, so OpsHub serves
+  // the thumbnail it already makes for those. Either way nobody leaves for
+  // drive.google.com, and neither depends on the file being public.
+  const isPdf = mimeType === "application/pdf";
+  const iframeSrc = isPdf
+    ? `/api/files/view/${encodeURIComponent(fileName || "file.pdf")}?id=${driveFileId}`
+    : null;
 
   // Single toolbar style shared by Download + Close so they read as
   // a paired set instead of a button next to a floating circled ×.
@@ -159,7 +166,7 @@ function DriveFileModal({
           display: "flex", alignItems: "center", justifyContent: "center",
         }}
       >
-        {isImage ? (
+        {isImage || !iframeSrc ? (
           <img
             src={thumbSrc}
             alt={fileName || ""}
@@ -169,7 +176,7 @@ function DriveFileModal({
         ) : (
           <iframe
             src={iframeSrc}
-            title={fileName || "Drive preview"}
+            title={fileName || "Preview"}
             style={{ width: "100%", height: "100%", border: "none", background: "#000" }}
             allow="autoplay"
           />

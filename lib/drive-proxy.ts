@@ -110,3 +110,38 @@ export async function driveFileStream(fileId: string): Promise<ReadableStream<Ui
   const r = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
   return r.ok && r.body ? r.body : null;
 }
+
+/**
+ * A Drive image as a `data:` URI, for documents rendered by the PDF browser.
+ *
+ * The PO and quote-request PDFs used to point their <img> tags straight at
+ * lh3.googleusercontent.com, which only renders while the file is public to
+ * the whole internet. The renderer is anonymous, so it cannot use OpsHub's own
+ * file routes either. Inlining the bytes removes the dependency entirely:
+ * the document carries its pictures, and stays correct once the archive is
+ * closed.
+ *
+ * Returns null when Drive has no preview (a layered PSD sometimes), and the
+ * caller simply omits the image.
+ */
+export async function driveImageDataUri(fileId: string, size = 300): Promise<string | null> {
+  if (!fileId) return null;
+  try {
+    const token = await getAccessToken();
+    const metaRes = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?fields=mimeType,thumbnailLink,hasThumbnail`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!metaRes.ok) return null;
+    const meta = await metaRes.json();
+    if (!meta?.thumbnailLink) return null;
+    const url = String(meta.thumbnailLink).replace(/=s\d+(-c)?$/, `=s${Math.min(Math.max(size, 32), 1600)}`);
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    const type = res.headers.get("content-type") || "image/jpeg";
+    return `data:${type};base64,${buf.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}

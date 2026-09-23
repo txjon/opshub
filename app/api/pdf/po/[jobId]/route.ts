@@ -27,6 +27,7 @@ const fmtD = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { minim
 // ── Pricing — uses shared lib/pricing.ts (single source of truth) ────────────
 import { buildPrintersMap, lookupPrintPrice as sharedPrintPrice, lookupTagPrice as sharedTagPrice } from "@/lib/pricing";
 import { overlayCostProds } from "@/lib/costing-summary";
+import { driveImageDataUri } from "@/lib/drive-proxy";
 
 let PRINTERS: Record<string, any> = {};
 
@@ -364,7 +365,9 @@ const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&l
             <span style="flex:1;min-width:0;font-size:9px;font-weight:${strong ? 700 : 500};color:#222;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.name)}</span>
             <span style="font-size:8px;color:#888;font-family:${mono};white-space:nowrap">${fmtUp(f.createdAt)}</span>
           </div>`;
-        const thumbs = prints.slice(0, 4).map((f: any) => `<img src="https://lh3.googleusercontent.com/d/${f.driveFileId}=w200" style="width:44px;height:44px;object-fit:contain;border:0.5px solid #ddd;border-radius:3px;background:#fff" />`).join("");
+        const thumbs = ((item as any).printThumbs || [])
+          .filter((f: any) => f.thumbDataUri)
+          .map((f: any) => `<img src="${f.thumbDataUri}" style="width:44px;height:44px;object-fit:contain;border:0.5px solid #ddd;border-radius:3px;background:#fff" />`).join("");
         return `<div style="margin-bottom:6px;padding:5px 8px;background:#f9f9f9;border:0.5px solid #e4e4e4;border-radius:4px">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px">
             <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#888">Production files · ${prints.length} print file${prints.length === 1 ? "" : "s"}${data.release_version ? ` · release v${data.release_version}` : ""}</div>
@@ -562,7 +565,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       ...rawCostProds.filter((p: any) => !overlaid.some((m: any) => m.id === p.id)),
     ];
 
-    const allMapped = sortedItems.map((it: any, sortedIdx: number) => {
+    const allMapped = await Promise.all(sortedItems.map(async (it: any, sortedIdx: number) => {
       const qtys: Record<string, number> = {};
       for (const l of (it.buy_sheet_lines || [])) { qtys[l.size] = l.qty_ordered || 0; }
       const totalQty = Object.values(qtys).reduce((a: number, v: any) => a + v, 0);
@@ -572,13 +575,22 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       const decoLines = cp ? calcDecorationLines({ ...cp, totalQty }, costProds) : [];
 
       const mockupFileId = mockupByItem[it.id];
+      // Pictures travel INSIDE the document. Pointing at Google only renders
+      // while the file is public to the whole internet, and the PDF renderer
+      // is anonymous so it cannot use OpsHub's own file routes.
+      const itemFiles: any[] = filesByItem[it.id] || [];
+      const printThumbs = await Promise.all(
+        itemFiles.filter((f: any) => f.stage === "print_ready").slice(0, 4)
+          .map(async (f: any) => ({ ...f, thumbDataUri: await driveImageDataUri(f.driveFileId, 200) }))
+      );
       return {
         id: it.id,
         name: it.name,
         blank_vendor: it.blank_vendor,
         blank_sku: it.blank_sku,
-        files: filesByItem[it.id] || [],
-        mockupThumb: mockupFileId ? `https://lh3.googleusercontent.com/d/${mockupFileId}=w300` : null,
+        files: itemFiles,
+        printThumbs,
+        mockupThumb: mockupFileId ? await driveImageDataUri(mockupFileId, 300) : null,
         incoming_goods: it.incoming_goods,
         production_notes_po: it.production_notes_po,
         packing_notes: it.packing_notes,
@@ -601,7 +613,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         sent_to_decorator_date: assignment?.sent_to_decorator_date || null,
         letter: String.fromCharCode(65 + sortedIdx), // letter based on full sorted list
       };
-    });
+    }));
 
     const mappedItems = allMapped.filter((it: any) => it.totalQty > 0);
 

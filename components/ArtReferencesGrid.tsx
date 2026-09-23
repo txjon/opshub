@@ -291,8 +291,11 @@ function FileCard({
   // separate Drive UI step. Lets designers pull files into their tools.
   // Suppressed when protectImages is on so the client can't grab the
   // raw file via the chip; deliverables in that mode are proof-only.
+  // Through OpsHub, never Drive: the viewer is judged by the link they already
+  // hold (lib/file-access), and the download is named from Drive's own record
+  // server-side, so nobody is sent out to drive.google.com.
   const downloadUrl = file.drive_file_id && !protectImages
-    ? `https://drive.google.com/uc?export=download&id=${file.drive_file_id}`
+    ? `/api/files/thumbnail?id=${file.drive_file_id}&dl=1`
     : null;
 
   // Image container — references stay at fixed 1:1 aspect; deliverables
@@ -323,7 +326,7 @@ function FileCard({
   const thumbId = file.preview_drive_file_id || file.drive_file_id;
   const thumbSize = protectImages ? 900 : 1600;
   const imageSrc = thumbId
-    ? `https://drive.google.com/thumbnail?id=${thumbId}&sz=w${thumbSize}`
+    ? `/api/files/thumbnail?id=${thumbId}&thumb=1&size=${thumbSize}`
     : null;
 
   const handleSend = async (body: string): Promise<boolean> => {
