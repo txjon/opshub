@@ -1078,10 +1078,9 @@ function CatalogRail({ products, briefs, model, router, secHead, thumbs, clientI
           <div style={{ background: H.card, border: `1px solid ${H.line}`, borderRadius: 16, width: "min(880px, 100%)", padding: "20px 22px", color: H.text }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 14 }}>
               <div style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", flex: 1 }}>{detail.name} — art</div>
-              {detail.instances[0]?.driveLink && (
-                <a href={detail.instances[0].driveLink} target="_blank" rel="noreferrer"
-                  style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: H.blue, textDecoration: "none" }}>Open Drive folder →</a>
-              )}
+              {/* The Drive folder link is gone: the archive is private and this
+                  landed on a request-access page. The files themselves are
+                  listed right below, each opening through OpsHub. */}
               <button onClick={() => setArtFiles(null)}
                 style={{ background: "none", border: "none", color: H.faint, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>✕</button>
             </div>

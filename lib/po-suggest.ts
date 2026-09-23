@@ -4,17 +4,16 @@
 // is written to a vendor-facing field without a click.
 import { carriedFrom } from "./proof-gate";
 
-export type PoFieldKey = "drive_link" | "incoming_goods" | "production_notes_po" | "packing_notes";
-export const PO_FIELDS: PoFieldKey[] = ["drive_link", "incoming_goods", "production_notes_po", "packing_notes"];
+// drive_link was a fourth field ("Production files link"). Vendors get their
+// portal now and the Drive archive is private, so it suggested a dead URL.
+export type PoFieldKey = "incoming_goods" | "production_notes_po" | "packing_notes";
+export const PO_FIELDS: PoFieldKey[] = ["incoming_goods", "production_notes_po", "packing_notes"];
 
 const sumQ = (q: any) => Object.values(q || {}).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
 
 export function suggestPoField(k: PoFieldKey, item: any, cp: any, clientName: string): string | null {
   if (!item) return null;
   const units = Number(item.totalQty) || sumQ(item.qtys);
-  if (k === "drive_link") {
-    return item.drive_folder_id ? `https://drive.google.com/drive/folders/${item.drive_folder_id}` : null;
-  }
   if (k === "incoming_goods") {
     const cost = item.blanks_order_cost;
     const indiv = (cp?.customCosts || []).some((c: any) => /individually packaged/i.test(c?.desc || ""));

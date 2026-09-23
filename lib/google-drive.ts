@@ -199,7 +199,3 @@ export async function createShortcut(
   };
 }
 
-// Get a thumbnail/preview link for a file
-export function getThumbnailUrl(fileId: string): string {
-  return `https://drive.google.com/thumbnail?id=${fileId}&sz=w200`;
-}

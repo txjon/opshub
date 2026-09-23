@@ -2526,7 +2526,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                               </select>
                             </div>
                             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 10 }}>
-                              {poField("drive_link", "Production files link")}
+                              {/* "Production files link" is gone. It held a Drive
+                                  folder URL, the PO stopped using it when vendors
+                                  moved to their portal, and the archive is private
+                                  now — so every one of those links was dead. */}
                               {poField("incoming_goods", "Incoming goods")}
                               {poField("production_notes_po", "Production notes", true)}
                               {poField("packing_notes", "Packing notes", true)}
