@@ -59,18 +59,21 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
   const isNonGarment = NON_GARMENT.includes(p.garment_type);
 
   // Blank cost buffer: LA Apparel 10%, all others 5%. Non-garment items
-  // (accessory, tote, patch, sticker, etc.) never carry a blank cost —
-  // their cost comes entirely from the custom-cost lines (PO Total).
-  // Historical note: items moved between jobs or legacy rows can end up
-  // with stale blank_costs. For non-garment types we zero them defensively
-  // so a mis-populated blankCosts can never wreck the margin math.
+  // historically never carried a blank cost — their custom-cost lines embed
+  // it (the legacy catalog way) — and stale blank_costs on moved/legacy rows
+  // are zeroed defensively. GATED CHANGE (Jon, Sep 23 — HPD-2609-038 totes):
+  // a non-garment item whose blank came from the PICKER (blank_vendor set on
+  // the costProd) has a REAL blank cost and counts it. Sweep before the
+  // change: every legacy non-garment blankCosts row had blankVendor null and
+  // sat on a complete job — only the picker-assigned ones re-price.
   const vendor = (p.blank_vendor || p.blankVendor || "");
   const is10pct = vendor.startsWith("LA Apparel") || vendor.startsWith("Cotton Collective");
   // Passthrough items carry NO blank buffer — the client is billed the exact cost
   // and HPD pays it straight to the vendor, so there's no over-order/spoilage
   // allowance to fold in. Normal items: LA Apparel/Cotton Collective 10%, else 5%.
   const blankBuffer = p.passthrough ? 1.0 : (is10pct ? 1.10 : 1.05);
-  const blankCost = isNonGarment ? 0 : (() => {
+  const hasPickedBlank = !!String(vendor).trim();
+  const blankCost = (isNonGarment && !hasPickedBlank) ? 0 : (() => {
     if (p.blankCosts && Object.keys(p.blankCosts).length > 0) {
       let total = 0;
       Object.entries(p.blankCosts).forEach(([sz, cost]: [string, any]) => { total += (cost || 0) * (p.qtys?.[sz] || 0) * blankBuffer; });
@@ -101,7 +104,7 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
     const poTotal = customTotal;
     const shipRate = effectiveShipRate(p);
     const shipping = inclShip && shipRate > 0 ? qty * shipRate : 0;
-    const totalCost = poTotal + shipping;  // blankCost is 0 for non-garment
+    const totalCost = blankCost + poTotal + shipping;  // blankCost > 0 only for picker-assigned blanks
     const marginPct = (parseFloat((margin || "30%").replace("%", "")) / 100) || 0.30;
     const ccRate = inclCC ? 0.03 : 0;
     const divisor = 1 - marginPct - ccRate;
@@ -112,7 +115,7 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
     const totalCostWithCC = totalCost + ccFees;
     const netProfit = grossRevFinal - totalCostWithCC;
     return {
-      qty, blankCost: 0, printTotal: 0, finTotal: 0, specTotal: 0, setupTotal: 0,
+      qty, blankCost, printTotal: 0, finTotal: 0, specTotal: 0, setupTotal: 0,
       poTotal, shipping, ccFees, grossRev: grossRevFinal, totalCost: totalCostWithCC,
       netProfit, sellPerUnit: sellPerUnitFinal,
       margin_pct: grossRevFinal > 0 ? netProfit / grossRevFinal : 0,
