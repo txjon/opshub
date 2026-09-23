@@ -670,7 +670,8 @@ function ReceiveModal({ box, onClose, onDone }: { box: ReceivingBox; onClose: ()
             itemId: l.itemId, stage: "packing_slip", notes: up.folderLink, preserveApproval: false,
           });
         }
-        setAttached(prev => [...prev, { name: file.name, url: up.webViewLink }]);
+        // Opens through OpsHub, matching how saved slips render (lib/item-state).
+        setAttached(prev => [...prev, { name: file.name, url: `/api/files/view/${encodeURIComponent(file.name)}?id=${up.fileId}` }]);
       }
     } catch (e: any) { setSlipErr(e?.message || "Attach failed."); }
     setSlipBusy(false);

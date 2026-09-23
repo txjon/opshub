@@ -41,8 +41,12 @@ export async function POST(req: NextRequest) {
     }
 
     // uploaded vendor packing slips → Drive links
-    const { data: slips } = await sb.from("item_files").select("file_name, drive_link").in("item_id", itemIds).eq("stage", "packing_slip").not("drive_link", "is", null);
-    const uniqSlips = Array.from(new Map((slips || []).map((s: any) => [s.drive_link, s])).values());
+    const { data: slips } = await sb.from("item_files").select("file_name, drive_file_id").in("item_id", itemIds).eq("stage", "packing_slip").not("drive_file_id", "is", null);
+    const uniqSlips = Array.from(new Map((slips || []).map((s: any) => [s.drive_file_id, s])).values());
+    // Links into OpsHub, not Drive. The archive is private, so a Drive link in
+    // an email now lands the warehouse on a request-access page.
+    const { appBaseUrl } = await import("@/lib/public-url");
+    const slipBase = await appBaseUrl();
 
     const isPickup = (ships as any[]).every(s => s.pickup);
     const vendor = (ships as any[])[0]?.decorators?.name || "a vendor";
@@ -63,7 +67,7 @@ export async function POST(req: NextRequest) {
     const slipBlock = uniqSlips.length ? `
       <div style="margin:16px 0 4px;">
         <div style="font-size:11px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:#888;margin-bottom:8px;">Vendor packing slip${uniqSlips.length > 1 ? "s" : ""}</div>
-        ${uniqSlips.map((s: any) => `<a href="${s.drive_link}" style="display:inline-block;margin:0 8px 8px 0;padding:9px 14px;background:#f6f8fb;border:1px solid #dcdce0;border-radius:8px;color:#2563eb;text-decoration:none;font-weight:600;font-size:13px;">📎 ${esc(s.file_name || "Packing slip")}</a>`).join("")}
+        ${uniqSlips.map((s: any) => `<a href="${slipBase}/api/files/view/${encodeURIComponent(s.file_name || "Packing slip")}?id=${s.drive_file_id}" style="display:inline-block;margin:0 8px 8px 0;padding:9px 14px;background:#f6f8fb;border:1px solid #dcdce0;border-radius:8px;color:#2563eb;text-decoration:none;font-weight:600;font-size:13px;">📎 ${esc(s.file_name || "Packing slip")}</a>`).join("")}
       </div>` : "";
 
     const noteBlock = note ? `<div style="margin:8px 0 14px;padding:10px 14px;background:#f6f8fb;border-left:3px solid #2563eb;border-radius:4px;font-size:13px;color:#333;white-space:pre-wrap;">${esc(note)}</div>` : "";

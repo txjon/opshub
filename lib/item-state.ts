@@ -528,7 +528,7 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
   for (const p of pulls || []) { const a = pullsByItem.get(p.item_id) || []; a.push({ id: p.id, kind: p.kind, qtys: p.qtys || {}, reason: p.reason }); pullsByItem.set(p.item_id, a); }
 
   const { data: slipFiles } = itemIds.length
-    ? await sb.from("item_files").select("item_id, file_name, drive_link").eq("stage", "packing_slip").not("drive_link", "is", null).in("item_id", itemIds)
+    ? await sb.from("item_files").select("item_id, file_name, drive_file_id, drive_link").eq("stage", "packing_slip").not("drive_file_id", "is", null).in("item_id", itemIds)
     : { data: [] as any[] };
   const { data: mockups } = itemIds.length
     ? await sb.from("item_files").select("item_id, drive_file_id, stage, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", itemIds).order("created_at", { ascending: false })
@@ -537,7 +537,14 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
   for (const f of mockups || []) { if (f.stage === "mockup" && f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
   for (const f of mockups || []) { if (f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
   const slipsByItem = new Map<string, { name: string; url: string }[]>();
-  for (const f of slipFiles || []) { const a = slipsByItem.get(f.item_id) || []; a.push({ name: f.file_name || "Packing slip", url: f.drive_link }); slipsByItem.set(f.item_id, a); }
+  // Opened through OpsHub, not Drive: the archive is private, and a raw Drive
+  // link now lands on a request-access page for whoever clicks it.
+  for (const f of slipFiles || []) {
+    const a = slipsByItem.get(f.item_id) || [];
+    const name = f.file_name || "Packing slip";
+    a.push({ name, url: `/api/files/view/${encodeURIComponent(name)}?id=${f.drive_file_id}` });
+    slipsByItem.set(f.item_id, a);
+  }
 
   const byShip = new Map<string, any[]>();
   for (const l of lines || []) { const a = byShip.get(l.shipment_id) || []; a.push(l); byShip.set(l.shipment_id, a); }
