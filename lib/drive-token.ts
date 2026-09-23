@@ -210,8 +210,8 @@ export async function getOrCreateNestedFolder(token: string, segments: string[])
 
 // ── Private documents (Sep 19 2026) ─────────────────────────────────────────
 // Client paperwork (tax exemption, W9, MSA) must never be world-readable.
-// "OpsHub Files" is shared anyone-with-link and children INHERIT that, so
-// these live in their own tree outside it: My Drive / HPD Private Documents /
+// These live in their own tree outside the main archive: My Drive /
+// HPD Private Documents /
 // {Client} / {Kind}. Staff read them through OpsHub, never a Drive link.
 export const PRIVATE_DOCS_ROOT = "HPD Private Documents";
 
@@ -236,8 +236,8 @@ export async function getSentPoFolderId(token: string, clientName: string, proje
   return findOrCreateFolder(token, "Sent POs", projectFolder);
 }
 
-// Multipart upload via REST. Unlike lib/google-drive.uploadFile this does NOT
-// grant anyone-with-link access — a PO carries vendor pricing.
+// Multipart upload via REST. Grants no sharing at all — as of Sep 2026 neither
+// does lib/google-drive.uploadFile.
 export async function uploadFileDirect(token: string, folderId: string, fileName: string, mimeType: string, buffer: Buffer): Promise<{ fileId: string; webViewLink: string }> {
   const boundary = "opshub_" + Date.now().toString(36);
   const meta = JSON.stringify({ name: fileName, parents: [folderId] });

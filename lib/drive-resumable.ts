@@ -43,13 +43,10 @@ export async function createResumableUploadSession({
   return { uploadUrl, folderId };
 }
 
-export async function setFilePublicReadable(fileId: string): Promise<void> {
-  const token = await getDriveToken();
-  await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ role: "reader", type: "anyone" }),
-  });
+/** Kept as a no-op: the archive is private and served through OpsHub. Making a
+ *  single file world-readable would quietly punch a hole in it. */
+export async function setFilePublicReadable(_fileId: string): Promise<void> {
+  return;
 }
 
 export async function getDriveWebLink(fileId: string): Promise<string | null> {

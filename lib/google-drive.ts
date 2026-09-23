@@ -102,12 +102,12 @@ export async function uploadFile(
     fields: "id,webViewLink,webContentLink",
   });
 
-  // Anyone-with-the-link is a legacy default kept only for surfaces that
-  // still load images straight from Google (PDF renderer, brief grids).
-  // Anything private — client tax documents, W9s, MSAs — passes
-  // { public: false } and is served through OpsHub instead (Phase 0, Sep
-  // 2026; Phase 5 removes the default entirely).
-  if (opts?.public !== false) {
+  // PRIVATE unless a caller explicitly asks otherwise. This used to default the
+  // other way, for surfaces that loaded images straight from Google — the PDF
+  // renderer and the brief grids. Both now go through OpsHub, so nothing needs
+  // it, and leaving the default in place re-shared the archive one upload at a
+  // time (Sep 2026, after the root folder was closed).
+  if (opts?.public === true) {
     await drive.permissions.create({
       fileId: res.data.id!,
       requestBody: { role: "reader", type: "anyone" },
@@ -146,8 +146,9 @@ export async function copyFileTo(
       supportsAllDrives: true,
     });
     if (!res.data.id) return null;
-    // Match the sharing of the file it came from (Phase 5 removes this default).
-    try { await drive.permissions.create({ fileId: res.data.id, requestBody: { role: "reader", type: "anyone" } }); } catch { /* inherited is fine */ }
+    // A copy inherits its folder's sharing. It is NOT granted public access:
+    // per-product copies are how duplicates stop sharing one physical file,
+    // and each one used to arrive world-readable.
     return { fileId: res.data.id, webViewLink: res.data.webViewLink || `https://drive.google.com/file/d/${res.data.id}/view` };
   } catch (e: any) {
     console.error("[drive] copy failed:", e?.message || e);

@@ -55,11 +55,8 @@ export async function POST(req: NextRequest) {
     const driveFile = await uploadRes.json();
     if (!driveFile.id) return NextResponse.json({ error: "Drive upload failed" }, { status: 500 });
 
-    await fetch(`https://www.googleapis.com/drive/v3/files/${driveFile.id}/permissions`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ role: "reader", type: "anyone" }),
-    });
+  // No public sharing: OpsHub serves this file through its own routes, which
+  // judge the viewer. A grant here re-opens the archive one upload at a time.
 
     // Version on WIP/final uploads
     let version = 1;
