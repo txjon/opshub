@@ -85,8 +85,11 @@ export async function GET(req: NextRequest) {
           // STAMP ON SIGHT for active jobs: creation paths write costProds
           // without isFleece/garment_type (Sep 27, five fleece-blind items).
           // Truth-sync only — stored sells are never touched here.
+          // Pre-build-out costProds are auto-seeded with the flag false — a
+          // non-event (Jon, Sep 27: "nowhere in costing yet to apply fleece").
+          // Stamp silently; only unhealable phases are worth an email line.
           if (HEAL_PHASES.has(j.phase)) { cp.isFleece = true; if (!cp.garment_type && it.garment_type) cp.garment_type = it.garment_type; stamped++; }
-          fleeceGaps.push(`${j.job_number} · ${it.name || "?"} (${j.phase})${HEAL_PHASES.has(j.phase) ? " — stamped on sight" : ""}`);
+          else fleeceGaps.push(`${j.job_number} · ${it.name || "?"} (${j.phase})`);
         }
       }
       if (stamped) {
