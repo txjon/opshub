@@ -37,7 +37,15 @@ export function overlayCostProds(costProds: any[], items: any[]): any[] {
     const qtys = lines.length ? bslQtys : (p.qtys || {});
     const totalQty = Object.values(qtys).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
     const blankCosts = (it.blank_costs && Object.keys(it.blank_costs).length) ? it.blank_costs : (p.blankCosts || {});
-    out.push({ sort: Number(it.sort_order) || 0, p: { ...p, qtys, totalQty, blankCosts, sellStored: it.sell_per_unit ?? null } });
+    // Item TRUTH rides every compute: garment_type + is_fleece drive vendor
+    // upcharge + ship buffer, and creation paths write costProds without them
+    // (Sep 27: five fleece items priced fleece-blind — the flags sat false on
+    // the stored costProd until a costing edit happened to flush).
+    out.push({ sort: Number(it.sort_order) || 0, p: { ...p, qtys, totalQty, blankCosts,
+      garment_type: it.garment_type ?? p.garment_type ?? null,
+      isFleece: !!(it.is_fleece || p.isFleece),
+      blank_vendor: it.blank_vendor ?? p.blank_vendor ?? (p as any).blankVendor ?? null,
+      sellStored: it.sell_per_unit ?? null } });
   }
   // ITEM sort order — the engine resolves "first item in a share group" (who
   // carries screens) by array position; every surface must agree with the UI.
@@ -46,7 +54,7 @@ export function overlayCostProds(costProds: any[], items: any[]): any[] {
 
 // Fetch the item truth needed by overlayCostProds.
 async function loadItemTruth(sb: Sb, jobId: string): Promise<any[]> {
-  const { data } = await sb.from("items").select("id, name, sort_order, blank_costs, sell_per_unit, buy_sheet_lines(size, qty_ordered)").eq("job_id", jobId);
+  const { data } = await sb.from("items").select("id, name, sort_order, blank_costs, sell_per_unit, garment_type, is_fleece, blank_vendor, buy_sheet_lines(size, qty_ordered)").eq("job_id", jobId);
   return data || [];
 }
 

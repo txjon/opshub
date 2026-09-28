@@ -77,10 +77,21 @@ export async function GET(req: NextRequest) {
       const cps: any[] = (j.costing_data as any)?.costProds || [];
       const passthru = new Set(cps.filter(p => p.passthrough).map(p => p.id));
 
+      let stamped = 0;
       for (const it of (j.items as any[]) || []) {
         if (!it.is_fleece) continue;
         const cp = cps.find(c => c.id === it.id) || cps.find(c => (c.name || "").trim().toLowerCase() === (it.name || "").trim().toLowerCase());
-        if (cp && !cp.isFleece) fleeceGaps.push(`${j.job_number} · ${it.name || "?"} (${j.phase})`);
+        if (cp && !cp.isFleece) {
+          // STAMP ON SIGHT for active jobs: creation paths write costProds
+          // without isFleece/garment_type (Sep 27, five fleece-blind items).
+          // Truth-sync only — stored sells are never touched here.
+          if (HEAL_PHASES.has(j.phase)) { cp.isFleece = true; if (!cp.garment_type && it.garment_type) cp.garment_type = it.garment_type; stamped++; }
+          fleeceGaps.push(`${j.job_number} · ${it.name || "?"} (${j.phase})${HEAL_PHASES.has(j.phase) ? " — stamped on sight" : ""}`);
+        }
+      }
+      if (stamped) {
+        const { error: stampErr } = await sb.from("jobs").update({ costing_data: { ...(j.costing_data as any), costProds: cps, _savedAt: new Date().toISOString() } } as any).eq("id", (j as any).id);
+        if (stampErr) console.error("[costing-health] fleece stamp failed", j.job_number, stampErr.message);
       }
 
       if (!gr) continue;
