@@ -50,6 +50,21 @@ export async function GET(req: NextRequest) {
         if (f?.path) referencedPaths.add(f.path);
       }
     }
+    // The MENU/BUILD flow uploads into this same bucket (menu-<token>/…),
+    // referenced only in menu_leads.picks. The sweeper predated that flow
+    // and deleted every lead's art as "orphaned" ~24h after upload (found
+    // Sep 27 — 28 files across 8 leads gone, incl. the Rob Roy exchange).
+    // Honor those references, and NEVER touch menu-* folders regardless:
+    // a picks write that stores only a URL must not cost a lead their art.
+    const { data: leads, error: leadErr } = await (sb.from("menu_leads") as any).select("picks");
+    if (leadErr) {
+      return NextResponse.json({ error: leadErr.message }, { status: 500 });
+    }
+    for (const row of leads || []) {
+      for (const f of row.picks?.files || []) {
+        if (f?.path) referencedPaths.add(String(f.path));
+      }
+    }
 
     // 2. List every session folder, then every file inside it.
     const { data: sessionFolders, error: listErr } = await sb.storage
@@ -68,6 +83,8 @@ export async function GET(req: NextRequest) {
       // Top-level entries are folders (sessionIds). Skip anything
       // that already looks like a file at the root.
       if (!folder?.name || folder.name.includes(".")) continue;
+      // menu-* folders belong to menu_leads — off limits wholesale (see above).
+      if (folder.name.startsWith("menu-")) continue;
       const sessionPath = folder.name;
 
       const { data: files } = await sb.storage
