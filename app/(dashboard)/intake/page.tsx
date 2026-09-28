@@ -666,6 +666,44 @@ const IMAGE_RE = /\.(png|jpe?g|gif|webp|avif|svg)$/i;
 // everything else shows a labeled tile. Fresh signed URLs are fetched
 // from the durable storage `path` on open (the bucket is private and
 // stored URLs can expire on cold leads), so previews never go stale.
+// Fresh signed URLs for any set of stored paths (leads + submissions both
+// store paths; stored urls expire). Same endpoint the FilesSection grid uses.
+function useSignedUrls(files: { path?: string | null; url?: string | null }[]): Record<string, string> {
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  const key = files.map(f => f.path).filter(Boolean).join("|");
+  useEffect(() => {
+    const paths = key ? key.split("|") : [];
+    if (!paths.length) return;
+    let alive = true;
+    fetch("/api/intake/sign", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ paths }) })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (alive && data?.urls) setUrls(data.urls); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [key]);
+  return urls;
+}
+
+// One lead's art as inline links — always freshly signed.
+function LeadFileLinks({ files, compact }: { files: NonNullable<MenuLead["picks"]>["files"]; compact?: boolean }) {
+  const list = (files || []).filter(f => f.path || f.url);
+  const urls = useSignedUrls(list);
+  if (!list.length) return null;
+  return (
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: compact ? 5 : 8 }}>
+      {list.map(f => {
+        const href = (f.path && urls[f.path]) || f.url || null;
+        return (
+          <a key={`${f.path || f.filename}`} href={href || undefined} target="_blank" rel="noreferrer" onClick={(e) => { e.stopPropagation(); if (!href) e.preventDefault(); }}
+            style={{ fontSize: 11, color: href ? T.blue : T.faint, textDecoration: "none", borderBottom: `1px dotted ${href ? T.blue : T.faint}`, fontFamily: mono }}>
+            📎 {f.filename}{f.styleCode ? ` (${f.styleCode}${f.placement ? ` · ${f.placement}` : ""})` : ""}
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
 function FilesSection({ files }: { files: FileRef[] }) {
   const [urls, setUrls] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -1018,15 +1056,7 @@ function MenuLeadBucket({
                       {[l.picks?.notes, l.contact?.notes].filter(Boolean).join(" — ")}
                     </div>
                   )}
-                  {(l.picks?.files || []).filter(f => f.url).length > 0 && (
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 5 }}>
-                      {l.picks!.files!.filter(f => f.url).map(f => (
-                        <a key={f.path} href={f.url!} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ fontSize: 11, color: T.blue, textDecoration: "none", borderBottom: `1px dotted ${T.blue}`, fontFamily: mono }}>
-                          📎 {f.filename}{f.styleCode ? ` (${f.styleCode}${f.placement ? ` · ${f.placement}` : ""})` : ""}
-                        </a>
-                      ))}
-                    </div>
-                  )}
+                  <LeadFileLinks files={l.picks?.files || []} compact />
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
                   <span style={{ fontSize: 11, color: overdue ? T.amber : T.faint, fontFamily: mono }}>
@@ -1530,7 +1560,7 @@ function MenuLeadDetailModal({ lead, matchNames, onClose, onBuildQuote, onRespon
   const sec: React.CSSProperties = { fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: T.muted, margin: "18px 0 8px" };
   const box: React.CSSProperties = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 12px", fontSize: 12.5 };
   const items = Array.isArray(p.items) ? p.items : [];
-  const files = (p.files || []).filter(f => f.url);
+  const files = (p.files || []).filter(f => f.path || f.url);
   const punchSummary = (pt: NonNullable<MenuLead["quote"]>["punch"][number]): string => {
     const pl = pt.payload as any;
     if (pt.status !== "done") return "open";
@@ -1590,16 +1620,9 @@ function MenuLeadDetailModal({ lead, matchNames, onClose, onBuildQuote, onRespon
         </div>
 
         {files.length > 0 && (
-          <>
-            <div style={sec}>Art files</div>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              {files.map(f => (
-                <a key={f.path} href={f.url!} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: T.blue, textDecoration: "none", borderBottom: `1px dotted ${T.blue}`, fontFamily: mono }}>
-                  📎 {f.filename}{f.styleCode ? ` (${f.styleCode}${f.placement ? ` · ${f.placement}` : ""})` : ""}
-                </a>
-              ))}
-            </div>
-          </>
+          <Section title={`Art files (${files.length})`}>
+            <LeadFileLinks files={files} />
+          </Section>
         )}
 
         {q && (

@@ -47,8 +47,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
     const add = body?.add;
     const existing = ((point.payload as any)?.files || []) as any[];
     if (add?.path && add?.filename) {
-      const { data: signed } = await sb.storage.from("intake-uploads").createSignedUrl(String(add.path), 60 * 60 * 24 * 30);
-      existing.push({ filename: String(add.filename).slice(0, 200), path: String(add.path), size: Number(add.size) || 0, url: signed?.signedUrl || null });
+      // Store the PATH only — readers mint fresh signed URLs (the lead GET
+      // for the build page, /api/intake/sign for the inbox). A persisted
+      // signed URL is a time bomb (30 days here, then "files not opening").
+      existing.push({ filename: String(add.filename).slice(0, 200), path: String(add.path), size: Number(add.size) || 0, url: null });
     }
     if (body?.removePath) {
       const idx = existing.findIndex((f) => f.path === body.removePath);

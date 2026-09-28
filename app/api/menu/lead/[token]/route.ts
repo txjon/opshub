@@ -33,6 +33,19 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
     .maybeSingle();
   if (!lead) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
 
+  // Art links are minted FRESH on every read — the row stores PATHS; a stored
+  // signed URL dies after its TTL (the Sep 27 "files not opening" class, part
+  // two). One place, so the build page never sees a stale link.
+  const signFiles = async (files: any[]) => {
+    for (const f of files || []) {
+      if (!f?.path) continue;
+      const { data: signed } = await sb.storage.from("intake-uploads").createSignedUrl(String(f.path), 60 * 60 * 6);
+      if (signed?.signedUrl) f.url = signed.signedUrl;
+    }
+  };
+  await signFiles((lead.picks as any)?.files || []);
+  for (const pt of ((lead.quote as any)?.punch || [])) if (pt?.kind === "files") await signFiles((pt.payload as any)?.files || []);
+
   const { data: rates } = await sb
     .from("menu_rates")
     .select("product_group,lane,style_code,style_name,band_min,price_lo,price_hi,sort")
