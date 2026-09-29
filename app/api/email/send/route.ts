@@ -225,6 +225,52 @@ export async function POST(req: NextRequest) {
       replyTo = `${clientLocalPart}+c.${jobId}@${emailDomain}`;
     }
 
+    // RFQ ART RIDES ALONG (Jon, Sep 28 — the 1 Stop "maybe the proof did not
+    // attach" round-trip): a vendor can't quote fine detail from the PDF's
+    // thumbnail. Attach each RFQ item's production files (the same per-file
+    // release the PO/portal uses — never a folder). Big files become download
+    // links instead of attachments (Resend caps the message ~40MB). Art must
+    // never sink the RFQ: any failure logs and the RFQ still goes.
+    let rfqArtAttachments: { filename: string; content: string }[] = [];
+    let rfqArtLinksHtml = "";
+    if (type === "rfq") {
+      try {
+        const adminArt = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+        let ids: string[] = Array.isArray(rfqItemIds) && rfqItemIds.length ? rfqItemIds : [];
+        if (!ids.length) {
+          const { data: allItems } = await adminArt.from("items").select("id").eq("job_id", jobId).is("archived_at", null);
+          ids = (allItems || []).map((i: any) => i.id);
+        }
+        const { loadProductionFiles } = await import("@/lib/production-files");
+        const { getAccessToken } = await import("@/lib/drive-auth");
+        const filesByItem = await loadProductionFiles(adminArt, ids);
+        const PER_FILE_CAP = 8 * 1024 * 1024, TOTAL_CAP = 22 * 1024 * 1024;
+        let used = 0; const seen = new Set<string>(); const linkRows: string[] = [];
+        const token = await getAccessToken();
+        for (const id of ids) {
+          for (const f of (filesByItem[id] || []) as any[]) {
+            if (!f?.driveFileId || seen.has(f.driveFileId)) continue;
+            seen.add(f.driveFileId);
+            const size = Number(f.size) || 0;
+            if (size > 0 && size <= PER_FILE_CAP && used + size <= TOTAL_CAP) {
+              const res = await fetch(`https://www.googleapis.com/drive/v3/files/${f.driveFileId}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
+              if (res.ok) {
+                const buf = Buffer.from(await res.arrayBuffer());
+                used += buf.length;
+                rfqArtAttachments.push({ filename: f.name || "art", content: buf.toString("base64") });
+                continue;
+              }
+            }
+            // too big (or fetch hiccup): a per-file download link, never a folder
+            linkRows.push(`<div style="margin:2px 0"><a href="${baseUrl}${f.viewUrl}" style="color:#2563eb">${(f.name || "file")}</a>${size ? ` <span style="color:#999;font-size:11px">(${(size / 1048576).toFixed(1)} MB)</span>` : ""}</div>`);
+          }
+        }
+        if (linkRows.length) rfqArtLinksHtml = `<div style="margin:14px 0 0"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#888;margin-bottom:4px">Art files too large to attach</div>${linkRows.join("")}</div>`;
+      } catch (e: any) {
+        console.error("[email/send] rfq art attach failed:", e?.message || e);
+      }
+    }
+
     // BCC the production inbox on every PO send so each outgoing PO
     // lands in the tenant's production Gmail inbox — the production
     // team uses that inbox as the starting place for tracking POs.
@@ -290,8 +336,8 @@ export async function POST(req: NextRequest) {
               eyebrow: companyName,
               heading: `Quote request — ${jobNum || ""}`.trim(),
               greeting: `Hi ${vendor || "there"},`,
-              bodyHtml: `Can you please provide pricing for the item(s) in the attachment? The PDF lays out each item — please reply with: pricing, setup fees, and estimated shipping cost. In addition, we need realistic production lead time and post-production transit time.`,
-              extraHtml: customExtra,
+              bodyHtml: `Can you please provide pricing for the item(s) in the attachment? The PDF lays out each item, and the art files are attached for reference — please reply with: pricing, setup fees, and estimated shipping cost. In addition, we need realistic production lead time and post-production transit time.`,
+              extraHtml: (customExtra || "") + rfqArtLinksHtml,
               hint: `Reach out if anything in the spec is unclear or if you need additional info — we'll send through whatever you need.`,
               closing: `Thanks,\n${companyName}`,
               align: "left",
@@ -306,8 +352,11 @@ export async function POST(req: NextRequest) {
             hint: `You can confirm receipt, update production status, and enter tracking directly from the portal.`,
             closing: `Thanks,\n${companyName}`,
           }),
-      ...(attachPdf && pdfBuffer ? {
-        attachments: [{ filename, content: pdfBuffer.toString("base64") }],
+      ...((attachPdf && pdfBuffer) || rfqArtAttachments.length ? {
+        attachments: [
+          ...(attachPdf && pdfBuffer ? [{ filename, content: pdfBuffer.toString("base64") }] : []),
+          ...rfqArtAttachments,
+        ],
       } : {}),
     });
 
