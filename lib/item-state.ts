@@ -296,11 +296,26 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
     const locs = (locsByClient.get(job.client_id) || []).filter(l => !l.job_id || l.job_id === job.id);
     const shipTo = resolveJobShipTo(job, locs);
     const dests = itemDestinations({ ordered, jobShipTo: shipTo, splits: splitsByItem.get(item.id) || [], locations: locs });
-    const sent = sentByLocation(byItem.get(item.id) || [], boxLoc, "ship");
+    const moves = byItem.get(item.id) || [];
+    const sent = sentByLocation(moves, boxLoc, "ship");
+    // Ship movements whose box records no destination — every PICKUP, and any
+    // box predating locations — are dropped by sentByLocation, so they counted
+    // as never sent. A destination with no location id therefore showed the
+    // whole order still owed no matter how much had gone, and the board kept
+    // offering the same units again: Drake shipped a Teeland pickup on Sep 29,
+    // Taylor shipped the same units again on Sep 30 (HPD-2609-038, +50/+10
+    // over-shipped). The forward path already handles this; ship now matches.
+    const unlocatedShipped: SizeQtys = {};
+    for (const m of moves) {
+      if (m.type !== "ship") continue;
+      if (m.shipmentId && boxLoc.get(m.shipmentId)) continue;
+      for (const [sz, n] of Object.entries(m.qtys || {})) unlocatedShipped[sz] = (unlocatedShipped[sz] || 0) + (Number(n) || 0);
+    }
     return dests.map(d => {
-      const owed = owedToLocation(d.qtys, d.shipTo.locationId ? sent.get(d.shipTo.locationId) : undefined);
+      const already = d.shipTo.locationId ? sent.get(d.shipTo.locationId) : unlocatedShipped;
+      const owed = owedToLocation(d.qtys, already);
       return { locationId: d.shipTo.locationId, label: d.shipTo.label, address: d.shipTo.address, share: d.qtys,
-        sent: (d.shipTo.locationId && sent.get(d.shipTo.locationId)) || {}, owed, owedTotal: Object.values(owed).reduce((a, n) => a + n, 0) };
+        sent: already || {}, owed, owedTotal: Object.values(owed).reduce((a, n) => a + n, 0) };
     });
   };
 
