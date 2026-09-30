@@ -115,10 +115,18 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
   // delivered, no human has received — pinned ABOVE incoming, newest-delivered
   // first ("annoying by design"). Splits AFTER filters/search so both halves
   // respect them. Received tab never queues.
-  const [queue, inTransit] = useMemo(() => {
-    if (status !== "incoming") return [[], display] as [ReceivingBox[], ReceivingBox[]];
-    const q = display.filter(b => b.deliveredAt).sort((a, b) => (b.deliveredAt || "").localeCompare(a.deliveredAt || ""));
-    return [q, display.filter(b => !b.deliveredAt)] as [ReceivingBox[], ReceivingBox[]];
+  // Pickups get their OWN section, above everything. Nobody is delivering them:
+  // they sit at the vendor until somebody drives over, so they never get a
+  // carrier scan and never join the delivered queue. Left in "In transit" they
+  // read as on their way and quietly go late (Jon, Sep 2026).
+  const [pickups, queue, inTransit] = useMemo(() => {
+    if (status !== "incoming") return [[], [], display] as [ReceivingBox[], ReceivingBox[], ReceivingBox[]];
+    const p = display.filter(b => b.pickup && !b.deliveredAt)
+      // oldest first: the one that has been waiting longest is the one to collect.
+      .sort((a, b) => (a.expectedArrival || "9999").localeCompare(b.expectedArrival || "9999"));
+    const rest = display.filter(b => !(b.pickup && !b.deliveredAt));
+    const q = rest.filter(b => b.deliveredAt).sort((a, b) => (b.deliveredAt || "").localeCompare(a.deliveredAt || ""));
+    return [p, q, rest.filter(b => !b.deliveredAt)] as [ReceivingBox[], ReceivingBox[], ReceivingBox[]];
   }, [display, status]);
 
   const agg = useMemo(() => {
@@ -175,6 +183,13 @@ export default function Board({ boxes, pulls }: { boxes: ReceivingBox[]; pulls: 
 
         {view === "shipment" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {pickups.length > 0 && (
+              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.6, textTransform: "uppercase", color: T.amber, marginBottom: -4 }}>
+                Ready for pickup · {pickups.length}
+              </div>
+            )}
+            {pickups.map(box => <BoxCard key={box.id} box={box} status={status} onReceive={() => setReceiveBox(box)} onAdjustEta={setEtaFor} onFlagNotFound={flagNotFound} acts={acts} />)}
+            {pickups.length > 0 && queue.length > 0 && <div style={{ height: 2 }} />}
             {queue.length > 0 && (
               <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: 0.6, textTransform: "uppercase", color: T.red, marginBottom: -4 }}>
                 Delivered — not received · {queue.length}
