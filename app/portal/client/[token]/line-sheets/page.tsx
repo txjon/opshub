@@ -63,9 +63,9 @@ function SheetView({ token, sheetId, onBack }: { token: string; sheetId: string;
           style={{ display: "block", width: "100%", border: "none", padding: 0, background: "#fff", cursor: imgs.length > 1 ? "pointer" : "default", position: "relative" }}>
           <div style={{ position: "relative", aspectRatio: "1", width: "100%" }}>
             {imgs.length > 1 && !flip && imgs[1] && (
-              <img src={thumbUrl(imgs[1].driveId, 400)} alt="" referrerPolicy="no-referrer" style={{ position: "absolute", top: "8%", left: "30%", width: "68%", height: "86%", objectFit: "contain", filter: "brightness(.97)" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+              <img src={thumbUrl(imgs[1].driveId, 400)} alt="" referrerPolicy="no-referrer" style={{ position: "absolute", top: "8%", left: "30%", width: "68%", height: "86%", objectFit: "contain", filter: "brightness(.97)", mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.display = "none"; }} />
             )}
-            {show && <img src={thumbUrl(show.driveId, 600)} alt="" referrerPolicy="no-referrer" style={{ position: "absolute", top: 0, left: 0, width: imgs.length > 1 ? "78%" : "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />}
+            {show && <img src={thumbUrl(show.driveId, 600)} alt="" referrerPolicy="no-referrer" style={{ position: "absolute", top: 0, left: 0, width: imgs.length > 1 ? "78%" : "100%", height: "100%", objectFit: "contain", mixBlendMode: imgs.length > 1 ? "multiply" : undefined }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />}
           </div>
           {it.badge && <span style={{ position: "absolute", top: 8, left: 8, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: it.badge === "new" ? C.green : C.amber, background: "rgba(10,10,10,.85)", borderRadius: 6, padding: "3px 8px" }}>{it.badge}</span>}
           {imgs.length > 1 && <span style={{ position: "absolute", bottom: 8, right: 8, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: "#666", background: "rgba(255,255,255,.92)", borderRadius: 6, padding: "3px 8px" }}>{flip ? "back · tap" : "tap to flip"}</span>}

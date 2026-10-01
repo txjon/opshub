@@ -160,8 +160,8 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         <div style={{ position: "relative", height: 122, background: "#fff", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
           {imgs.length > 1 ? (
             <>
-              <img src={thumbUrl(imgs[0].driveId, 400)} alt="" referrerPolicy="no-referrer" style={{ width: "62%", height: "94%", objectFit: "contain", marginRight: "-14%", zIndex: 2 }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
-              <img src={thumbUrl(imgs[1].driveId, 400)} alt="" referrerPolicy="no-referrer" style={{ width: "62%", height: "94%", objectFit: "contain", zIndex: 1 }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
+              <img src={thumbUrl(imgs[0].driveId, 400)} alt="" referrerPolicy="no-referrer" style={{ width: "62%", height: "94%", objectFit: "contain", marginRight: "-14%", zIndex: 2, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
+              <img src={thumbUrl(imgs[1].driveId, 400)} alt="" referrerPolicy="no-referrer" style={{ width: "62%", height: "94%", objectFit: "contain", zIndex: 1, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
             </>
           ) : imgs[0] ? (
             <img src={thumbUrl(imgs[0].driveId, 400)} alt="" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
