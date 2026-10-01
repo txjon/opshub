@@ -165,6 +165,13 @@ export default function ReleasesPage() {
   const briefLineCount = (((data as any)?.briefs as any[]) || []).length;
   const noSources = briefLineCount === 0 && pipeItems.length === 0 && catalogItems.length === 0;
 
+  // Line-sheet stage (mig 192): a release we're still proposing — published
+  // sheet, no lines yet. It IS the headline: shown only as the hero up top,
+  // never as an empty "yours to build" card. Once lines exist it joins the list.
+  const sheetStage = (d: any) => d.status === "building" && !!d.lineSheet && d.slots.length === 0;
+  const inTheWorks = (drops || []).filter(sheetStage);
+  const listDrops = drops === null ? null : drops.filter(d => !sheetStage(d));
+
   // One tap creates it — auto-named ("Release 03"), rename anytime in the
   // sheet. No decisions at the door: the lineup decides what it becomes.
   async function createDrop(): Promise<string | null> {
@@ -193,6 +200,8 @@ export default function ReleasesPage() {
           .dx-sheet{border-radius:18px 18px 0 0;border-bottom:none;max-height:92dvh;overflow-y:auto;animation:dxUp .3s cubic-bezier(.32,.72,0,1)}
           .dx-handle{display:block;width:38px;height:4px;border-radius:999px;background:rgba(255,255,255,0.25);margin:10px auto 0}
         }
+        @media(max-width:640px){.lsx-strip{grid-template-columns:repeat(4,1fr)!important}.lsx-wide{display:none!important}}
+        .lsx-hero{transition:border-color .15s}.lsx-hero:hover{border-color:rgba(255,255,255,.3)!important}
         @keyframes dxUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
         @media(prefers-reduced-motion:reduce){.dx-sheet{animation:none}}
       ` }} />
@@ -205,6 +214,41 @@ export default function ReleasesPage() {
         Pull designs from your studio into one release. When every piece is approved, send it our way. We cost it, schedule it, and it goes live.
       </div>
 
+      {inTheWorks.length > 0 && (
+        <div style={{ maxWidth: 760, margin: "0 auto 30px", display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: C.faint }}>In the works</div>
+          {inTheWorks.map((d: any) => {
+            const ls = d.lineSheet;
+            return (
+              <a key={d.id} href={`/portal/client/${token}/releases/${d.id}/line-sheet`} className="lsx-hero"
+                style={{ display: "block", background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, overflow: "hidden", color: C.text, textDecoration: "none", fontFamily: C.font }}>
+                {ls.covers.length > 0 && (
+                  <div className="lsx-strip" style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(ls.covers.length, 8)}, 1fr)`, background: "#fff" }}>
+                    {ls.covers.map((id: string, i: number) => (
+                      <div key={i} className={i >= 4 ? "lsx-wide" : undefined} style={{ aspectRatio: "1", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                        <img src={thumbSrc(id, 300)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" style={{ width: "88%", height: "88%", objectFit: "contain", mixBlendMode: "multiply" }} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ padding: "18px 20px 20px" }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: C.amber }}>
+                    Line sheet · v{ls.version}{ls.publishedAt ? ` · updated ${fmtDate(ls.publishedAt.slice(0, 10))}` : ""}
+                  </div>
+                  <div style={{ fontSize: "clamp(24px,4.6vw,36px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.02em", lineHeight: 1, marginTop: 6 }}>{d.title}</div>
+                  <div style={{ fontSize: 13, color: C.muted, marginTop: 8 }}>
+                    {ls.pieces} piece{ls.pieces === 1 ? "" : "s"} · {ls.reacted ? `you've reacted to ${ls.reacted}` : "nothing reacted to yet"}
+                  </div>
+                  <span style={{ display: "inline-block", marginTop: 16, background: "#fff", color: C.bg, borderRadius: 999, padding: "11px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                    {ls.reacted < ls.pieces ? "React to the line →" : "See the line →"}
+                  </span>
+                </div>
+              </a>
+            );
+          })}
+          <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: C.faint, marginTop: 16 }}>Your releases</div>
+        </div>
+      )}
       <div style={{ display: "flex", justifyContent: "center", marginBottom: 34 }}>
         <button onClick={() => createDrop()} disabled={busy}
           style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "13px 26px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", opacity: busy ? 0.6 : 1, fontFamily: C.font }}>
@@ -214,9 +258,9 @@ export default function ReleasesPage() {
 
       {pageErr && <div style={{ color: C.red, fontSize: 12.5, fontWeight: 700, textAlign: "center", marginBottom: 16 }}>{pageErr}</div>}
 
-      {drops === null ? (
+      {listDrops === null ? (
         <div style={{ color: C.faint, fontSize: 13, textAlign: "center", padding: "30px 0" }}>Loading your releases…</div>
-      ) : drops.length === 0 ? (
+      ) : listDrops.length === 0 ? (inTheWorks.length > 0 ? null : (
         // First run — a new client has nothing to pull yet, so point them at
         // the door that feeds this page instead of shrugging at them.
         noSources ? (
@@ -235,10 +279,10 @@ export default function ReleasesPage() {
           </div>
         ) : (
           <div style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: "10px 0 40px" }}>No releases yet. Start one and pull your greenlit designs onto it.</div>
-        )
+        ))
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 760, margin: "0 auto" }}>
-          {drops.map((d: any) => {
+          {listDrops.map((d: any) => {
             const h = healthLine(d);
             return (
               <div key={d.id}>

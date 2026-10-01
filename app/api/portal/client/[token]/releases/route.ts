@@ -61,19 +61,28 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         });
       }
     }
-    // Line sheet (mig 192) — the release's proposal stage. PUBLISHED only;
-    // a draft is ours alone. kept = live thumbs-up on undropped items.
+    // Line sheet (mig 192) — the release's proposal stage. Everything here
+    // reads the PUBLISHED snapshot (drafts are ours alone); thumbs are live.
+    // covers = first image of the first few pieces, shelf order, for the hero.
     const sheetByRelease: Record<string, any> = {};
     if (ids.length) {
       const { data: sheets } = await db.from("line_sheets")
         .select("id, release_id, current_version").in("release_id", ids).gt("current_version", 0);
-      const sids = (sheets || []).map((s: any) => s.id);
-      const { data: sItems } = sids.length
-        ? await db.from("line_sheet_items").select("sheet_id, dropped, client_thumb").in("sheet_id", sids)
-        : { data: [] as any[] };
       for (const sh of (sheets || []) as any[]) {
-        const mine = ((sItems || []) as any[]).filter(i => i.sheet_id === sh.id && !i.dropped);
-        sheetByRelease[sh.release_id] = { version: sh.current_version, pieces: mine.length, kept: mine.filter(i => i.client_thumb === "up").length };
+        const { data: v } = await db.from("line_sheet_versions").select("snapshot, published_at").eq("sheet_id", sh.id).eq("n", sh.current_version).maybeSingle();
+        const snap: any = (v as any)?.snapshot || { sections: [], items: [] };
+        const secSort: Record<string, number> = {};
+        for (const sec of snap.sections || []) secSort[sec.id] = sec.sort;
+        const pieces = [...(snap.items || [])].sort((x: any, y: any) =>
+          ((secSort[x.section_id] ?? 1e9) - (secSort[y.section_id] ?? 1e9)) || (x.sort - y.sort));
+        const { data: live } = await db.from("line_sheet_items").select("id, client_thumb").eq("sheet_id", sh.id).not("client_thumb", "is", null);
+        const onSheet = new Set(pieces.map((i: any) => i.id));
+        const thumbs = ((live || []) as any[]).filter(i => onSheet.has(i.id));
+        sheetByRelease[sh.release_id] = {
+          version: sh.current_version, publishedAt: (v as any)?.published_at || null,
+          pieces: pieces.length, reacted: thumbs.length, kept: thumbs.filter(i => i.client_thumb === "up").length,
+          covers: pieces.map((i: any) => i.images?.[0]?.driveId).filter(Boolean).slice(0, 8),
+        };
       }
     }
     // Payable for cut drops — read the born job's invoice state (same
