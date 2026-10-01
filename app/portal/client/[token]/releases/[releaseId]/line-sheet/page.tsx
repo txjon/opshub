@@ -18,6 +18,7 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
   const [missing, setMissing] = useState(false);
   // Shelf filter — null = the whole line. "__more" = unshelved pieces.
   const [shelf, setShelf] = useState<string | null>(null);
+  const [noteFor, setNoteFor] = useState<string | null>(null);   // item whose "why" field is open
   const load = () => fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`).then(r => r.json()).then(j => { if (j.error) setMissing(true); else setData(j); }).catch(() => setMissing(true));
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [releaseId]);
   const back = <a href={`/portal/client/${token}/releases`} style={{ color: C.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", textDecoration: "none" }}>‹ {data?.release?.title || "Releases"}</a>;
@@ -33,8 +34,21 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
 
   async function react(it: any, thumb: "up" | "down") {
     const next = it.thumb === thumb ? null : thumb;
-    setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, thumb: next } : x) }));
+    // a thumbs-down offers the optional why right there; any other change closes it
+    setNoteFor(next === "down" ? it.id : null);
+    setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, thumb: next, note: null } : x) }));
     const r = await fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: it.id, thumb: next }) }).catch(() => null);
+    if (!r || !r.ok) load();
+  }
+
+  // Optional "why" on a thumbs-down (mig 195): saves on blur/Enter, never
+  // required, empty clears it.
+  async function saveNote(it: any, raw: string) {
+    const note = raw.trim() || null;
+    setNoteFor(null);
+    if ((it.note || null) === note) return;
+    setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, note } : x) }));
+    const r = await fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: it.id, note }) }).catch(() => null);
     if (!r || !r.ok) load();
   }
 
@@ -65,6 +79,16 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
             <button onClick={() => react(it, "up")} aria-label="Thumbs up" style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: `1px solid ${it.thumb === "up" ? C.green : C.line}`, background: it.thumb === "up" ? "rgba(88,201,60,.14)" : "transparent", cursor: "pointer", opacity: it.thumb === "down" ? 0.45 : 1, color: it.thumb === "up" ? C.green : C.dim, display: "grid", placeItems: "center" }}><ThumbIcon dir="up" /></button>
             <button onClick={() => react(it, "down")} aria-label="Thumbs down" style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: `1px solid ${it.thumb === "down" ? C.red : C.line}`, background: it.thumb === "down" ? "rgba(255,90,110,.12)" : "transparent", cursor: "pointer", opacity: it.thumb === "up" ? 0.45 : 1, color: it.thumb === "down" ? C.red : C.dim, display: "grid", placeItems: "center" }}><ThumbIcon dir="down" /></button>
           </div>
+          {it.thumb === "down" && (noteFor === it.id ? (
+            <input defaultValue={it.note || ""} placeholder="Why? (optional)" maxLength={500} aria-label="Why the thumbs down (optional)"
+              onBlur={e => saveNote(it, e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") setNoteFor(null); }}
+              style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 8, background: "transparent", border: "none", borderBottom: `1px solid ${C.line}`, outline: "none", color: C.dim, fontSize: 12, fontFamily: C.font, padding: "4px 0" }} />
+          ) : it.note ? (
+            <button onClick={() => setNoteFor(it.id)} title="Edit" style={{ display: "block", width: "100%", textAlign: "left", marginTop: 8, background: "none", border: "none", padding: 0, cursor: "pointer", color: C.dim, fontSize: 12, fontStyle: "italic", fontFamily: C.font, lineHeight: 1.4 }}>&ldquo;{it.note}&rdquo;</button>
+          ) : (
+            <button onClick={() => setNoteFor(it.id)} style={{ marginTop: 7, background: "none", border: "none", padding: 0, cursor: "pointer", color: C.faint, fontSize: 11, fontFamily: C.font }}>+ why</button>
+          ))}
         </div>
       </div>
     );

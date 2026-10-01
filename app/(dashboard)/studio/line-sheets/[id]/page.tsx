@@ -190,6 +190,10 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         <input defaultValue={it.name || ""} placeholder={noOf(it) ? `${noOf(it)} — name it…` : "name it…"} onClick={e => e.stopPropagation()}
           onBlur={e => { if ((e.target.value || "") !== (it.name || "")) { patchItem({ id: it.id, name: e.target.value }).then(load); } }}
           style={{ width: "100%", boxSizing: "border-box", background: H.ink, border: `1px solid ${H.line2}`, borderRadius: 6, color: H.text, fontSize: 11.5, fontWeight: 700, padding: "5px 7px", outline: "none", fontFamily: H.font, marginTop: 8 }} />
+        {/* the client's optional why on a thumbs-down (mig 195) */}
+        {it.client_thumb === "down" && it.client_thumb_note && (
+          <div title="Client's note on the thumbs-down" style={{ marginTop: 6, fontSize: 11, color: H.red, lineHeight: 1.35, fontStyle: "italic", overflowWrap: "anywhere" }}>&ldquo;{it.client_thumb_note}&rdquo;</div>
+        )}
       </div>
     );
   };

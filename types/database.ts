@@ -3356,6 +3356,7 @@ export type Database = {
           client_thumb_version: number | null;
           created_at: string;
           item_no: number | null;
+          client_thumb_note: string | null;
         };
         Insert: {
           id?: string;
@@ -3373,6 +3374,7 @@ export type Database = {
           client_thumb_version?: number | null;
           created_at?: string;
           item_no?: number | null;
+          client_thumb_note?: string | null;
         };
         Update: {
           id?: string;
@@ -3390,6 +3392,7 @@ export type Database = {
           client_thumb_version?: number | null;
           created_at?: string;
           item_no?: number | null;
+          client_thumb_note?: string | null;
         };
         Relationships: [
           { foreignKeyName: "line_sheet_items_sheet_id_fkey"; columns: ["sheet_id"]; isOneToOne: false; referencedRelation: "line_sheets"; referencedColumns: ["id"] },

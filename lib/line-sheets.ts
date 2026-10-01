@@ -9,6 +9,7 @@ export type SheetItem = {
   added_in: number | null; updated_in: number | null;
   dropped: boolean; dropped_in: number | null;
   client_thumb: "up" | "down" | null; client_thumb_at: string | null; client_thumb_version: number | null;
+  client_thumb_note: string | null;   // optional why on a thumbs-down (mig 195)
 };
 export type SheetSection = { id: string; sheet_id: string; name: string; sort: number };
 export type LineSheet = {
@@ -46,7 +47,7 @@ export async function clientSheetView(db: Db, sheet: { id: string; current_versi
   const n = sheet.current_version;
   const [{ data: secs }, { data: rows }, { data: v }, published] = await Promise.all([
     db.from("line_sheet_sections").select("id, name, sort").eq("sheet_id", sheet.id).order("sort"),
-    db.from("line_sheet_items").select("id, section_id, name, item_no, sort, images, added_in, updated_in, dropped, client_thumb").eq("sheet_id", sheet.id).order("sort"),
+    db.from("line_sheet_items").select("id, section_id, name, item_no, sort, images, added_in, updated_in, dropped, client_thumb, client_thumb_note").eq("sheet_id", sheet.id).order("sort"),
     db.from("line_sheet_versions").select("n, note, published_at").eq("sheet_id", sheet.id).eq("n", n).maybeSingle(),
     publishedImageIds(db, sheet.id),
   ]);
@@ -56,7 +57,7 @@ export async function clientSheetView(db: Db, sheet: { id: string; current_versi
     .filter(it => it.images.length > 0)
     .map(it => ({
       id: it.id, section_id: it.section_id, name: it.name, item_no: it.item_no, sort: it.sort, images: it.images,
-      badge: badgeFor(it, n), thumb: it.client_thumb ?? null,
+      badge: badgeFor(it, n), thumb: it.client_thumb ?? null, note: it.client_thumb_note ?? null,
     }));
   return {
     version: { n, note: (v as any)?.note || null, published_at: (v as any)?.published_at || null },

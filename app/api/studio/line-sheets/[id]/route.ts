@@ -67,7 +67,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           // new art landed on it → UPDATED badge, and the thumb resets: the
           // client is judging a new picture (the carry rule).
           patch.updated_in = n;
-          patch.client_thumb = null; patch.client_thumb_at = null; patch.client_thumb_version = null;
+          patch.client_thumb = null; patch.client_thumb_at = null; patch.client_thumb_version = null; patch.client_thumb_note = null;
           updated++;
         }
       }

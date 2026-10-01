@@ -69,7 +69,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     // Grouping is organizing (live): the client's reaction survives it. The
     // kept item inherits the donor's thumb when it has none of its own.
     const keepThumb = (item as any).client_thumb ? {} : (donor as any).client_thumb ? {
-      client_thumb: (donor as any).client_thumb, client_thumb_at: (donor as any).client_thumb_at, client_thumb_version: (donor as any).client_thumb_version,
+      client_thumb: (donor as any).client_thumb, client_thumb_at: (donor as any).client_thumb_at, client_thumb_version: (donor as any).client_thumb_version, client_thumb_note: (donor as any).client_thumb_note,
     } : {};
     await db.from("line_sheet_items").update({ images: merged, name: (item as any).name || (donor as any).name, ...keepThumb } as never).eq("id", b.id);
     if ((donor as any).added_in == null) await db.from("line_sheet_items").delete().eq("id", b.mergeFrom);
