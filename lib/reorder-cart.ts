@@ -16,8 +16,10 @@ export type CartLine = { itemId?: string; productId?: string; sizes?: Record<str
 
 // THE copy shape for "run this item again" — identity + costs carried,
 // lifecycle reset, buy_sheet_lines = requested qtys, files re-referenced by
-// drive_file_id (deletion is reference-counted). Shared by the reorder cart
-// and the release cut's re-run lane; change it in one place only.
+// drive_file_id (deletion is reference-counted). Shared by the reorder cart,
+// the release cut/buy lanes AND job duplicate (Oct 1 2026: the duplicate
+// route's hand-rolled copy had drifted — it dropped blank_supplier); change
+// it in one place only.
 export async function copyItemIntoJob(db: Db, src: any, jobId: string, opts: {
   sizes: { size: string; qty: number }[]; sortOrder: number;
   // When set, best-effort pre-create the NEW project's Drive item folder with a
@@ -28,6 +30,9 @@ export async function copyItemIntoJob(db: Db, src: any, jobId: string, opts: {
   // title EXACTLY (uploads resolve their folder from the job title).
   drive?: { clientName: string; projectTitle: string };
   srcRef?: string | null; // "4345-I" — source invoice/job + letter, for carriedFrom.ref
+  // Collects "item: error" when the file-row copy fails. The Sep 1 duplicate
+  // of HPD-2605-055 carried ZERO file rows silently — callers fail loud.
+  fileErrors?: string[];
 }): Promise<string | null> {
   const { data: ni, error: itemErr } = await db.from("items").insert({
     job_id: jobId, name: src.name, blank_vendor: src.blank_vendor, blank_sku: src.blank_sku,
@@ -35,6 +40,9 @@ export async function copyItemIntoJob(db: Db, src: any, jobId: string, opts: {
     // drive_link NOT copied (a moved pointer on the source poisoned a PO,
     // Sep 11) — set below to the new item's own folder once it exists.
     garment_type: src.garment_type || null, drive_link: null, is_fleece: !!src.is_fleece,
+    // which catalog the blank came from (mig 184) — the blank rep order
+    // emails THAT supplier's rep; dropping it fell back to the full list.
+    blank_supplier: src.blank_supplier || null,
     status: "tbd",
     sort_order: opts.sortOrder, pipeline_stage: null, blanks_order_number: null, ship_tracking: null,
     design_id: src.design_id || null,
@@ -56,12 +64,13 @@ export async function copyItemIntoJob(db: Db, src: any, jobId: string, opts: {
     .select("file_name, stage, drive_file_id, drive_link, mime_type, file_size, approval, approved_at, notes")
     .eq("item_id", src.id).is("superseded_at", null);
   if ((srcFiles || []).length) {
-    await db.from("item_files").insert((srcFiles || []).map((f: any) => ({
+    const { error: fErr } = await db.from("item_files").insert((srcFiles || []).map((f: any) => ({
       item_id: ni.id, file_name: f.file_name, stage: f.stage, drive_file_id: f.drive_file_id,
       drive_link: f.drive_link || `https://drive.google.com/file/d/${f.drive_file_id}/view`,
       mime_type: f.mime_type || null, file_size: f.file_size || null,
       approval: f.approval || "none", approved_at: f.approved_at || null, notes: f.notes || null,
     })));
+    if (fErr) opts.fileErrors?.push(`${src.name || "item"}: ${fErr.message}`);
     // Best-effort Drive shortcuts — DB rows above are the source of truth; a
     // Drive failure (network blip, permission edge) logs and moves on.
     if (opts.drive?.clientName && opts.drive?.projectTitle) {

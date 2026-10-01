@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { logJobActivityServer } from "@/lib/notify-server";
-import { getItemFolderId, createShortcut } from "@/lib/google-drive";
-import { carryProofFields } from "@/lib/proof-gate";
+import { copyItemIntoJob } from "@/lib/reorder-cart";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -105,7 +104,10 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       .single();
     if (newJobErr || !newJob) {
       return NextResponse.json({ error: newJobErr?.message || "Failed to create duplicate job" }, { status: 500 });
+    }
     // A project-only address belongs to the source job; give the copy its own.
+    // (Was unreachable until Oct 1 2026 — it sat inside the error branch after
+    // the return, so a dupe shared the ORIGINAL's project-only address row.)
     if ((srcJob as any).ship_to_location_id) {
       const { data: loc } = await db.from("client_locations").select("client_id, job_id, label, address, contact_name, contact_phone").eq("id", (srcJob as any).ship_to_location_id).single();
       const src: any = loc;
@@ -113,7 +115,6 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         const { data: clone }: any = await db.from("client_locations").insert({ client_id: src.client_id, job_id: (newJob as any).id, label: src.label, address: src.address, contact_name: src.contact_name, contact_phone: src.contact_phone, is_default: false }).select("id").single();
         if (clone?.id) await db.from("jobs").update({ ship_to_location_id: clone.id }).eq("id", (newJob as any).id);
       }
-    }
     }
 
     const newJobId = (newJob as any).id as string;
@@ -126,89 +127,24 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       .order("sort_order", { ascending: true });
 
     const idMap: Record<string, string> = {};
-    const newItems: { id: string; name: string }[] = [];
-
     const fileCopyFailures: string[] = [];
+    const clientName = ((srcJob as any).clients?.name) || "";
+    const srcRefBase = (srcJob as any).qb_invoice_number || (srcJob as any).job_number || "?";
 
+    // One copy shape for every "run it again" path (lib/reorder-cart
+    // copyItemIntoJob): identity + costs + blank_supplier carried, lifecycle
+    // reset, files re-referenced, Drive folder + shortcuts best-effort.
     for (let srcIdx = 0; srcIdx < (srcItems || []).length; srcIdx++) {
-      const item = (srcItems || [])[srcIdx];
-      const { data: ni, error: itemErr } = await db
-        .from("items")
-        .insert({
-          job_id: newJobId,
-          name: (item as any).name,
-          blank_vendor: (item as any).blank_vendor,
-          blank_sku: (item as any).blank_sku,
-          cost_per_unit: (item as any).cost_per_unit,
-          sell_per_unit: (item as any).sell_per_unit,
-          blank_costs: (item as any).blank_costs || null,
-          garment_type: (item as any).garment_type || null,
-          // drive_link is NOT copied — it's a mutable pointer that any later
-          // upload on the source may have moved (a packing slip moved four of
-          // them onto "Packing Slips"). The shortcut step below points the new
-          // item at ITS OWN folder, which holds shortcuts to the original art.
-          drive_link: null,
-          is_fleece: !!(item as any).is_fleece,
-          status: "tbd",
-          // Approval carries with the art (lib/proof-gate.carryProofFields) — same
-          // rule as the hub reorder cart; this route previously dropped proof_spec.
-          ...carryProofFields(item, (srcJob as any).job_number || null, `${(srcJob as any).qb_invoice_number || (srcJob as any).job_number || "?"}-${String.fromCharCode(65 + srcIdx)}`),
-          sort_order: (item as any).sort_order ?? 0,
-          pipeline_stage: null,
-          blanks_order_number: null,
-          ship_tracking: null,
-        })
-        .select("id, name")
-        .single();
-      if (itemErr || !ni) continue;
-      idMap[(item as any).id] = (ni as any).id;
-      newItems.push({ id: (ni as any).id, name: (ni as any).name });
-
-      // Carry buy_sheet_lines (size + qty_ordered). Other counters reset.
-      const { data: srcLines } = await db
-        .from("buy_sheet_lines")
-        .select("size, qty_ordered")
-        .eq("item_id", (item as any).id);
-      if ((srcLines || []).length > 0) {
-        await db.from("buy_sheet_lines").insert(
-          (srcLines || []).map((l: any) => ({
-            item_id: (ni as any).id,
-            size: l.size,
-            qty_ordered: l.qty_ordered,
-            qty_shipped_from_vendor: 0,
-            qty_received_at_hpd: 0,
-            qty_shipped_to_customer: 0,
-          }))
-        );
-      }
-
-      // Carry item_files — same drive_file_id, preserve approval state.
-      const { data: srcFiles } = await db
-        .from("item_files")
-        .select("file_name, stage, drive_file_id, drive_link, mime_type, file_size, approval, approved_at, notes")
-        .eq("item_id", (item as any).id)
-        .is("superseded_at", null);
-      if ((srcFiles || []).length > 0) {
-        // The Sep 1 duplicate of HPD-2605-055 carried ZERO file rows and nobody
-        // knew until the printer asked — this insert was never checked. Fail
-        // loud: the duplicate still completes, but the response + activity say
-        // which items lost their art so it's fixed the same day, not weeks later.
-        const { error: fErr } = await db.from("item_files").insert(
-          (srcFiles || []).map((f: any) => ({
-            item_id: (ni as any).id,
-            file_name: f.file_name,
-            stage: f.stage,
-            drive_file_id: f.drive_file_id,
-            drive_link: f.drive_link || `https://drive.google.com/file/d/${f.drive_file_id}/view`,
-            mime_type: f.mime_type || null,
-            file_size: f.file_size || null,
-            approval: f.approval || "none",
-            approved_at: f.approved_at || null,
-            notes: f.notes || null,
-          }))
-        );
-        if (fErr) fileCopyFailures.push(`${(item as any).name || "item"}: ${fErr.message}`);
-      }
+      const item: any = (srcItems || [])[srcIdx];
+      const { data: srcLines } = await db.from("buy_sheet_lines").select("size, qty_ordered").eq("item_id", item.id);
+      const newId = await copyItemIntoJob(db, { ...item, jobs: { job_number: (srcJob as any).job_number || null } }, newJobId, {
+        sizes: ((srcLines || []) as any[]).map(l => ({ size: l.size, qty: l.qty_ordered })),
+        sortOrder: item.sort_order ?? 0,
+        drive: clientName && newTitle ? { clientName, projectTitle: newTitle } : undefined,
+        srcRef: `${srcRefBase}-${String.fromCharCode(65 + srcIdx)}`,
+        fileErrors: fileCopyFailures,
+      });
+      if (newId) idMap[item.id] = newId;
     }
 
     // Remap costing_data.costProds ids to the new item ids so CostingTab
@@ -242,44 +178,6 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       );
     }
 
-    // Best-effort: create Drive shortcuts in the duplicate's project
-    // folder pointing at each original file. The DB-level duplication
-    // above is the source of truth — if Drive shortcut creation fails
-    // (network blip, missing source file, permission edge), we log and
-    // continue. Users still see all files in OpsHub via item_files;
-    // shortcuts are purely for Drive-browser convenience.
-    const clientName = ((srcJob as any).clients?.name) || "";
-    const shortcutResult = { attempted: 0, ok: 0, failed: 0 };
-    if (clientName && newTitle) {
-      for (const ni of newItems) {
-        const { data: filesForItem } = await db
-          .from("item_files")
-          .select("file_name, drive_file_id")
-          .eq("item_id", ni.id);
-        if (!filesForItem || filesForItem.length === 0) continue;
-        let itemFolderId: string;
-        try {
-          itemFolderId = await getItemFolderId(clientName, newTitle, ni.name || "Item");
-        } catch (e: any) {
-          console.error("[job duplicate] folder ensure failed:", e?.message || e);
-          continue;
-        }
-        // The PO's Production Files link = the new item's own folder.
-        await db.from("items").update({ drive_link: `https://drive.google.com/drive/folders/${itemFolderId}`, drive_folder_id: itemFolderId }).eq("id", ni.id);
-        for (const f of filesForItem) {
-          if (!f.drive_file_id) continue;
-          shortcutResult.attempted++;
-          try {
-            await createShortcut(f.drive_file_id, f.file_name || "file", itemFolderId);
-            shortcutResult.ok++;
-          } catch (e: any) {
-            shortcutResult.failed++;
-            console.error("[job duplicate] shortcut failed:", e?.message || e);
-          }
-        }
-      }
-    }
-
     try {
       await logJobActivityServer(newJobId,
         `Project duplicated from "${(srcJob as any).title || "—"}" (re-order; files shortcut from original).${fileCopyFailures.length ? ` FILE COPY FAILED on ${fileCopyFailures.length} item(s) — ${fileCopyFailures.join("; ")}` : ""}`);
@@ -288,8 +186,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({
       fileCopyFailures,
       jobId: newJobId,
-      itemCount: newItems.length,
-      shortcuts: shortcutResult,
+      itemCount: Object.keys(idMap).length,
     });
   } catch (e: any) {
     console.error("[job duplicate] error:", e);
