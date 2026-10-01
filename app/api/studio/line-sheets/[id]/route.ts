@@ -72,11 +72,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       }
       if (Object.keys(patch).length) await db.from("line_sheet_items").update(patch as never).eq("id", it.id);
     }
-    const { data: fresh } = await db.from("line_sheet_items").select("*").eq("sheet_id", params.id).order("sort");
+    // anything still unnumbered gets its permanent number now — the client
+    // never sees an untitled item, the number IS the default name
+    let { data: fresh } = await db.from("line_sheet_items").select("*").eq("sheet_id", params.id).order("sort");
+    let nextNo = Math.max(0, ...((fresh || []) as any[]).map(i => i.item_no || 0)) + 1;
+    for (const it of ((fresh || []) as any[]).filter(i => !i.dropped && i.item_no == null)) {
+      await db.from("line_sheet_items").update({ item_no: nextNo } as never).eq("id", it.id);
+      it.item_no = nextNo++;
+    }
     const snapshot = {
       sections: (sections || []).map((s: any) => ({ id: s.id, name: s.name, sort: s.sort })),
       items: ((fresh || []) as any[]).filter(i => !i.dropped).map(i => ({
-        id: i.id, section_id: i.section_id, name: i.name, sort: i.sort, images: i.images,
+        id: i.id, section_id: i.section_id, name: i.name, item_no: i.item_no, sort: i.sort, images: i.images,
         added_in: i.added_in, updated_in: i.updated_in,
       })),
     };

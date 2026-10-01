@@ -58,7 +58,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const patch: Record<string, any> = {};
   if (b.name !== undefined) patch.name = b.name ? String(b.name).trim().slice(0, 140) : null;
-  if (b.sectionId !== undefined) patch.section_id = b.sectionId || null;
+  if (b.sectionId !== undefined) {
+    patch.section_id = b.sectionId || null;
+    // landing on a shelf mints the item's permanent number — never reshuffled
+    if (b.sectionId && (item as any).item_no == null) {
+      const { data: maxRow } = await db.from("line_sheet_items").select("item_no").eq("sheet_id", params.id).not("item_no", "is", null).order("item_no", { ascending: false }).limit(1).maybeSingle();
+      patch.item_no = (((maxRow as any)?.item_no) || 0) + 1;
+    }
+  }
   if (b.sort !== undefined) patch.sort = Number(b.sort) || 0;
   if (b.images !== undefined && Array.isArray(b.images)) patch.images = b.images.filter((i: any) => i?.driveId).map((i: any) => ({ id: i.id || newImageId(), driveId: String(i.driveId), name: i.name || null }));
   if (b.drop) { patch.dropped = true; }

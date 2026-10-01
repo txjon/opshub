@@ -96,7 +96,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const items: any[] = data.items.filter((i: any) => !i.dropped);
   const dropped: any[] = data.items.filter((i: any) => i.dropped);
   const tray = items.filter(i => !i.section_id);
-  const numberOf = new Map<string, string>(items.map((it, i) => [it.id, String(i + 1).padStart(2, "0")]));
+  const noOf = (it: any) => it.item_no ? String(it.item_no).padStart(2, "0") : null;
 
   async function patchSheet(body: any) { setBusy(true); try { const r = await fetch(`/api/studio/line-sheets/${params.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(x => x.json()); if (r.error) setErr(r.error); await load(); return r; } finally { setBusy(false); } }
   async function patchItem(body: any) { const r = await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(x => x.json()); if (r.error) setErr(r.error); }
@@ -166,12 +166,12 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
           ) : imgs[0] ? (
             <img src={thumbUrl(imgs[0].driveId, 400)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
           ) : null}
-          <span style={{ position: "absolute", left: 5, top: 5, fontFamily: H.mono, fontSize: 10, fontWeight: 700, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>{numberOf.get(it.id)}</span>
+          {noOf(it) && <span style={{ position: "absolute", left: 5, top: 5, fontFamily: H.mono, fontSize: 10, fontWeight: 700, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>{noOf(it)}</span>}
           {on && <span style={{ position: "absolute", right: 5, top: 5, background: H.blue, color: H.ink, borderRadius: 999, width: 20, height: 20, display: "grid", placeItems: "center", fontSize: 11, fontWeight: 900, zIndex: 3 }}>{selIdx + 1}</span>}
           {imgs.length > 2 && <span style={{ position: "absolute", right: 5, bottom: 5, ...tag("#555", 8.5), background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>+{imgs.length - 2}</span>}
           {it.client_thumb && <span style={{ position: "absolute", left: 5, bottom: 5, zIndex: 3, color: it.client_thumb === "up" ? "#3fae2a" : "#d33", background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 4px", display: "grid", placeItems: "center" }}><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ transform: it.client_thumb === "down" ? "rotate(180deg)" : undefined }} aria-hidden><path d="M7 10v12" /><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" /></svg></span>}
         </div>
-        <input defaultValue={it.name || ""} placeholder={`name it… (${numberOf.get(it.id)})`} onClick={e => e.stopPropagation()}
+        <input defaultValue={it.name || ""} placeholder={noOf(it) ? `${noOf(it)} — name it…` : "name it…"} onClick={e => e.stopPropagation()}
           onBlur={e => { if ((e.target.value || "") !== (it.name || "")) { patchItem({ id: it.id, name: e.target.value }).then(load); } }}
           style={{ width: "100%", boxSizing: "border-box", background: H.ink, border: `1px solid ${H.line2}`, borderRadius: 6, color: H.text, fontSize: 11.5, fontWeight: 700, padding: "5px 7px", outline: "none", fontFamily: H.font, marginTop: 8 }} />
       </div>
