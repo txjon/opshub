@@ -40,7 +40,7 @@ export async function POST(_req: NextRequest, { params }: { params: { token: str
     const originJob = (item as any).jobs;
     const concept = [
       `Re-order of "${item.name}"`,
-      originJob?.job_number ? `Original project: ${originJob.job_number}${originJob.title ? ` — ${originJob.title}` : ""}` : null,
+      originJob?.job_number ? `Original project: ${originJob.job_number}${originJob.title ? ` · ${originJob.title}` : ""}` : null,
       item.garment_type ? `Garment: ${item.garment_type}${item.mockup_color ? ` · ${item.mockup_color}` : ""}` : null,
     ].filter(Boolean).join("\n");
 

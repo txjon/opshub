@@ -45,8 +45,8 @@ function renderInvoiceHTML(data: {
         ${p.color ? `<div style="font-size:10px;color:#888;padding-left:17px">${p.color}</div>` : ""}
       </td>`;
     const qtyCell = `<td style="padding:12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;font-weight:600;color:#1a1a1a">${(p.totalQty || 0).toLocaleString()}</td>`;
-    const unitCell = `<td style="padding:12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;color:#666">${p.sellPerUnit > 0 ? fmtD(p.sellPerUnit) : (p.free ? "$0.00" : "—")}</td>`;
-    const subCell = `<td style="padding:12px 0 12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;font-weight:700;color:#1a1a1a">${p.grossRev > 0 ? fmtD(p.grossRev) : (p.free ? "$0.00" : "—")}</td>`;
+    const unitCell = `<td style="padding:12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;color:#666">${p.sellPerUnit > 0 ? fmtD(p.sellPerUnit) : (p.free ? "$0.00" : "-")}</td>`;
+    const subCell = `<td style="padding:12px 0 12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;font-weight:700;color:#1a1a1a">${p.grossRev > 0 ? fmtD(p.grossRev) : (p.free ? "$0.00" : "-")}</td>`;
 
     // Dimensional pants → compact "fits · N sizes" in the Sizes column, then a
     // full-width cut-ticket grid block below the line (client picked full grid).
@@ -123,7 +123,7 @@ function renderInvoiceHTML(data: {
       ["Date", data.today],
       ["Terms", data.terms],
       ["Est. ship date", data.shipDate || "TBD"],
-      ["Bill to", data.clientName || "—"],
+      ["Bill to", data.clientName || "-"],
       ...(data.poNumber ? [["PO #", data.poNumber]] : []),
       ...(data.shipToAddress ? [["Ship to", data.shipToAddress]] : []),
     ].map(([k, v], i, arr) =>
@@ -253,9 +253,9 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       ? new Date(`${dateOverride}T12:00:00`)
       : (invoiceSentAt ? new Date(invoiceSentAt) : new Date());
     const today = resolvedDate.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "America/Los_Angeles" });
-    const clientName = (job.clients as any)?.name || "—";
+    const clientName = (job.clients as any)?.name || "-";
     const termsRaw = job.payment_terms || "";
-    const terms = TERMS_LABELS[termsRaw] || termsRaw.replace(/_/g, " ") || "—";
+    const terms = TERMS_LABELS[termsRaw] || termsRaw.replace(/_/g, " ") || "-";
 
     // items.sell_per_unit is the source of truth — set by CostingTab (auto-calc or override), rounded to cent.
     // After variance push, use shipped/received per-size qtys for the invoice

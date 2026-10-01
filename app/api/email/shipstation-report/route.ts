@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
     }
     const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer());
 
-    const clientName = (report.clients as any)?.name || "—";
+    const clientName = (report.clients as any)?.name || "-";
     const greetingName = recipientName ? recipientName.split(" ")[0] : clientName;
     const invoiceNum = report.qb_invoice_number || "";
     const isPostage = report.report_type === "postage";

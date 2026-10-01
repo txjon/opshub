@@ -82,7 +82,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     }
     const { data: produced } = await db.from("items").select("id").eq("product_id", (product as any).id).limit(1);
     if ((produced || []).length) {
-      return NextResponse.json({ error: "This one's already run — reorder it from your catalog below" }, { status: 409 });
+      return NextResponse.json({ error: "This one's already run. Reorder it from your catalog below." }, { status: 409 });
     }
     const qtys: Record<string, number> = {};
     for (const [s, n] of Object.entries(body.qtys || {})) {

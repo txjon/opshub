@@ -43,8 +43,8 @@ function renderQuoteHTML(data: {
         </div>
       </td>`;
     const qtyCell = `<td style="padding:12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;font-weight:600;color:#1a1a1a">${(p.totalQty || 0).toLocaleString()}</td>`;
-    const unitCell = `<td style="padding:12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;color:#666">${p.sellPerUnit > 0 ? fmtD(p.sellPerUnit) : (p.free ? "$0.00" : "—")}</td>`;
-    const subCell = `<td style="padding:12px 0 12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;font-weight:700;color:#1a1a1a">${p.grossRev > 0 ? fmtD(p.grossRev) : (p.free ? "$0.00" : "—")}</td>`;
+    const unitCell = `<td style="padding:12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;color:#666">${p.sellPerUnit > 0 ? fmtD(p.sellPerUnit) : (p.free ? "$0.00" : "-")}</td>`;
+    const subCell = `<td style="padding:12px 0 12px 8px;text-align:right;font-family:monospace;font-size:12px;vertical-align:top;font-weight:700;color:#1a1a1a">${p.grossRev > 0 ? fmtD(p.grossRev) : (p.free ? "$0.00" : "-")}</td>`;
 
     // Dimensional pants → compact "fits · N sizes" in the Sizes column, then a
     // full-width cut-ticket grid block below the line (client picked full grid).
@@ -105,7 +105,7 @@ function renderQuoteHTML(data: {
       </div>
       <div style="text-align:right">
         <div style="font-size:18px;font-weight:700;letter-spacing:-0.01em;font-family:${font};margin-bottom:8px">
-          ${data.invoiceNum ? "QUOTE #" + data.invoiceNum : "QUOTE #—"}
+          ${data.invoiceNum ? "QUOTE #" + data.invoiceNum : "QUOTE"}
         </div>
         <div style="font-size:11px;color:#666;line-height:1.8;font-family:${font}">
           <div><span style="font-weight:600">Date:</span> ${data.today}</div>
@@ -121,7 +121,7 @@ function renderQuoteHTML(data: {
       ["Date", data.today],
       ["Valid until", data.validUntil || "30 days from issue"],
       ["Est. ship date", data.shipDate || "TBD"],
-      ["Prepared for", data.clientName || "—"],
+      ["Prepared for", data.clientName || "-"],
     ].map(([k, v], i, arr) =>
       `<div style="padding:8px 12px;${i < arr.length - 1 ? "border-right:0.5px solid #e5e7eb" : ""}">
         <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:2px">${k}</div>
@@ -236,7 +236,7 @@ export async function GET(_req: NextRequest, { params }: { params: { jobId: stri
     const today = (quoteSentAt ? new Date(quoteSentAt) : new Date())
       // Vercel renders in UTC — pin to Vegas so an evening send doesn't print tomorrow's date
       .toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "America/Los_Angeles" });
-    const clientName = (job.clients as any)?.name || orderInfo.clientName || "—";
+    const clientName = (job.clients as any)?.name || orderInfo.clientName || "-";
 
     // Build product list — use costing_data if available, fall back to items table
     let prods: any[] = [];

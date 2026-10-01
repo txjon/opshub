@@ -219,7 +219,7 @@ export async function GET(
       // Outbound forward — reword the internal "Forwarded N to client" log.
       else if (/forwarded \d+ items? to client/i.test(msg)) {
         const m = msg.match(/forwarded (\d+) items?.*?tracking[: ]+(.+?)\s*$/i);
-        clientMsg = m ? `${m[1]} item${m[1] === "1" ? "" : "s"} shipped — tracking ${m[2]}` : "Your order shipped";
+        clientMsg = m ? `${m[1]} item${m[1] === "1" ? "" : "s"} shipped · tracking ${m[2]}` : "Your order shipped";
       }
       // Drop-ship per-item ship → one grouped line per tracking.
       else if (isDropShipShip(msg)) {
@@ -227,7 +227,7 @@ export async function GET(
         if (emittedTracks.has(trk)) continue;
         emittedTracks.add(trk);
         const n = shipByTrack[trk] || 1;
-        clientMsg = `${n} item${n === 1 ? "" : "s"} shipped — tracking ${trk}`;
+        clientMsg = `${n} item${n === 1 ? "" : "s"} shipped · tracking ${trk}`;
       }
       else if (/shipped|tracking/i.test(msg) && !/decorator|warehouse|production/i.test(msg)) {
         // Scrub vendor / decorator names from shipped messages — the
@@ -239,6 +239,8 @@ export async function GET(
       }
 
       if (!clientMsg) continue;
+      // passthrough branches echo raw activity text; no em-dashes in client view
+      clientMsg = clientMsg.replace(/\s*—\s*/g, " · ");
       if (seen.has(clientMsg)) continue;
       seen.add(clientMsg);
 

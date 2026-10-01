@@ -108,8 +108,8 @@ function renderSalesReportHTML(data: {
            as the KPI row below so Qty centers directly above Profit. -->
       <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:0 10px;align-items:baseline">
         <div style="grid-column:1 / 6;min-width:0;white-space:nowrap;overflow:visible">
-          <span style="font-size:13px;font-weight:700;color:#1a1a1a;letter-spacing:-0.005em">${escapeHtml(g.root_description || "—")}</span>
-          <span style="font-family:monospace;font-size:9px;color:#aaa;font-weight:500;margin-left:8px">${escapeHtml(g.root_sku || "—")}</span>
+          <span style="font-size:13px;font-weight:700;color:#1a1a1a;letter-spacing:-0.005em">${escapeHtml(g.root_description || "-")}</span>
+          <span style="font-family:monospace;font-size:9px;color:#aaa;font-weight:500;margin-left:8px">${escapeHtml(g.root_sku || "-")}</span>
         </div>
         <div style="grid-column:6;text-align:center;white-space:nowrap">
           <span style="color:#999;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;font-size:9px;margin-right:6px">Qty</span>
@@ -182,7 +182,7 @@ function renderSalesReportHTML(data: {
 
   <!-- Summary KPI strip (cover) -->
   <div style="margin:16px 40px 0;font-family:${font}">
-    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:8px">Summary — ${escapeHtml(data.periodLabel)}</div>
+    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:8px">Summary · ${escapeHtml(data.periodLabel)}</div>
     <div style="display:grid;grid-template-columns:repeat(6,1fr);border:0.5px solid #e5e7eb;border-radius:4px;overflow:hidden">
       <div style="padding:10px 12px;border-right:0.5px solid #e5e7eb">
         <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#999;margin-bottom:3px;white-space:nowrap">Qty Sold</div>
@@ -354,7 +354,7 @@ function renderPostageReportHTML(data: {
        Fulfillment fee is its own tile so the client can see HPD's
        service charge without it muddying their store's postage margin. -->
   <div style="margin:16px 40px 0;font-family:${font}">
-    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:8px">Summary — ${escapeHtml(data.periodLabel)}</div>
+    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:8px">Summary · ${escapeHtml(data.periodLabel)}</div>
     <div style="display:grid;grid-template-columns:repeat(${fulfillmentOnly ? 4 : 8},1fr);border:0.5px solid #e5e7eb;border-radius:4px;overflow:hidden">
       ${fulfillmentOnly ? `
       ${kpiTile("Shipments", fmtN(safe.shipments))}
@@ -439,7 +439,7 @@ function renderBulkPostageReportHTML(data: {
 
   const ledgerRows = data.lines.map(r => `
     <tr>
-      <td style="padding:7px 10px;border-bottom:0.5px solid #eee;font-size:11px">${escapeHtml(r.transaction_date || "—")}</td>
+      <td style="padding:7px 10px;border-bottom:0.5px solid #eee;font-size:11px">${escapeHtml(r.transaction_date || "-")}</td>
       <td style="padding:7px 10px;border-bottom:0.5px solid #eee;font-size:11px;text-align:right;font-family:monospace">${fmtD(Number(r.amount) || 0)}</td>
     </tr>`).join("");
 
@@ -484,7 +484,7 @@ function renderBulkPostageReportHTML(data: {
 
   <!-- Summary KPI strip -->
   <div style="margin:16px 40px 0;font-family:${font}">
-    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:8px">Summary — ${escapeHtml(data.periodLabel)}</div>
+    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:8px">Summary · ${escapeHtml(data.periodLabel)}</div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);border:0.5px solid #e5e7eb;border-radius:4px;overflow:hidden">
       <div style="padding:10px 12px;border-right:0.5px solid #e5e7eb">
         <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#999;margin-bottom:3px;white-space:nowrap">Purchases</div>
@@ -598,7 +598,7 @@ function renderCombinedReportHTML(data: {
   const bulkPurchases = data.bulkPostageLines.length || Number((data.postageTotals as any)?.purchases) || 0;
   const bulkLedgerRows = data.bulkPostageLines.map(r => `
     <tr>
-      <td style="padding:7px 10px;border-bottom:0.5px solid #eee;font-size:11px">${escapeHtml(r.transaction_date || "—")}</td>
+      <td style="padding:7px 10px;border-bottom:0.5px solid #eee;font-size:11px">${escapeHtml(r.transaction_date || "-")}</td>
       <td style="padding:7px 10px;border-bottom:0.5px solid #eee;font-size:11px;text-align:right;font-family:monospace">${fmtD(Number(r.amount) || 0)}</td>
     </tr>`).join("");
 
@@ -643,8 +643,8 @@ function renderCombinedReportHTML(data: {
     <div style="padding:10px 0 14px;border-bottom:0.5px solid #eeeeee;font-family:${font};page-break-inside:avoid;break-inside:avoid">
       <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:0 10px;align-items:baseline">
         <div style="grid-column:1 / 6;min-width:0;white-space:nowrap;overflow:visible">
-          <span style="font-size:13px;font-weight:700;color:#1a1a1a;letter-spacing:-0.005em">${escapeHtml(g.root_description || "—")}</span>
-          <span style="font-family:monospace;font-size:9px;color:#aaa;font-weight:500;margin-left:8px">${escapeHtml(g.root_sku || "—")}</span>
+          <span style="font-size:13px;font-weight:700;color:#1a1a1a;letter-spacing:-0.005em">${escapeHtml(g.root_description || "-")}</span>
+          <span style="font-family:monospace;font-size:9px;color:#aaa;font-weight:500;margin-left:8px">${escapeHtml(g.root_sku || "-")}</span>
         </div>
         <div style="grid-column:6;text-align:center;white-space:nowrap">
           <span style="color:#999;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;font-size:9px;margin-right:6px">Qty</span>
@@ -685,7 +685,7 @@ function renderCombinedReportHTML(data: {
   const postageSection = isBulk
     ? `
   <div style="margin:16px 40px 0;font-family:${font}">
-    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:8px">Postage Purchases (${data.bulkPostageLines.length}) — billed at cost</div>
+    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:8px">Postage Purchases (${data.bulkPostageLines.length}) · billed at cost</div>
     <table style="width:100%;border-collapse:collapse">
       <thead>
         <tr>
@@ -783,7 +783,7 @@ function renderCombinedReportHTML(data: {
        Shipments + Total Postage Billed. Profit / margin tiles live
        on the per-section pages. -->
   <div style="margin:16px 40px 0;font-family:${font}">
-    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:8px">Summary — ${escapeHtml(data.periodLabel)}</div>
+    <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#999;margin-bottom:8px">Summary · ${escapeHtml(data.periodLabel)}</div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);border:0.5px solid #e5e7eb;border-radius:4px;overflow:hidden">
       <div style="padding:10px 12px;border-right:0.5px solid #e5e7eb">
         <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#999;margin-bottom:3px;white-space:nowrap">Units Sold</div>
@@ -948,7 +948,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       .single();
     if (error || !report) return NextResponse.json({ error: "Report not found" }, { status: 404 });
 
-    const clientName = (report.clients as any)?.name || "—";
+    const clientName = (report.clients as any)?.name || "-";
     const clientBillingAddress = (report.clients as any)?.billing_address || null;
     const generatedOn = new Date(report.created_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" , timeZone: "America/Los_Angeles" });
     const isPostage = report.report_type === "postage";

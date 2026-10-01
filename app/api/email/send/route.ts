@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
     if (type === "quote") {
       pdfUrl = `${baseUrl}/api/pdf/quote/${jobId}`;
       fromAddress = namedFrom(fromQuotes);
-      defaultSubject = subject || `Quote ${jobNum || ""} — ${companyName}`.trim();
+      defaultSubject = subject || `Quote ${jobNum || ""} · ${companyName}`.trim();
       filename = `quote-${jobNum || jobId.slice(0, 8)}.pdf`;
     } else if (type === "po") {
       pdfUrl = `${baseUrl}/api/pdf/po/${jobId}?download=1${vendor ? `&vendor=${encodeURIComponent(vendor)}` : ""}${revised ? `&revised=1` : ""}`;
@@ -292,7 +292,7 @@ export async function POST(req: NextRequest) {
             eyebrow: companyName,
             heading: `Quote ${jobNum || ""}`.trim(),
             greeting: `Hi ${clientGreeting},`,
-            bodyHtml: `Your quote ${jobNum || ""} is ready to review in your portal — along with your proofs. When everything looks right, approve it all in one click, or request changes if anything needs a second pass.`,
+            bodyHtml: `Your quote ${jobNum || ""} is ready to review in your portal, along with your proofs. When everything looks right, approve it all in one click, or request changes if anything needs a second pass.`,
             cta: portalUrl ? { label: "Review & Approve", url: portalUrl, style: "dark" } : undefined,
             closing: tenantClosing(slug, companyName),
           })
@@ -405,11 +405,11 @@ export async function POST(req: NextRequest) {
           : type === "rfq"
           ? `Quote request attached (${filename})\n\nWe'd love a quote on the attached items — please reply with pricing, setup fees, and lead time.`
           : type === "quote"
-          ? `Quote attached (${filename})\n\nHere's your quote — take a look and let us know if you have any questions or want to make changes.`
+          ? `Quote attached (${filename})\n\nHere's your quote. Take a look and let us know if you have any questions or want to make changes.`
           : type === "invoice"
           ? `${(jobData as any)?.type_meta?.invoice_sent_at ? "Revised Invoice" : "Invoice"} attached (${filename})\n\nAttached is your ${(jobData as any)?.type_meta?.invoice_sent_at ? "revised invoice" : "invoice"}. Let us know if you have any questions.`
           : type === "reminder"
-          ? `Friendly reminder — invoice attached (${filename})\n\nA gentle nudge that the attached invoice is still open. Reply or call if you have questions; if it's already been paid, please disregard.`
+          ? `Friendly reminder: invoice attached (${filename})\n\nA gentle nudge that the attached invoice is still open. Reply or call if you have questions; if it's already been paid, please disregard.`
           : `${type} attached (${filename})`,
         resend_message_id: data?.id || null,
         ...(sentPdf ? { attachments: [sentPdf] } : {}),

@@ -134,7 +134,7 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
     } catch (e: any) {
       const clean = await undoStamps();
       throw new Error(clean
-        ? `${e?.message || "The approval could not be recorded."} Nothing has been approved — please try again.`
+        ? `${e?.message || "The approval could not be recorded."} Nothing has been approved. Please try again.`
         : `${e?.message || "The approval could not be recorded."} Please contact us before approving again.`);
     }
 
@@ -152,7 +152,7 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
       console.error(`[approval] ${what} write failed:`, detail);
       const clean = await undoStamps();
       throw new Error(clean
-        ? "Could not save the approval. Nothing has been approved — please try again."
+        ? "Could not save the approval. Nothing has been approved. Please try again."
         : "Could not save the approval. Please contact us before approving again.");
     };
     {
@@ -202,7 +202,7 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
       .update({ quote_approved: true, quote_approved_at: now, quote_rejection_notes: null }).eq("id", jobId);
     if (error) {
       if (approveUndo) await approveUndo();
-      throw new Error("Could not save the approval. Nothing has been approved — please try again.");
+      throw new Error("Could not save the approval. Nothing has been approved. Please try again.");
     }
   }
   {
@@ -212,7 +212,7 @@ export async function approvePackage(sb: Sb, jobId: string, ctx: { via?: string 
       // silence, put everything back and make the client retry.
       await sb.from("jobs").update({ quote_approved: false, quote_approved_at: null }).eq("id", jobId);
       if (approveUndo) await approveUndo();
-      throw new Error("Could not save the approval record. Nothing has been approved — please try again.");
+      throw new Error("Could not save the approval record. Nothing has been approved. Please try again.");
     }
   }
 

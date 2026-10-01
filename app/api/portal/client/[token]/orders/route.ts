@@ -232,7 +232,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
         id: r.id,
         kind: "fulfillment" as const,
         job_number: null,
-        title: `${isCombined ? "Full Service Invoice" : isFulfillment ? "Fulfillment Invoice" : isPostage ? (isBulk ? "Postage Invoice" : "Postage Report") : "Services Invoice"} — ${r.period_label}`,
+        title: `${isCombined ? "Full Service Invoice" : isFulfillment ? "Fulfillment Invoice" : isPostage ? (isBulk ? "Postage Invoice" : "Postage Report") : "Services Invoice"} · ${r.period_label}`,
         phase: "fulfillment_invoice",
         target_ship_date: null,
         created_at: r.created_at,

@@ -153,7 +153,7 @@ export default function OnboardPage() {
           </label>
           <textarea style={{ ...ic, minHeight: 100, resize: "vertical", lineHeight: 1.5 }} value={form.projectDetails}
             onChange={e => upd("projectDetails", e.target.value)}
-            placeholder="Tell us about your project — what products, quantities, any special requirements..." />
+            placeholder="Tell us about your project: products, quantities, any special requirements..." />
         </div>
         <div style={{ marginBottom: 24 }}>
           <label style={{ fontSize: 12, fontWeight: 600, color: C.text, display: "block", marginBottom: 6 }}>Timeline</label>
@@ -175,7 +175,7 @@ export default function OnboardPage() {
               textAlign: "center", cursor: "pointer", transition: "border-color 0.15s",
             }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: C.blue }}>Drop files or click to browse</div>
-            <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>AI, PSD, PDF, PNG, JPG — any format</div>
+            <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>AI, PSD, PDF, PNG, JPG · any format</div>
           </div>
           <input id="onboard-files" type="file" multiple style={{ display: "none" }}
             onChange={e => { const picked = Array.from(e.target.files || []); setFiles(prev => [...prev, ...picked]); e.target.value = ""; }} />

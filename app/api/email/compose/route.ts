@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
       .map((line: string) => line.trim() === "" ? "<br/>" : `<p>${line}</p>`)
       .join("");
     const displayNum = (job as any).qb_invoice_number || job.job_number || "";
-    const fullHtml = `${htmlBody}<p style="margin-top:24px;font-size:12px;color:#999">—<br/>House Party Distro${displayNum ? ` · ${displayNum}` : ""}</p>`;
+    const fullHtml = `${htmlBody}<p style="margin-top:24px;font-size:12px;color:#999">House Party Distro${displayNum ? ` · ${displayNum}` : ""}</p>`;
 
     // Send via Resend
     const { data: emailData, error: emailError } = await resend.emails.send({

@@ -47,7 +47,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       const { data: produced } = await db.from("items")
         .select("id").in("product_id", products.map(p => p.id)).limit(1);
       if ((produced || []).length) {
-        return NextResponse.json({ error: "This one's already in production — reorder it from your items page" }, { status: 409 });
+        return NextResponse.json({ error: "This one's already in production. Reorder it from your items page." }, { status: 409 });
       }
       const qtysByLine: Record<string, Record<string, number>> = body.qtys || {};
       const qtysByProduct: Record<string, Record<string, number>> = {};
@@ -73,8 +73,8 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       sender_role: "client",
       sender_name: (client as any).name,
       message: door === "order"
-        ? `✓ Greenlit — ordered (${job?.itemCount || products.length} item${(job?.itemCount || products.length) === 1 ? "" : "s"})`
-        : "✓ Greenlit — on the shelf, ready when they are",
+        ? `✓ Greenlit · ordered (${job?.itemCount || products.length} item${(job?.itemCount || products.length) === 1 ? "" : "s"})`
+        : "✓ Greenlit · on the shelf, ready when they are",
       visibility: "all",
     });
 

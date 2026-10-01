@@ -275,7 +275,7 @@ function Sheet({ detail, token, onClose, onRefresh, nav, onLock }: any) {
     const res = await fetch(`/api/portal/client/${token}/studio/${b.id}/action`, { method: "POST", body: fd });
     if (!res.ok) {
       const j = await res.json().catch(() => null);
-      throw new Error((j as any)?.error || (res.status === 413 ? `That photo is too big to send${file ? ` (${file.name})` : ""}. 4MB max.` : "That didn't send — try again."));
+      throw new Error((j as any)?.error || (res.status === 413 ? `That photo is too big to send${file ? ` (${file.name})` : ""}. 4MB max.` : "That didn't send. Try again."));
     }
   }
 

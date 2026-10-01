@@ -38,7 +38,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       .insert({
         client_id: client.id,
         title,
-        concept: ready ? `READY TO MAKE — client says the art is final.${notes ? `\n${notes}` : ""}` : (notes || null),
+        concept: ready ? `READY TO MAKE: client says the art is final.${notes ? `\n${notes}` : ""}` : (notes || null),
         state: "working",
         source: "client",
       })

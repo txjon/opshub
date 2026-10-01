@@ -148,14 +148,14 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       //  - Ship-through OUTBOUND slip (HPD \u2192 customer, no tracking
       //    filter) \u2192 use job.fulfillment_tracking.
       const tracking = isV2Forward
-        ? (v2Tracking || "\u2014")
+        ? (v2Tracking || "-")
         : (itemIsDropShip(item)
-          ? (item.ship_tracking || "\u2014")
+          ? (item.ship_tracking || "-")
           : (forwardTrackingFilter
-              ? (item.forward_tracking || forwardTrackingFilter || "\u2014")
+              ? (item.forward_tracking || forwardTrackingFilter || "-")
               : (trackingFilter
-                  ? (item.ship_tracking || trackingFilter || "\u2014")
-                  : (job.fulfillment_tracking || "\u2014"))));
+                  ? (item.ship_tracking || trackingFilter || "-")
+                  : (job.fulfillment_tracking || "-"))));
 
       // Sort sizes via the canonical theme order (XS, S, M, L, XL, 2XL, …)
       // so the slip reads left-to-right in natural order.
@@ -260,8 +260,8 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
   <!-- Meta strip -->
   <div style="display:grid;grid-template-columns:${shipDate ? "1fr 1fr 1fr 1fr" : "1fr 1fr 1fr"};border-bottom:0.5px solid #e5e7eb;font-family:${fnt}">
     ${[
-      ["Ship to", clientName || "\u2014"],
-      ["Project", job.title || "\u2014"],
+      ["Ship to", clientName || "-"],
+      ["Project", job.title || "-"],
       ...(shipTo ? [["Address", shipTo]] : []),
       ...(shipDate ? [["Ship date", shipDate]] : []),
     ].map(([k, v]: any, i: number, arr: any[]) =>
