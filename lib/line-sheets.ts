@@ -12,7 +12,7 @@ export type SheetItem = {
 };
 export type SheetSection = { id: string; sheet_id: string; name: string; sort: number };
 export type LineSheet = {
-  id: string; client_id: string; release_id: string | null; title: string; season: string | null;
+  id: string; client_id: string; release_id: string; title: string; season: string | null;
   status: "working" | "final"; current_version: number;
   created_by: string | null; created_at: string; updated_at: string;
 };
