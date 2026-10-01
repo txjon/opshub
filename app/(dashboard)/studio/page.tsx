@@ -146,6 +146,7 @@ export default function StudioPage() {
       <div style={{ display: "flex", alignItems: "baseline", gap: 16, flexWrap: "wrap", margin: "6px 0 4px" }}>
         <h1 style={{ fontSize: "clamp(34px,5vw,60px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: 0 }}>The studio.</h1>
         <button onClick={() => setShowNew(true)} className="st-start" style={{ ...primaryBtn, padding: "12px 22px" }}>+ Start something</button>
+        <a href="/studio/line-sheets" style={{ ...ghostBtn, textDecoration: "none", display: "inline-block" }}>Line sheets →</a>
         <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} className="st-clients" style={{ marginLeft: "auto", background: H.surface, border: `1px solid ${clientFilter ? "rgba(255,255,255,.45)" : H.line}`, borderRadius: 999, color: clientFilter ? H.text : H.dim, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", padding: "10px 14px", cursor: "pointer", fontFamily: H.font, outline: "none" }}>
           <option value="">All clients</option>
           {clientNames.map(n => <option key={n} value={n}>{n}</option>)}

@@ -3339,6 +3339,156 @@ export type Database = {
           { foreignKeyName: "legacy_art_files_client_id_fkey"; columns: ["client_id"]; isOneToOne: false; referencedRelation: "clients"; referencedColumns: ["id"] }
         ];
       };
+      line_sheet_items: {
+        Row: {
+          id: string;
+          sheet_id: string;
+          section_id: string | null;
+          name: string | null;
+          sort: number;
+          images: Json;
+          added_in: number | null;
+          updated_in: number | null;
+          dropped: boolean;
+          dropped_in: number | null;
+          client_thumb: string | null;
+          client_thumb_at: string | null;
+          client_thumb_version: number | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          sheet_id: string;
+          section_id?: string | null;
+          name?: string | null;
+          sort?: number;
+          images: Json;
+          added_in?: number | null;
+          updated_in?: number | null;
+          dropped?: boolean;
+          dropped_in?: number | null;
+          client_thumb?: string | null;
+          client_thumb_at?: string | null;
+          client_thumb_version?: number | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          sheet_id?: string;
+          section_id?: string | null;
+          name?: string | null;
+          sort?: number;
+          images?: Json;
+          added_in?: number | null;
+          updated_in?: number | null;
+          dropped?: boolean;
+          dropped_in?: number | null;
+          client_thumb?: string | null;
+          client_thumb_at?: string | null;
+          client_thumb_version?: number | null;
+          created_at?: string;
+        };
+        Relationships: [
+          { foreignKeyName: "line_sheet_items_sheet_id_fkey"; columns: ["sheet_id"]; isOneToOne: false; referencedRelation: "line_sheets"; referencedColumns: ["id"] },
+          { foreignKeyName: "line_sheet_items_section_id_fkey"; columns: ["section_id"]; isOneToOne: false; referencedRelation: "line_sheet_sections"; referencedColumns: ["id"] }
+        ];
+      };
+      line_sheet_sections: {
+        Row: {
+          id: string;
+          sheet_id: string;
+          name: string;
+          sort: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          sheet_id: string;
+          name: string;
+          sort?: number;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          sheet_id?: string;
+          name?: string;
+          sort?: number;
+          created_at?: string;
+        };
+        Relationships: [
+          { foreignKeyName: "line_sheet_sections_sheet_id_fkey"; columns: ["sheet_id"]; isOneToOne: false; referencedRelation: "line_sheets"; referencedColumns: ["id"] }
+        ];
+      };
+      line_sheet_versions: {
+        Row: {
+          id: string;
+          sheet_id: string;
+          n: number;
+          note: string | null;
+          snapshot: Json;
+          published_at: string;
+          published_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          sheet_id: string;
+          n: number;
+          note?: string | null;
+          snapshot: Json;
+          published_at?: string;
+          published_by?: string | null;
+        };
+        Update: {
+          id?: string;
+          sheet_id?: string;
+          n?: number;
+          note?: string | null;
+          snapshot?: Json;
+          published_at?: string;
+          published_by?: string | null;
+        };
+        Relationships: [
+          { foreignKeyName: "line_sheet_versions_sheet_id_fkey"; columns: ["sheet_id"]; isOneToOne: false; referencedRelation: "line_sheets"; referencedColumns: ["id"] }
+        ];
+      };
+      line_sheets: {
+        Row: {
+          id: string;
+          client_id: string;
+          title: string;
+          season: string | null;
+          status: string;
+          current_version: number;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          client_id: string;
+          title: string;
+          season?: string | null;
+          status?: string;
+          current_version?: number;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          client_id?: string;
+          title?: string;
+          season?: string | null;
+          status?: string;
+          current_version?: number;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          { foreignKeyName: "line_sheets_client_id_fkey"; columns: ["client_id"]; isOneToOne: false; referencedRelation: "clients"; referencedColumns: ["id"] }
+        ];
+      };
       lineup_options: {
         Row: {
           id: string;
