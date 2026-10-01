@@ -101,7 +101,15 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   async function patchSheet(body: any) { setBusy(true); try { const r = await fetch(`/api/studio/line-sheets/${params.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(x => x.json()); if (r.error) setErr(r.error); await load(); return r; } finally { setBusy(false); } }
   async function patchItem(body: any) { const r = await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(x => x.json()); if (r.error) setErr(r.error); }
 
-  const toggleSel = (id: string) => setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const visualOrder = [...tray, ...sections.flatMap((s: any) => items.filter(i => i.section_id === s.id))].map(i => i.id);
+  const toggleSel = (id: string, shift = false) => setSelected(prev => {
+    if (shift && prev.length) {
+      // shift-click = select the whole run between the last tap and this one
+      const a = visualOrder.indexOf(prev[prev.length - 1]), b = visualOrder.indexOf(id);
+      if (a >= 0 && b >= 0) { const range = visualOrder.slice(Math.min(a, b), Math.max(a, b) + 1); return [...prev, ...range.filter(x => !prev.includes(x))]; }
+    }
+    return prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+  });
   async function pairSelected() {
     if (selected.length !== 2) return;
     const [front, back] = selected;
@@ -146,8 +154,8 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     const selIdx = selected.indexOf(it.id);
     const on = selIdx >= 0;
     return (
-      <div key={it.id} onClick={() => toggleSel(it.id)}
-        style={{ background: H.panel, border: `1px solid ${on ? H.blue : H.line}`, outline: on ? `2px solid ${H.blue}` : "none", outlineOffset: -1, borderRadius: 12, padding: 10, width: 172, cursor: "pointer", position: "relative" }}>
+      <div key={it.id} onClick={e => toggleSel(it.id, e.shiftKey)}
+        style={{ background: H.panel, border: `1px solid ${on ? H.blue : H.line}`, outline: on ? `2px solid ${H.blue}` : "none", outlineOffset: -1, borderRadius: 12, padding: 10, width: 172, cursor: "pointer", position: "relative", userSelect: "none" }}>
         {/* tight pair render: front left, back tucked right — the PDF look */}
         <div style={{ position: "relative", height: 122, background: "#fff", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
           {imgs.length > 1 ? (
@@ -166,7 +174,6 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         <input defaultValue={it.name || ""} placeholder={`name it… (${numberOf.get(it.id)})`} onClick={e => e.stopPropagation()}
           onBlur={e => { if ((e.target.value || "") !== (it.name || "")) { patchItem({ id: it.id, name: e.target.value }).then(load); } }}
           style={{ width: "100%", boxSizing: "border-box", background: H.ink, border: `1px solid ${H.line2}`, borderRadius: 6, color: H.text, fontSize: 11.5, fontWeight: 700, padding: "5px 7px", outline: "none", fontFamily: H.font, marginTop: 8 }} />
-        {imgs.length > 1 && <button onClick={e => { e.stopPropagation(); unpairItem(it); }} title="Split back into separate images" style={{ position: "absolute", right: 8, bottom: 42, background: "none", border: "none", color: H.faint, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>unpair</button>}
       </div>
     );
   };
@@ -228,7 +235,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
       <section style={{ border: `2px dashed ${tray.length ? H.line : H.line2}`, borderRadius: 14, padding: 14, marginBottom: 26 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: tray.length ? 12 : 0 }}>
           <span style={tag(H.amber, 9.5)}>The tray · {tray.length ? `${tray.length} to sort` : "drop mockups anywhere on this page"}</span>
-          <span style={{ fontSize: 10.5, color: H.faint }}>tap two cards → Pair · tap a bunch → Add to shelf</span>
+          <span style={{ fontSize: 10.5, color: H.faint }}>tap two → Pair · shift-tap = select the run · Add to shelf</span>
         </div>
         {tray.length > 0 && <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>{tray.map(card)}</div>}
       </section>
@@ -270,6 +277,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
       {selected.length > 0 && (
         <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 250, background: "rgba(10,10,10,.97)", borderTop: `1px solid ${H.line}`, padding: "12px 18px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", justifyContent: "center" }}>
           <span style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em" }}>{selected.length} selected</span>
+          {selected.length === 1 && (items.find(i => i.id === selected[0])?.images?.length || 0) > 1 && <button disabled={busy} onClick={async () => { const it = items.find(i => i.id === selected[0]); setBusy(true); try { await unpairItem(it); setSelected([]); } finally { setBusy(false); } }} style={{ ...ghostBtn, color: H.blue, borderColor: "rgba(143,199,216,.4)" }}>Unpair ({items.find(i => i.id === selected[0])?.images?.length})</button>}
           {selected.length === 2 && <button disabled={busy} onClick={pairSelected} style={{ ...primaryBtn, background: H.blue, color: H.ink }}>Pair → one product</button>}
           {selected.length > 2 && <button disabled={busy} onClick={groupSelected} style={{ ...ghostBtn, color: H.blue, borderColor: "rgba(143,199,216,.4)" }}>Group {selected.length} as one</button>}
           <span style={{ position: "relative" }}>
