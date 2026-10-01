@@ -34,6 +34,7 @@ export default function StudioPage() {
   const [showKilled, setShowKilled] = useState(false);
   const [showPiped, setShowPiped] = useState(false);
   const [clientFilter, setClientFilter] = useState("");
+  const [sheets, setSheets] = useState<any[]>([]);
   const params = useSearchParams();
 
   const [reqs, setReqs] = useState<any[]>([]);
@@ -83,7 +84,7 @@ export default function StudioPage() {
     await loadList();
   }
   async function loadDetail(id: string) { setDetail(await fetch(`/api/studio/briefs/${id}`).then(r => r.json()).catch(() => null)); }
-  useEffect(() => { loadList(); }, []);
+  useEffect(() => { loadList(); fetch("/api/studio/line-sheets").then(r => r.json()).then(j => setSheets(j.sheets || [])).catch(() => {}); }, []);
   useEffect(() => { const b = params.get("brief"); if (b) setOpenId(b); const w = params.get("wo"); if (w) setOpenWoId(w); }, [params]);
   useEffect(() => { if (openId) loadDetail(openId); else setDetail(null); }, [openId]);
   const refresh = async () => { await loadList(); if (openId) await loadDetail(openId); };
@@ -237,6 +238,36 @@ export default function StudioPage() {
           </section>
         );
       })}
+
+      {(() => {
+        const inProgress = sheets.filter(sh => sh.status === "working" && (!clientFilter || sh.client_name === clientFilter));
+        if (!inProgress.length) return null;
+        return (
+          <section style={{ marginTop: 34 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+              <h2 style={{ margin: 0, fontSize: 19, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.amber }}>Line sheets.</h2>
+              <span style={{ fontSize: 10.5, color: H.faint }}>product lines in the works</span>
+              <a href="/studio/line-sheets" style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: H.faint, textDecoration: "none", marginLeft: "auto" }}>All line sheets →</a>
+            </div>
+            <div className="st-grid">
+              {inProgress.map(sh => (
+                <a key={sh.id} href={`/studio/line-sheets/${sh.id}`} style={{ display: "block", background: H.panel, border: `1px solid ${H.line}`, borderRadius: 14, padding: "14px 16px", textDecoration: "none", color: H.text }}>
+                  <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint }}>{sh.client_name || "—"}{sh.season ? ` · ${sh.season}` : ""}</div>
+                  <div style={{ fontSize: 15.5, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", marginTop: 4 }}>{sh.title}</div>
+                  <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 10, fontFamily: H.mono, color: H.dim, alignItems: "baseline", flexWrap: "wrap" }}>
+                    <span>{sh._counts.items} item{sh._counts.items === 1 ? "" : "s"}</span>
+                    {sh.current_version > 0
+                      ? <span style={{ color: H.blue, fontWeight: 700 }}>v{sh.current_version} live in their hub</span>
+                      : <span style={{ color: H.amber, fontWeight: 700 }}>draft · not published</span>}
+                    {sh._counts.thumbsUp > 0 && <span style={{ color: H.green }}>▲ {sh._counts.thumbsUp}</span>}
+                    {sh._counts.thumbsDown > 0 && <span style={{ color: H.red }}>▼ {sh._counts.thumbsDown}</span>}
+                  </div>
+                </a>
+              ))}
+            </div>
+          </section>
+        );
+      })()}
 
       {piped.length > 0 && (
         <section style={{ marginTop: 34 }}>
