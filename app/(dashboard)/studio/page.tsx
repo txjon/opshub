@@ -331,6 +331,10 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
   // Click-to-edit title (house rule: dotted-underline editables).
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleVal, setTitleVal] = useState("");
+  async function bankOutside() {
+    setBusy(true);
+    try { await fetch(`/api/studio/briefs/${b.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bankOutside: true }) }); await onRefresh(); } finally { setBusy(false); }
+  }
   async function unbank() {
     setBusy(true);
     try { await fetch(`/api/studio/briefs/${b.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ unbank: true }) }); await onRefresh(); } finally { setBusy(false); }
@@ -522,6 +526,7 @@ function BriefSheet({ detail, onRefresh, onClose, openWoId, setOpenWoId, onDirty
           <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: st.color, marginTop: 4 }}>{st.label}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
+          {tab === "design" && b.state !== "approved" && b.state !== "killed" && <button disabled={busy} onClick={bankOutside} title="Mark it done — final files came in outside OpsHub. Lands in the bank; pull it back anytime." style={{ background: "none", border: "none", color: H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }} onMouseEnter={e => (e.currentTarget.style.color = H.green)} onMouseLeave={e => (e.currentTarget.style.color = H.faint)}>✓ Done · received outside</button>}
           {tab === "design" && <button onClick={delBrief} title="Delete this design (not an order)" style={{ background: "none", border: "none", color: H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }} onMouseEnter={e => (e.currentTarget.style.color = H.red)} onMouseLeave={e => (e.currentTarget.style.color = H.faint)}>Delete design</button>}
           <button onClick={onClose} aria-label="Close" style={{ background: "none", border: "none", color: H.dim, fontSize: 26, cursor: "pointer", lineHeight: 1 }}>×</button>
         </div>

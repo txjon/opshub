@@ -80,6 +80,17 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
   }
+  if (b.bankOutside) {
+    const { data: brief } = await db.from("art_briefs").select("state").eq("id", params.id).maybeSingle();
+    if (!brief) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    if ((brief as any).state === "approved") return NextResponse.json({ error: "Already in the bank" }, { status: 409 });
+    const { data: profile } = await db.from("profiles").select("full_name").eq("id", user.id).maybeSingle();
+    const byName = (profile as any)?.full_name || user.email || "HPD";
+    const { error } = await db.from("art_briefs").update({ state: "approved", updated_at: new Date().toISOString() } as never).eq("id", params.id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    await db.from("art_brief_messages").insert({ brief_id: params.id, sender_role: "hpd", sender_name: byName, message: `Banked by ${byName} — final files received outside OpsHub.`, visibility: "internal" } as never);
+    return NextResponse.json({ ok: true, state: "approved" });
+  }
   if (b.unbank) {
     const { data: brief } = await db.from("art_briefs").select("state").eq("id", params.id).maybeSingle();
     if (!brief) return NextResponse.json({ error: "Not found" }, { status: 404 });
