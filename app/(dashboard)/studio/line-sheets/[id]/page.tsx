@@ -93,7 +93,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
 
   if (!data) return <div style={{ padding: 40, color: "rgba(255,255,255,.4)", background: H.ink, minHeight: "100vh", fontFamily: H.font }}>Opening the sheet…</div>;
   const { sheet, sections, versions } = data;
-  const items: any[] = data.items.filter((i: any) => !i.dropped);
+  const items: any[] = data.items.filter((i: any) => !i.dropped).sort((a: any, b: any) => (a.sort || 0) - (b.sort || 0));
   const dropped: any[] = data.items.filter((i: any) => i.dropped);
   const tray = items.filter(i => !i.section_id);
   const noOf = (it: any) => it.item_no ? String(it.item_no).padStart(2, "0") : null;
@@ -127,6 +127,20 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     if (!newShelfName.trim()) return;
     const r = await fetch(`/api/studio/line-sheets/${params.id}/sections`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newShelfName.trim() }) }).then(x => x.json());
     if (r.section?.id) await addSelectedToShelf(r.section.id);
+  }
+  async function moveSelected(dir: -1 | 1) {
+    if (selected.length !== 1) return;
+    const it = items.find(i => i.id === selected[0]); if (!it) return;
+    const peers = items.filter(i => (i.section_id || null) === (it.section_id || null));
+    const idx = peers.findIndex(i => i.id === it.id);
+    const swap = peers[idx + dir]; if (!swap) return;
+    const aS = it.sort, bS = swap.sort;
+    if (aS === bS) { // legacy equal sorts: reindex the shelf once, then retry
+      for (let k = 0; k < peers.length; k++) await patchItem({ id: peers[k].id, sort: k * 2 });
+      await load(); return;
+    }
+    setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, sort: bS } : x.id === swap.id ? { ...x, sort: aS } : x) }));
+    await Promise.all([patchItem({ id: it.id, sort: bS }), patchItem({ id: swap.id, sort: aS })]);
   }
   async function dropSelected() {
     if (!await confirm({ title: `Remove ${selected.length} item${selected.length === 1 ? "" : "s"}?`, message: "Never-published items delete outright; published ones drop (kept in history).", confirmLabel: "Remove" })) return;
@@ -278,6 +292,17 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
       {selected.length > 0 && (
         <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 250, background: "rgba(10,10,10,.97)", borderTop: `1px solid ${H.line}`, padding: "12px 18px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", justifyContent: "center" }}>
           <span style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em" }}>{selected.length} selected</span>
+          {selected.length === 1 && (() => {
+            const it = items.find(i => i.id === selected[0]); if (!it) return null;
+            const peers = items.filter(i => (i.section_id || null) === (it.section_id || null));
+            const idx = peers.findIndex(i => i.id === it.id);
+            return (
+              <span style={{ display: "flex", gap: 6 }}>
+                <button disabled={busy || idx <= 0} onClick={() => moveSelected(-1)} title="Move left" style={{ ...ghostBtn, padding: "9px 13px", opacity: idx <= 0 ? 0.35 : 1 }}>◀</button>
+                <button disabled={busy || idx >= peers.length - 1} onClick={() => moveSelected(1)} title="Move right" style={{ ...ghostBtn, padding: "9px 13px", opacity: idx >= peers.length - 1 ? 0.35 : 1 }}>▶</button>
+              </span>
+            );
+          })()}
           {selected.length === 1 && (items.find(i => i.id === selected[0])?.images?.length || 0) > 1 && <button disabled={busy} onClick={async () => { const it = items.find(i => i.id === selected[0]); setBusy(true); try { await unpairItem(it); setSelected([]); } finally { setBusy(false); } }} style={{ ...ghostBtn, color: H.blue, borderColor: "rgba(143,199,216,.4)" }}>Unpair ({items.find(i => i.id === selected[0])?.images?.length})</button>}
           {selected.length === 2 && <button disabled={busy} onClick={pairSelected} style={{ ...primaryBtn, background: H.blue, color: H.ink }}>Pair → one product</button>}
           {selected.length > 2 && <button disabled={busy} onClick={groupSelected} style={{ ...ghostBtn, color: H.blue, borderColor: "rgba(143,199,216,.4)" }}>Group {selected.length} as one</button>}
