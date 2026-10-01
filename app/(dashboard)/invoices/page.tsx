@@ -66,6 +66,10 @@ export default function InvoicesPage() {
   const [costCompleteByJob, setCostCompleteByJob] = useState<Record<string, boolean>>({});
   const [closing, setClosing] = useState<string | null>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null);   // row key with ⋯ open
+  // ⋯ menu renders position:fixed off the button (the table's overflow-x
+  // wrapper clipped an absolute menu on the last rows, Oct 1 2026); flips
+  // upward near the bottom of the viewport.
+  const [menuAt, setMenuAt] = useState<{ right: number; top: number; bottom: number; up: boolean }>({ right: 0, top: 0, bottom: 0, up: false });
   const [actBusy, setActBusy] = useState(false);
   const [actMsg, setActMsg] = useState("");                       // last action outcome
   const [waiveArm, setWaiveArm] = useState(false);                // two-tap close-short
@@ -83,7 +87,7 @@ export default function InvoicesPage() {
         supabase.from("cost_vendor_status").select("job_id, vendor_id, reason"),
         supabase.from("payment_records").select("id, job_id, amount, status, due_date"),
         supabase.from("clients").select("id, name, default_terms"),
-        supabase.from("shipstation_reports").select("id, client_id, report_type, period_label, totals, postage_totals, qb_invoice_number, qb_total_with_tax, qb_payment_link, paid_at, paid_amount, sent_at, created_at"),
+        supabase.from("shipstation_reports").select("id, client_id, report_type, period_label, totals, postage_totals, qb_invoice_number, qb_total_with_tax, qb_payment_link, paid_at, paid_amount, sent_at, sent_to, last_reminded_at, created_at"),
       ]);
       const firstErr = [jobsRes, itemsRes, decoratorsRes, apRes, entriesRes, marksRes, paysRes, clientsRes, ssRes].find(r => r.error);
       if (firstErr?.error) { setErr(firstErr.error.message); return; }
@@ -136,6 +140,13 @@ export default function InvoicesPage() {
     } catch (e: any) { setErr(e?.message || "Load failed"); }
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  // a fixed menu would float away from its row on scroll: close it instead
+  useEffect(() => {
+    if (!menuFor) return;
+    const close = () => setMenuFor(null);
+    window.addEventListener("scroll", close, true);
+    return () => window.removeEventListener("scroll", close, true);
+  }, [menuFor]);
 
   // ── Row actions (⋯ menu). Reminder + close-short live HERE because they
   //    are AR-index verbs, not job-surface verbs; everything else deep-links.
@@ -156,6 +167,21 @@ export default function InvoicesPage() {
       if (!res.ok) { setActMsg(out.error || "Reminder didn't send."); return; }
       setActMsg(`Reminder sent to ${to.email} — ${money(row.balance)} outstanding on #${row.invoiceNumber || row.jobNumber}.`);
       setMenuFor(null);
+    } finally { setActBusy(false); }
+  }
+  // Fulfillment reminder (Oct 1 2026): same email route as the original send,
+  // reminder copy, to the ORIGINAL recipients; stamps last_reminded_at.
+  async function sendFulfillmentReminder(row: InvoiceRow) {
+    setActBusy(true); setActMsg("");
+    try {
+      const res = await fetch("/api/email/shipstation-report", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reportId: row.id, reminder: true }),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) { setActMsg(out.error || "Reminder didn't send."); return; }
+      setActMsg(`Reminder sent to ${(out.to || []).join(", ")}: ${money(row.balance)} outstanding on #${row.invoiceNumber || "fulfillment"}.`);
+      setMenuFor(null); load();
     } finally { setActBusy(false); }
   }
   async function closeShort(row: InvoiceRow) {
@@ -408,12 +434,18 @@ export default function InvoicesPage() {
                       <td style={{ padding: "6px 8px", borderBottom: `1px solid ${T.border}33`, position: "relative", width: 36 }} onClick={e => e.stopPropagation()}>
                         {(r.stream === "job" ? (r.balance > 0.01 || (r.waived || 0) > 0.01) : r.balance > 0.01) && (
                           <>
-                            <button onClick={() => { setMenuFor(menuFor === `${r.stream}-${r.id}` ? null : `${r.stream}-${r.id}`); setWaiveArm(false); }}
+                            <button onClick={e => { const rect = (e.currentTarget as HTMLElement).getBoundingClientRect(); setMenuAt({ right: window.innerWidth - rect.right, top: rect.bottom + 4, bottom: window.innerHeight - rect.top + 4, up: rect.bottom > window.innerHeight - 220 }); setMenuFor(menuFor === `${r.stream}-${r.id}` ? null : `${r.stream}-${r.id}`); setWaiveArm(false); }}
                               style={{ background: "none", border: "none", color: T.muted, fontSize: 16, cursor: "pointer", fontFamily: font, padding: "2px 8px" }}>⋯</button>
                             {menuFor === `${r.stream}-${r.id}` && (
-                              <div style={{ position: "absolute", right: 8, top: 30, zIndex: 40, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 6, minWidth: 210, boxShadow: "0 8px 30px rgba(0,0,0,0.45)" }}>
+                              <div style={{ position: "fixed", right: menuAt.right, ...(menuAt.up ? { bottom: menuAt.bottom } : { top: menuAt.top }), zIndex: 60, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: 6, minWidth: 210, boxShadow: "0 8px 30px rgba(0,0,0,0.45)" }}>
                                 {r.stream === "job" && r.balance > 0.01 && (
                                   <button disabled={actBusy} onClick={() => sendReminder(r)} style={menuBtn}>Send payment reminder</button>
+                                )}
+                                {r.stream === "fulfillment" && r.balance > 0.01 && r.state === "sent" && (
+                                  <button disabled={actBusy} onClick={() => sendFulfillmentReminder(r)} style={menuBtn}>
+                                    {actBusy ? "Sending…" : "Send payment reminder"}
+                                    {r.remindedAt && <span style={{ display: "block", fontSize: 10.5, color: T.faint, fontWeight: 500, marginTop: 2 }}>last reminded {new Date(r.remindedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}
+                                  </button>
                                 )}
                                 {r.payLink && (
                                   <button onClick={() => { navigator.clipboard?.writeText(r.payLink!); setActMsg("Pay link copied."); setMenuFor(null); }} style={menuBtn}>Copy pay link</button>

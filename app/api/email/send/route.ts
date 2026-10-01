@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
       fromAddress = namedFrom(company.from_email_billing || fromQuotes);
       const clientName = (jobData as any)?.clients?.name || "";
       defaultSubject = subject || [
-        `Invoice reminder${qbInvNum ? ` · ${qbInvNum}` : ""} — ${clientName}`,
+        `Invoice reminder${qbInvNum ? ` · ${qbInvNum}` : ""} · ${clientName}`,
         projectTitle,
       ].filter(Boolean).join(" · ").trim();
       filename = `invoice-${qbInvNum || jobId.slice(0, 8)}-reminder.pdf`;
@@ -319,8 +319,8 @@ export async function POST(req: NextRequest) {
             heading: `Reminder${qbInvNum ? ` · Invoice #${qbInvNum}` : ""}`,
             greeting: `Hi ${clientGreeting},`,
             bodyHtml: qbInvNum
-              ? `Just a reminder that <strong>Invoice ${qbInvNum}</strong> is still open. You can pay online or view full details — including approved proofs — through your portal.`
-              : `Just a reminder that your invoice is still open. You can pay online or view full details — including approved proofs — through your portal.`,
+              ? `Just a reminder that <strong>Invoice ${qbInvNum}</strong> is still open. You can pay online or view full details, including approved proofs, through your portal.`
+              : `Just a reminder that your invoice is still open. You can pay online or view full details, including approved proofs, through your portal.`,
             cta: payOnlineUrl ? { label: "Pay Online", url: payOnlineUrl, style: "green" } : undefined,
             secondaryCta: portalUrl ? { label: "View in Portal", url: portalUrl } : undefined,
             hint: `If this has already been paid, please disregard.`,

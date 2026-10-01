@@ -41,6 +41,7 @@ export type InvoiceRow = {
   // Bulk-import marker row: a month with zero shipments for a billed client
   // (totals.no_billables). History-only filler; never chased, never aged.
   noBillables?: boolean;
+  remindedAt?: string | null;   // last payment reminder (fulfillment: mig 194)
 };
 
 export type ArSummary = {
@@ -176,6 +177,7 @@ export function buildAr(opts: {
       aging: agingOf(balance, null, expected, now),
       payLink: r.qb_payment_link || null,
       noBillables,
+      remindedAt: r.last_reminded_at || null,
     });
   }
 

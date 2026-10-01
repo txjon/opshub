@@ -4881,6 +4881,7 @@ export type Database = {
           postage_mode: string;
           sales_period_label: string | null;
           postage_period_label: string | null;
+          last_reminded_at: string | null;
         };
         Insert: {
           id?: string;
@@ -4912,6 +4913,7 @@ export type Database = {
           postage_mode?: string;
           sales_period_label?: string | null;
           postage_period_label?: string | null;
+          last_reminded_at?: string | null;
         };
         Update: {
           id?: string;
@@ -4943,6 +4945,7 @@ export type Database = {
           postage_mode?: string;
           sales_period_label?: string | null;
           postage_period_label?: string | null;
+          last_reminded_at?: string | null;
         };
         Relationships: [
           { foreignKeyName: "shipstation_reports_client_id_fkey"; columns: ["client_id"]; isOneToOne: false; referencedRelation: "clients"; referencedColumns: ["id"] },

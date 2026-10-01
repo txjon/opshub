@@ -23,9 +23,16 @@ export async function POST(req: NextRequest) {
     // Pick the tenant Resend key from the request Host.
     const _slug = resolveSlugFromHost(req.headers.get("host"));
     const resend = resendForSlug(_slug);
-    const { reportId, recipientEmail, ccEmails, recipientName, subject, customBody } = await req.json();
+    const body = await req.json();
+    const { reportId, recipientName, subject, customBody } = body;
+    // reminder:true (Oct 1 2026) = payment reminder on an already-sent invoice:
+    // same PDF/xlsx/pay link, reminder copy, defaults to the ORIGINAL
+    // recipients (sent_to), stamps last_reminded_at and leaves sent_at alone.
+    const reminder = !!body.reminder;
+    let recipientEmail: string = body.recipientEmail;
+    let ccEmails: string[] = body.ccEmails || [];
 
-    if (!reportId || !recipientEmail) {
+    if (!reportId || (!recipientEmail && !reminder)) {
       return NextResponse.json({ error: "Missing reportId or recipientEmail" }, { status: 400 });
     }
 
@@ -39,6 +46,11 @@ export async function POST(req: NextRequest) {
       .eq("id", reportId)
       .single();
     if (error || !report) return NextResponse.json({ error: "Report not found" }, { status: 404 });
+    if (reminder && !recipientEmail) {
+      const prior: string[] = (report as any).sent_to || [];
+      if (!prior.length) return NextResponse.json({ error: "This invoice was never emailed. Send it from the invoice page first." }, { status: 400 });
+      recipientEmail = prior[0]; ccEmails = prior.slice(1);
+    }
 
     // Self-heal payment link if the QB invoice exists but the stored link
     // is missing or legacy. Same pattern as the jobs invoice email flow.
@@ -101,7 +113,7 @@ export async function POST(req: NextRequest) {
 
     const fromAddress = process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev";
     // No em-dashes in client-facing copy (house rule); mirror the modal's prefill.
-    const defaultSubject = subject || `${reportKind}${invoiceNum ? ` ${invoiceNum}` : ""} · ${clientName} · ${report.period_label}`;
+    const defaultSubject = subject || `${reminder ? "Reminder: " : ""}${reportKind}${invoiceNum ? ` ${invoiceNum}` : ""} · ${clientName} · ${report.period_label}`;
 
     // If the client is on the Client Hub, add a "View in Portal" CTA so they
     // can see all their fulfillment invoices + pay status in one place.
@@ -119,10 +131,12 @@ export async function POST(req: NextRequest) {
       ...(ccEmails?.length > 0 ? { cc: ccEmails } : {}),
       subject: defaultSubject,
       html: renderBrandedEmail({
-        heading: `${reportKind} · ${report.period_label}`,
+        heading: `${reminder ? "Reminder · " : ""}${reportKind} · ${report.period_label}`,
         greeting: `Hi ${greetingName},`,
         bodyHtml: customBody
-          || (isCombined
+          || (reminder
+            ? `Just a reminder that your ${reportKind.toLowerCase()} for <strong>${report.period_label}</strong>${invoiceNum ? ` (Invoice ${invoiceNum})` : ""} is still open. The invoice and shipment details are attached again for reference.${paymentLink ? " You can pay online with the button below." : ""}`
+            : isCombined
             ? `Attached is your Full Service invoice for <strong>${report.period_label}</strong>${invoiceNum ? ` (Invoice ${invoiceNum})` : ""}. The cover page shows the amount due (HPD service fee + postage + fulfillment), with the per-product sales breakdown on page 2 and the postage summary on page 3. The shipment-level spreadsheet is attached as well.`
             : isFulfillment
               ? `Attached is your fulfillment invoice for <strong>${report.period_label}</strong>${invoiceNum ? ` (Invoice ${invoiceNum})` : ""}. The PDF summarizes the amount due; the accompanying spreadsheet itemizes every shipment we fulfilled.`
@@ -144,12 +158,11 @@ export async function POST(req: NextRequest) {
 
     // Persist the send so the detail page can show status.
     const recipientsList = [recipientEmail, ...(ccEmails || [])];
-    await admin.from("shipstation_reports").update({
-      sent_at: new Date().toISOString(),
-      sent_to: recipientsList,
-    }).eq("id", reportId);
+    await admin.from("shipstation_reports").update(reminder
+      ? { last_reminded_at: new Date().toISOString() }
+      : { sent_at: new Date().toISOString(), sent_to: recipientsList }).eq("id", reportId);
 
-    return NextResponse.json({ success: true, id: data?.id });
+    return NextResponse.json({ success: true, id: data?.id, to: recipientsList });
   } catch (e: any) {
     console.error("[email/shipstation-report]", e);
     return NextResponse.json({ error: e.message || "Send failed" }, { status: 500 });
