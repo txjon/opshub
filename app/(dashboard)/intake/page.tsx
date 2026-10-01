@@ -189,8 +189,12 @@ export default function IntakePage() {
         const show = (n: number) => !searching || n > 0;
         const pipeline = leads.filter(l => ["quote_requested", "quoted", "accepted"].includes(l.status) && !l.job_id);
         const buildConverted = leads.filter(l => l.status === "converted" || !!l.job_id);
-        const browsing = leads.filter(l => !["quote_requested", "quoted", "accepted", "converted"].includes(l.status) && !l.job_id);
-        const hits = pipeline.length + buildConverted.length + browsing.length + buckets.new.length + buckets.reviewed.length + buckets.converted.length + buckets.declined.length;
+        // Responded (Oct 1 2026): a lead we've written back to is a live
+        // conversation, not a window shopper — its own open bucket up top
+        // instead of buried in collapsed Browsing.
+        const responded = leads.filter(l => l.status === "responded" && !l.job_id);
+        const browsing = leads.filter(l => !["quote_requested", "quoted", "accepted", "converted", "responded"].includes(l.status) && !l.job_id);
+        const hits = responded.length + pipeline.length + buildConverted.length + browsing.length + buckets.new.length + buckets.reviewed.length + buckets.converted.length + buckets.declined.length;
         return (<>
           {searching && hits === 0 && <div style={{ fontSize: 13, color: T.muted, padding: "8px 0 24px" }}>Nothing in intake matches &ldquo;{query.trim()}&rdquo;.</div>}
           {/* The pipeline holds OPEN work only — a converted lead is a job now
@@ -198,6 +202,8 @@ export default function IntakePage() {
               below, like the /start Converted bucket. */}
           {show(pipeline.length) && <MenuLeadBucket key={`pipe-${k}`} label="The Build · quote pipeline" color={T.purple} leads={pipeline}
             matchNames={matchNames} onChanged={load} emptyText="No open quote requests from The Build." />}
+          {show(responded.length) && <MenuLeadBucket key={`resp-${k}`} label="The Build · responded" color={T.blue} leads={responded}
+            matchNames={matchNames} onChanged={load} emptyText="No Build leads waiting on a reply from them." />}
           {show(buckets.new.length) && <Bucket key={`new-${k}`} label="New" color={T.accent} items={buckets.new} onClick={setOpen}
             emptyText="No new submissions. The /start form pipes here." />}
           {show(buckets.reviewed.length) && <Bucket key={`rev-${k}`} label="Reviewed · in flight" color={T.amber} items={buckets.reviewed} onClick={setOpen} />}
