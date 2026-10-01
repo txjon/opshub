@@ -28,6 +28,35 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
 
   const load = async () => { const j = await fetch(`/api/studio/line-sheets/${params.id}`).then(r => r.json()).catch(() => null); if (j && !j.error) setData(j); };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [params.id]);
+  const dataRef = useRef<any>(null); dataRef.current = data;
+
+  // ── uploads: every dropped file lands in the tray as its own item ──
+  // (defined before any early return — hooks below depend on it)
+  async function uploadFiles(files: FileList | File[]) {
+    const sheetNow = dataRef.current?.sheet; if (!sheetNow) return;
+    const list = Array.from(files).filter(f => f.type.startsWith("image/"));
+    if (!list.length) return;
+    setUploadingN(list.length); setErr("");
+    const registered: { driveId: string; name: string }[] = [];
+    for (const f of list) {
+      try {
+        const up = await uploadToDrive({ blob: f, fileName: f.name, mimeType: f.type || "image/png", itemId: null, clientName: sheetNow.clients?.name || "Studio", projectTitle: "Line Sheets", itemName: sheetNow.title || "Line Sheet", onProgress: undefined });
+        registered.push({ driveId: up.fileId, name: f.name });
+      } catch (e: any) { setErr(`${f.name} didn't upload — ${e?.message || "try again"}`); }
+      setUploadingN(n => Math.max(0, n - 1));
+    }
+    if (registered.length) await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ images: registered }) });
+    setUploadingN(0); await load();
+  }
+  // window-level drop — ALWAYS mounted (hook order must not depend on data)
+  useEffect(() => {
+    const over = (e: DragEvent) => { if (e.dataTransfer?.types.includes("Files")) { e.preventDefault(); setDragOver(true); } };
+    const leave = (e: DragEvent) => { if ((e as any).relatedTarget == null) setDragOver(false); };
+    const drop = (e: DragEvent) => { if (e.dataTransfer?.files?.length) { e.preventDefault(); setDragOver(false); uploadFiles(e.dataTransfer.files); } else setDragOver(false); };
+    window.addEventListener("dragover", over); window.addEventListener("dragleave", leave); window.addEventListener("drop", drop);
+    return () => { window.removeEventListener("dragover", over); window.removeEventListener("dragleave", leave); window.removeEventListener("drop", drop); };
+    // eslint-disable-next-line
+  }, []);
 
   if (!data) return <div style={{ padding: 40, color: "rgba(255,255,255,.4)", background: H.ink, minHeight: "100vh", fontFamily: H.font }}>Opening the sheet…</div>;
   const { sheet, sections, versions } = data;
@@ -38,31 +67,6 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
 
   async function patchSheet(body: any) { setBusy(true); try { const r = await fetch(`/api/studio/line-sheets/${params.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(x => x.json()); if (r.error) setErr(r.error); await load(); return r; } finally { setBusy(false); } }
   async function patchItem(body: any) { const r = await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(x => x.json()); if (r.error) setErr(r.error); await load(); }
-
-  // ── uploads: every dropped file lands in the tray as its own item ──
-  async function uploadFiles(files: FileList | File[]) {
-    const list = Array.from(files).filter(f => f.type.startsWith("image/"));
-    if (!list.length) return;
-    setUploadingN(list.length); setErr("");
-    const registered: { driveId: string; name: string }[] = [];
-    for (const f of list) {
-      try {
-        const up = await uploadToDrive({ blob: f, fileName: f.name, mimeType: f.type || "image/png", itemId: null, clientName: sheet.clients?.name || "Studio", projectTitle: "Line Sheets", itemName: sheet.title || "Line Sheet", onProgress: undefined });
-        registered.push({ driveId: up.fileId, name: f.name });
-      } catch (e: any) { setErr(`${f.name} didn't upload — ${e?.message || "try again"}`); }
-      setUploadingN(n => Math.max(0, n - 1));
-    }
-    if (registered.length) await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ images: registered }) });
-    setUploadingN(0); await load();
-  }
-  useEffect(() => {
-    const over = (e: DragEvent) => { if (e.dataTransfer?.types.includes("Files")) { e.preventDefault(); setDragOver(true); } };
-    const leave = (e: DragEvent) => { if ((e as any).relatedTarget == null) setDragOver(false); };
-    const drop = (e: DragEvent) => { if (e.dataTransfer?.files?.length) { e.preventDefault(); setDragOver(false); uploadFiles(e.dataTransfer.files); } else setDragOver(false); };
-    window.addEventListener("dragover", over); window.addEventListener("dragleave", leave); window.addEventListener("drop", drop);
-    return () => { window.removeEventListener("dragover", over); window.removeEventListener("dragleave", leave); window.removeEventListener("drop", drop); };
-    // eslint-disable-next-line
-  }, [sheet?.title]);
 
   // ── merge: drag a card onto another = one product (front + back) ──
   async function mergeInto(targetId: string) {
