@@ -6,7 +6,7 @@ import { H } from "@/lib/studio-theme";
 import { todayPacific } from "@/lib/dates";
 
 export type WoType = "creative" | "vector" | "separations";
-export type WoState = "out" | "delivered" | "in_revision" | "accepted" | "killed";
+export type WoState = "out" | "delivered" | "in_revision" | "accepted" | "killed" | "closed";
 
 // A pin: a spot on a canvas + what to do there. x/y are PERCENTAGES of the
 // rendered image box so the spec is resolution-independent. driveId = an
@@ -60,6 +60,7 @@ export function woState(wo: Pick<DesignWorkOrder, "state" | "last_designer_at" |
   const unread = !!wo.last_designer_at && (!wo.hpd_seen_at || wo.last_designer_at > wo.hpd_seen_at);
   const late = !!wo.due_by && !["accepted", "killed"].includes(wo.state) && wo.due_by < todayPacific();
   if (wo.state === "accepted") return { label: "Accepted", color: H.green, unread: false, late: false };
+  if (wo.state === "closed") return { label: "Closed · received outside", color: H.faint, unread: false, late: false };
   if (wo.state === "killed") return { label: "Killed", color: H.faint, unread: false, late: false };
   if (wo.state === "delivered") return { label: unread ? "Delivered · new" : "Delivered", color: H.blue, unread, late };
   if (wo.state === "in_revision") return { label: "In revision", color: H.amber, unread, late };
@@ -69,11 +70,11 @@ export function woState(wo: Pick<DesignWorkOrder, "state" | "last_designer_at" |
 // Short state for a tab: "out · delivered ● · revising · ✓ accepted · pulled".
 export function woShort(wo: Pick<DesignWorkOrder, "state" | "last_designer_at" | "hpd_seen_at" | "due_by">): { text: string; color: string } {
   const st = woState(wo);
-  const text = wo.state === "accepted" ? "✓ accepted" : wo.state === "killed" ? "pulled" : wo.state === "in_revision" ? "revising" : wo.state === "delivered" ? "delivered" : st.unread ? "replied" : "out";
+  const text = wo.state === "accepted" ? "✓ accepted" : wo.state === "closed" ? "✓ closed" : wo.state === "killed" ? "pulled" : wo.state === "in_revision" ? "revising" : wo.state === "delivered" ? "delivered" : st.unread ? "replied" : "out";
   return { text: st.unread ? `${text} ●` : text, color: st.color };
 }
 export const woWho = (wo: { designer_name?: string | null; designer_email?: string | null }) => wo.designer_name || (wo.designer_email ? wo.designer_email.split("@")[0] : null) || "Designer";
-export const isOpenWo = (s: WoState) => s !== "accepted" && s !== "killed";
+export const isOpenWo = (s: WoState) => s !== "accepted" && s !== "killed" && s !== "closed";
 
 // Every Drive id a work order is allowed to serve to its designer — the
 // token-scoped file proxy validates against THIS set, never a raw id.

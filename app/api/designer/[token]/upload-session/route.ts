@@ -15,7 +15,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   if (!fileName) return NextResponse.json({ error: "fileName required" }, { status: 400 });
   const db = woDb();
   const { data: wo } = await db.from("design_work_orders").select("id, state, title, brief_id, item_id").eq("token", params.token).maybeSingle();
-  if (!wo || (wo as any).state === "killed") return NextResponse.json({ error: "This link isn't live" }, { status: 404 });
+  if (!wo || ["killed","closed"].includes((wo as any).state)) return NextResponse.json({ error: "This link isn't live" }, { status: 404 });
   if ((wo as any).state === "accepted") return NextResponse.json({ error: "This order is closed" }, { status: 409 });
   try {
     const t = await targetOf(wo as any);

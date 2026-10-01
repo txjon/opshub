@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 // those urls, so raw Drive ids never need to be trusted from the outside.
 export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
   const r = await loadWorkOrderByToken(params.token);
-  if (!r || r.wo.state === "killed") return NextResponse.json({ error: "This link isn't live" }, { status: 404 });
+  if (!r || r.wo.state === "killed" || r.wo.state === "closed") return NextResponse.json({ error: "This link isn't live" }, { status: 404 });
   const { wo, messages } = r;
   const t = await targetOf(wo);
   const base = `/api/designer/${params.token}/file/`;

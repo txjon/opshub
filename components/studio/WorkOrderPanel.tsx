@@ -111,6 +111,10 @@ export default function WorkOrderPanel({ woId, target, notes = [], images = [], 
     if (!await confirm({ title: "Accept this delivery?", message: "The latest designer file becomes THE file for this design. The order closes and the designer's link goes read-only.", confirmLabel: "Accept — this is the file", confirmColor: H.green })) return;
     setBusy(true); try { const r = await fetch(`/api/studio/work-orders/${woId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "accept" }) }).then(x => x.json()); if (r.error) setErr(r.error); await refresh(); } finally { setBusy(false); }
   }
+  async function closeOutside() {
+    if (!await confirm({ title: "Close this order?", message: "Use this when the designer sent the file outside OpsHub (Slack, email). The order reads as completed, comes off the desk, and the designer link goes dead.", confirmLabel: "Close · received outside", confirmColor: H.green })) return;
+    setBusy(true); try { await fetch(`/api/studio/work-orders/${woId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "close" }) }); await refresh(); } finally { setBusy(false); }
+  }
   async function kill() {
     if (!await confirm({ title: "Pull this order?", message: "The designer's link stops working. The thread stays here as the record. You can reopen it.", confirmLabel: "Pull it" })) return;
     setBusy(true); try { await fetch(`/api/studio/work-orders/${woId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "kill" }) }); await refresh(); } finally { setBusy(false); }
@@ -159,7 +163,7 @@ export default function WorkOrderPanel({ woId, target, notes = [], images = [], 
   async function copyLine(n: Note) { try { await navigator.clipboard.writeText(n.body.trim()); setCopiedLine(n.id); setTimeout(() => setCopiedLine(null), 1200); } catch {} }
 
   if (!wo) return <div style={{ padding: 30, color: H.faint, fontSize: 13 }}>Opening the work order…</div>;
-  const st = woState(wo); const closed = wo.state === "accepted" || wo.state === "killed";
+  const st = woState(wo); const closed = wo.state === "accepted" || wo.state === "killed" || wo.state === "closed";
   const spec: BriefSpec = editing && draft ? draft.brief : (wo.brief || { canvases: [], extras: [] });
 
   return (
@@ -314,7 +318,9 @@ export default function WorkOrderPanel({ woId, target, notes = [], images = [], 
         })}
       </div>
 
-      {wo.state === "accepted" ? (
+      {wo.state === "closed" ? (
+        <div style={{ padding: "16px 22px 20px", borderTop: `1px solid ${H.line}`, fontSize: 13, color: H.dim, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}><span><b style={{ color: H.green }}>✓ Closed</b> · {fmtStamp(wo.updated_at)} · the file came back outside OpsHub.</span><button disabled={busy} onClick={reopen} style={{ ...ghostBtn, padding: "7px 12px" }}>↩ Reopen</button></div>
+      ) : wo.state === "accepted" ? (
         <div style={{ padding: "16px 22px 20px", borderTop: `1px solid ${H.line}`, background: "rgba(88,201,60,.06)", fontSize: 13, color: H.dim }}><b style={{ color: H.green }}>✓ Accepted</b> · {fmtStamp(wo.updated_at)}. {target.kind === "item" ? "It's the item's print-ready file now — it rides the PO." : "The file is on the design (internal until you share it with the client)."}</div>
       ) : wo.state === "killed" ? (
         <div style={{ padding: "16px 22px 20px", borderTop: `1px solid ${H.line}`, fontSize: 13, color: H.faint, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}><span><b style={{ color: H.faint }}>✕ Pulled</b> · the link is dead.</span><button disabled={busy} onClick={reopen} style={{ ...ghostBtn, padding: "7px 12px" }}>↩ Reopen</button><button disabled={busy} onClick={deleteOrder} style={{ background: "none", border: "none", color: H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }} onMouseEnter={e => (e.currentTarget.style.color = H.red)} onMouseLeave={e => (e.currentTarget.style.color = H.faint)}>Delete order</button></div>
@@ -328,6 +334,7 @@ export default function WorkOrderPanel({ woId, target, notes = [], images = [], 
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <input ref={fileIn} type="file" accept="image/*,.pdf,.ai,.psd,.eps,.svg" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) setStaged({ f, url: URL.createObjectURL(f) }); if (fileIn.current) fileIn.current.value = ""; }} />
               <button disabled={!!staged} onClick={() => fileIn.current?.click()} style={{ ...ghostBtn, opacity: staged ? 0.5 : 1 }}>{staged ? "✓ Attached" : "+ Attach a reference"}</button>
+              <button disabled={busy} onClick={closeOutside} title="The designer sent the file outside OpsHub" style={{ background: "none", border: "none", color: H.dim, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>Close · received outside</button>
               <button disabled={busy} onClick={kill} style={{ background: "none", border: "none", color: H.faint, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>Pull the order</button>
               <button disabled={busy || (!note.trim() && !staged)} onClick={send} style={{ ...primaryBtn, marginLeft: "auto", opacity: busy || (!note.trim() && !staged) ? 0.5 : 1 }}>{busy ? (pct ? `Sending… ${pct}` : "Sending…") : deliveries.length && wo.state === "delivered" ? "Ask for changes" : "Send"}</button>
             </div>

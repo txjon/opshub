@@ -17,7 +17,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   const b = await req.json().catch(() => ({} as any));
   const db = woDb();
   const { data: wo } = await db.from("design_work_orders").select("*").eq("token", params.token).maybeSingle();
-  if (!wo || (wo as any).state === "killed") return NextResponse.json({ error: "This link isn't live" }, { status: 404 });
+  if (!wo || ["killed","closed"].includes((wo as any).state)) return NextResponse.json({ error: "This link isn't live" }, { status: 404 });
   if ((wo as any).state === "accepted") return NextResponse.json({ error: "This order is closed — the file was accepted" }, { status: 409 });
   const body = b.body ? String(b.body).trim() : "";
   const driveFileId = b.driveFileId ? String(b.driveFileId).trim() : "";

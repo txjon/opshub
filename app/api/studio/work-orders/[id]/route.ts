@@ -87,6 +87,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
     return NextResponse.json({ ok: true, state: "accepted" });
   }
+  // Close — the work came back OUTSIDE OpsHub (Slack, email). Done, off the
+  // desk; the link dies like a kill but the record reads as completed.
+  if (b.action === "close") {
+    await db.from("design_work_orders").update({ state: "closed", updated_at: now, hpd_seen_at: now } as never).eq("id", params.id);
+    await db.from("design_wo_messages").insert({ work_order_id: params.id, sender_role: "hpd", sender_name: who.name, body: "✓ Closed — the file came back outside OpsHub.", kind: "comment" } as never);
+    if ((wo as any).brief_id) await db.from("art_brief_messages").insert({ brief_id: (wo as any).brief_id, sender_role: "hpd", sender_name: who.name, message: "✓ Designer order closed — file received outside OpsHub.", visibility: "internal" } as never);
+    else if ((wo as any).job_id) await logJobActivityServer((wo as any).job_id, `${(wo as any).title || "Item"}: designer order closed — file received outside OpsHub.`, { work_order_id: params.id });
+    return NextResponse.json({ ok: true, state: "closed" });
+  }
   if (b.action === "kill" || b.action === "reopen") {
     const state = b.action === "kill" ? "killed" : "out";
     await db.from("design_work_orders").update({ state, updated_at: now, hpd_seen_at: now } as never).eq("id", params.id);

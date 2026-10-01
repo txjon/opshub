@@ -118,7 +118,7 @@ export async function recomputeWoState(woId: string): Promise<string | null> {
   const { data: wo } = await db.from("design_work_orders").select("id, state, accepted_file_id, accepted_item_file_id").eq("id", woId).maybeSingle();
   if (!wo) return null;
   const cur = (wo as any).state as string;
-  if (cur === "killed") return cur;
+  if (cur === "killed" || cur === "closed") return cur;
   if (cur === "accepted" && ((wo as any).accepted_file_id || (wo as any).accepted_item_file_id)) return cur;
   const { data: msgs } = await db.from("design_wo_messages").select("sender_role, kind, file_id, item_file_id, created_at").eq("work_order_id", woId).order("created_at", { ascending: true });
   let next = "out";
