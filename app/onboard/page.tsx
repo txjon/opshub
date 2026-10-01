@@ -178,7 +178,7 @@ export default function OnboardPage() {
             <div style={{ fontSize: 11, color: C.faint, marginTop: 4 }}>AI, PSD, PDF, PNG, JPG — any format</div>
           </div>
           <input id="onboard-files" type="file" multiple style={{ display: "none" }}
-            onChange={e => { setFiles(prev => [...prev, ...Array.from(e.target.files || [])]); e.target.value = ""; }} />
+            onChange={e => { const picked = Array.from(e.target.files || []); setFiles(prev => [...prev, ...picked]); e.target.value = ""; }} />
           {files.length > 0 && (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
               {files.map((f, i) => (

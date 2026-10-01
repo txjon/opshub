@@ -265,7 +265,7 @@ function IdeaDoor({ token, base }: { token: string; base: string }) {
       {error && <div style={{ fontSize: 12, fontWeight: 700, color: "#ff5a6e", margin: "6px 0" }}>{error}</div>}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
         <input ref={fileInput} type="file" multiple accept="image/*,.pdf,.ai,.psd,.eps,.svg" style={{ display: "none" }}
-          onChange={e => { setFiles(prev => [...prev, ...Array.from(e.target.files || [])]); if (fileInput.current) fileInput.current.value = ""; }} />
+          onChange={e => { const picked = Array.from(e.target.files || []); setFiles(prev => [...prev, ...picked]); e.target.value = ""; }} />
         <button onClick={() => fileInput.current?.click()}
           style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}`, borderRadius: 999, padding: "11px 17px", fontSize: 10.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font }}>
           + Photos &amp; files
