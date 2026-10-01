@@ -16,6 +16,8 @@ export default function ReleaseLineSheet({ params }: { params: { token: string; 
 function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
   const [data, setData] = useState<any>(null);
   const [missing, setMissing] = useState(false);
+  // Shelf filter — null = the whole line. "__more" = unshelved pieces.
+  const [shelf, setShelf] = useState<string | null>(null);
   const load = () => fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`).then(r => r.json()).then(j => { if (j.error) setMissing(true); else setData(j); }).catch(() => setMissing(true));
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [releaseId]);
   const back = <a href={`/portal/client/${token}/releases`} style={{ color: C.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", textDecoration: "none" }}>‹ {data?.release?.title || "Releases"}</a>;
@@ -68,15 +70,36 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
     );
   };
 
-  const shelf = (title: string, list: any[]) => list.length ? (
+  const renderShelf = (title: string, list: any[]) => list.length ? (
     <section key={title} style={{ marginTop: 30 }}>
       <h2 style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.02em", margin: "0 0 12px", color: C.text }}>{title}</h2>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 12 }}>{list.map(itemCard)}</div>
     </section>
   ) : null;
 
+  const shelves = [
+    ...sections.map((s: any) => ({ id: s.id as string, name: s.name as string, list: bySection[s.id] || [] })),
+    { id: "__more", name: sections.length ? "More" : "The line", list: loose },
+  ].filter(f => f.list.length).map(f => ({ ...f, n: f.list.length }));
+  const active = shelf && shelves.some(f => f.id === shelf) ? shelf : null;
+  // Picking a shelf keeps the filter row in view instead of leaving the
+  // client staring at the bottom of a shorter page.
+  function pick(id: string | null) {
+    setShelf(id);
+    const bar = document.querySelector(".lsx-filters") as HTMLElement | null;
+    if (bar && bar.getBoundingClientRect().top <= parseFloat(getComputedStyle(bar).top || "0") + 1) {
+      const y = (bar.parentElement?.querySelector(".lsx-anchor") as HTMLElement | null)?.getBoundingClientRect().top;
+      if (y != null) window.scrollTo({ top: window.scrollY + y - parseFloat(getComputedStyle(bar).top || "0"), behavior: "smooth" });
+    }
+  }
+
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "26px 18px 90px", fontFamily: C.font, color: C.text }}>
+      <style dangerouslySetInnerHTML={{ __html: `
+        .lsx-filters{position:sticky;top:0;z-index:20;display:flex;gap:22px;overflow-x:auto;scrollbar-width:none;margin:22px -18px 0;padding:0 18px;background:rgba(10,10,10,.94);backdrop-filter:blur(10px);border-bottom:1px solid ${C.line2}}
+        .lsx-filters::-webkit-scrollbar{display:none}
+        @media(min-width:641px){.lsx-filters{top:52px}}
+      ` }} />
       {back}
       <div style={{ display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap", marginTop: 8 }}>
         <h1 style={{ fontSize: "clamp(26px,4.5vw,40px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.02em", margin: 0 }}>{sheet.title}</h1>
@@ -90,8 +113,18 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
       </div>
       {version.note && <div style={{ marginTop: 10, padding: "11px 14px", background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.blue}`, borderRadius: 10, fontSize: 13, color: C.dim, maxWidth: 640 }}>{version.note}</div>}
       <div style={{ marginTop: 6, fontSize: 11.5, color: C.faint }}>Thumb anything up or down — we see it instantly.</div>
-      {sections.map((s: any) => shelf(s.name, bySection[s.id] || []))}
-      {shelf(sections.length ? "More" : "The line", loose)}
+      <div className="lsx-anchor" />
+      {shelves.length > 1 && (
+        <nav className="lsx-filters" aria-label="Shelves">
+          {[{ id: null as string | null, name: "All", n: items.length }, ...shelves].map(f => (
+            <button key={f.id ?? "all"} onClick={() => pick(f.id)} aria-pressed={active === f.id}
+              style={{ flex: "none", background: "none", border: "none", borderBottom: `2px solid ${active === f.id ? C.text : "transparent"}`, padding: "10px 0 8px", cursor: "pointer", fontFamily: C.font, fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: active === f.id ? C.text : C.faint, whiteSpace: "nowrap" }}>
+              {f.name}<span style={{ fontFamily: C.mono, fontWeight: 600, letterSpacing: 0, marginLeft: 5, color: C.faint }}>{f.n}</span>
+            </button>
+          ))}
+        </nav>
+      )}
+      {shelves.filter(f => active === null || f.id === active).map(f => renderShelf(f.name, f.list))}
     </div>
   );
 }
