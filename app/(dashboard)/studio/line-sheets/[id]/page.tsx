@@ -95,7 +95,11 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const { sheet, sections, versions } = data;
   const items: any[] = data.items.filter((i: any) => !i.dropped).sort((a: any, b: any) => (a.sort || 0) - (b.sort || 0));
   const dropped: any[] = data.items.filter((i: any) => i.dropped);
-  const tray = items.filter(i => !i.section_id);
+  // Client thumbs-down = "Not approved" (Jon, Oct 1): still on the line, shown
+  // in its own bucket below the shelves here AND in the hub. section_id is
+  // untouched, so un-downing puts it straight back on its shelf.
+  const notApproved = items.filter(i => i.client_thumb === "down");
+  const tray = items.filter(i => !i.section_id && i.client_thumb !== "down");
   // Organizing is live in their hub; only never-published uploads wait (Oct 1 2026).
   const unpublished = items.filter(i => !i.dropped && i.added_in == null).length;
   const noOf = (it: any) => it.item_no ? String(it.item_no).padStart(2, "0") : null;
@@ -103,7 +107,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   async function patchSheet(body: any) { setBusy(true); try { const r = await fetch(`/api/studio/line-sheets/${params.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(x => x.json()); if (r.error) setErr(r.error); await load(); return r; } finally { setBusy(false); } }
   async function patchItem(body: any) { const r = await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(x => x.json()); if (r.error) setErr(r.error); }
 
-  const visualOrder = [...tray, ...sections.flatMap((s: any) => items.filter(i => i.section_id === s.id))].map(i => i.id);
+  const visualOrder = [...tray, ...sections.flatMap((s: any) => items.filter(i => i.section_id === s.id && i.client_thumb !== "down")), ...notApproved].map(i => i.id);
   const toggleSel = (id: string, shift = false) => setSelected(prev => {
     if (shift && prev.length) {
       // shift-click = select the whole run between the last tap and this one
@@ -279,7 +283,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
 
       {/* THE SHELVES */}
       {sections.map((s: any, si: number) => {
-        const inSection = items.filter(i => i.section_id === s.id);
+        const inSection = items.filter(i => i.section_id === s.id && i.client_thumb !== "down");
         return (
           <section key={s.id} style={{ marginBottom: 26 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
@@ -298,6 +302,22 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
           </section>
         );
       })}
+      {notApproved.length > 0 && (
+        <section style={{ marginBottom: 26 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
+            <span style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", color: H.red }}>Not approved</span>
+            <span style={{ fontSize: 10.5, color: H.faint }}>{notApproved.length} thumbs-down · still on the line, back to its shelf if they change their mind</span>
+          </div>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", borderLeft: `2px solid ${H.red}`, paddingLeft: 12 }}>
+            {notApproved.map(it => (
+              <div key={it.id}>
+                {card(it)}
+                <div style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint, marginTop: 4 }}>from {sections.find((x: any) => x.id === it.section_id)?.name || "no shelf"}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 30 }}>
         <input value={newSection} onChange={e => setNewSection(e.target.value)} placeholder="New shelf — e.g. HATS" onKeyDown={async e => { if (e.key === "Enter" && newSection.trim()) { await fetch(`/api/studio/line-sheets/${params.id}/sections`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newSection.trim() }) }); setNewSection(""); await load(); } }} style={{ ...inp, maxWidth: 240 }} />
         <span style={{ fontSize: 10.5, color: H.faint }}>↵ to add</span>

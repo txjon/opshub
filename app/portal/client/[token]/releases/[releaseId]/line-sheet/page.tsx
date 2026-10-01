@@ -19,6 +19,7 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
   // Shelf filter — null = the whole line. "__more" = unshelved pieces.
   const [shelf, setShelf] = useState<string | null>(null);
   const [noteFor, setNoteFor] = useState<string | null>(null);   // item whose "why" field is open
+  const [hold, setHold] = useState<string | null>(null);         // fresh 👎 holding its shelf spot until its why closes
   const load = () => fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`).then(r => r.json()).then(j => { if (j.error) setMissing(true); else setData(j); }).catch(() => setMissing(true));
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [releaseId]);
   const back = <a href={`/portal/client/${token}/releases`} style={{ color: C.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", textDecoration: "none" }}>‹ {data?.release?.title || "Releases"}</a>;
@@ -28,7 +29,15 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
   const items: any[] = data.items;
   const bySection: Record<string, any[]> = {};
   const loose: any[] = [];
-  for (const it of items) { if (it.section_id && sections.some((s: any) => s.id === it.section_id)) (bySection[it.section_id] ||= []).push(it); else loose.push(it); }
+  // Thumbs-down pieces stay on the line but sit in their own "Not approved"
+  // bucket at the bottom (Jon, Oct 1); their shelf is untouched, so a change
+  // of heart puts them straight back. A fresh 👎 holds its place while its
+  // optional "why" is open, so the field doesn't jump off-screen.
+  const notApproved: any[] = [];
+  for (const it of items) {
+    if (it.thumb === "down" && hold !== it.id) { notApproved.push(it); continue; }
+    if (it.section_id && sections.some((s: any) => s.id === it.section_id)) (bySection[it.section_id] ||= []).push(it); else loose.push(it);
+  }
   const newCount = items.filter(i => i.badge === "new").length;
   const updCount = items.filter(i => i.badge === "updated").length;
 
@@ -36,6 +45,7 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
     const next = it.thumb === thumb ? null : thumb;
     // a thumbs-down offers the optional why right there; any other change closes it
     setNoteFor(next === "down" ? it.id : null);
+    setHold(next === "down" ? it.id : null);
     setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, thumb: next, note: null } : x) }));
     const r = await fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: it.id, thumb: next }) }).catch(() => null);
     if (!r || !r.ok) load();
@@ -45,7 +55,7 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
   // required, empty clears it.
   async function saveNote(it: any, raw: string) {
     const note = raw.trim() || null;
-    setNoteFor(null);
+    setNoteFor(null); setHold(null);
     if ((it.note || null) === note) return;
     setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, note } : x) }));
     const r = await fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: it.id, note }) }).catch(() => null);
@@ -82,7 +92,7 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
           {it.thumb === "down" && (noteFor === it.id ? (
             <input defaultValue={it.note || ""} placeholder="Why? (optional)" maxLength={500} aria-label="Why the thumbs down (optional)"
               onBlur={e => saveNote(it, e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") setNoteFor(null); }}
+              onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") { setNoteFor(null); setHold(null); } }}
               style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 8, background: "transparent", border: "none", borderBottom: `1px solid ${C.line}`, outline: "none", color: C.dim, fontSize: 12, fontFamily: C.font, padding: "4px 0" }} />
           ) : it.note ? (
             <button onClick={() => setNoteFor(it.id)} title="Edit" style={{ display: "block", width: "100%", textAlign: "left", marginTop: 8, background: "none", border: "none", padding: 0, cursor: "pointer", color: C.dim, fontSize: 12, fontStyle: "italic", fontFamily: C.font, lineHeight: 1.4 }}>&ldquo;{it.note}&rdquo;</button>
@@ -104,6 +114,7 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
   const shelves = [
     ...sections.map((s: any) => ({ id: s.id as string, name: s.name as string, list: bySection[s.id] || [] })),
     { id: "__more", name: sections.length ? "More" : "The line", list: loose },
+    { id: "__down", name: "Not approved", list: notApproved },
   ].filter(f => f.list.length).map(f => ({ ...f, n: f.list.length }));
   const active = shelf && shelves.some(f => f.id === shelf) ? shelf : null;
   // Picking a shelf keeps the filter row in view instead of leaving the
