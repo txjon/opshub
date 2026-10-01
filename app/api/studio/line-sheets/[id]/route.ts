@@ -21,7 +21,7 @@ async function me() {
   return { user, name: (profile as any)?.full_name || user.email || "HPD" };
 }
 async function loadFull(db: any, id: string) {
-  const { data: sheet } = await db.from("line_sheets").select("*, clients(id, name, portal_token)").eq("id", id).maybeSingle();
+  const { data: sheet } = await db.from("line_sheets").select("*, clients(id, name, portal_token), releases(id, title, status)").eq("id", id).maybeSingle();
   if (!sheet) return null;
   const [{ data: sections }, { data: items }, { data: versions }] = await Promise.all([
     db.from("line_sheet_sections").select("*").eq("sheet_id", id).order("sort"),
@@ -90,11 +90,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const { error: vErr } = await db.from("line_sheet_versions").insert({ sheet_id: params.id, n, note: b.note ? String(b.note).trim() : null, snapshot, published_by: who.name } as never);
     if (vErr) return NextResponse.json({ error: vErr.message }, { status: 500 });
     await db.from("line_sheets").update({ current_version: n, updated_at: now } as never).eq("id", params.id);
-    // First publish grants the hub tab — the sheet IS the share.
+    // First publish opens the door — the sheet lives under its release in
+    // the hub (mig 192), so the client needs the 'releases' grant.
     try {
       const { data: cl } = await db.from("clients").select("portal_features").eq("id", (sheet as any).client_id).single();
       const feats: string[] = Array.isArray((cl as any)?.portal_features) ? (cl as any).portal_features : [];
-      if (!feats.includes("linesheets")) await db.from("clients").update({ portal_features: [...feats, "linesheets"] } as never).eq("id", (sheet as any).client_id);
+      if (!feats.includes("releases")) await db.from("clients").update({ portal_features: [...feats, "releases"] } as never).eq("id", (sheet as any).client_id);
     } catch {}
     return NextResponse.json({ ok: true, n, added, updated, dropped: droppedN });
   }

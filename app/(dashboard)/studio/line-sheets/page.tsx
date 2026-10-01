@@ -2,8 +2,8 @@
 import { useEffect, useState } from "react";
 import { H, primaryBtn, ghostBtn, inp, lbl, tag, fmtStamp } from "@/lib/studio-theme";
 
-// LINE SHEETS — the index (mig 190). A client-level product line worked in
-// versions; standalone from the per-design lineup. Rides the /studio grant.
+// LINE SHEETS — the index (mig 190). A product line worked in versions; since
+// mig 192 each sheet is the proposal stage of ONE release. Rides the /studio grant.
 export default function LineSheetsPage() {
   const [sheets, setSheets] = useState<any[]>([]);
   const [showNew, setShowNew] = useState(false);
@@ -24,7 +24,7 @@ export default function LineSheetsPage() {
               <span style={{ fontSize: 15, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{s.title}</span>
               <span style={tag(s.status === "final" ? H.green : s.current_version ? H.blue : H.amber, 9)}>{s.status === "final" ? "Final" : s.current_version ? `v${s.current_version} live` : "Draft"}</span>
             </div>
-            <div style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint, marginTop: 4 }}>{s.client_name}{s.season ? ` · ${s.season}` : ""}</div>
+            <div style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint, marginTop: 4 }}>{s.client_name}{s.release_title ? ` · ${s.release_title}` : ""}{s.season ? ` · ${s.season}` : ""}</div>
             <div style={{ fontSize: 11, color: H.dim, marginTop: 10, display: "flex", gap: 14 }}>
               <span>{s._counts.items} item{s._counts.items === 1 ? "" : "s"}</span>
               {s._counts.thumbsUp > 0 && <span style={{ color: H.green }}>👍 {s._counts.thumbsUp}</span>}
@@ -44,6 +44,14 @@ function NewSheet({ onClose, onCreated }: any) {
   const [client, setClient] = useState<any>(null);
   const [title, setTitle] = useState(""); const [season, setSeason] = useState("");
   const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
+  // The release this sheet proposes — an open (building) one without a sheet,
+  // or "" = a new release born with the sheet's title.
+  const [releases, setReleases] = useState<any[]>([]); const [releaseId, setReleaseId] = useState("");
+  useEffect(() => {
+    setReleases([]); setReleaseId("");
+    if (!client) return;
+    fetch(`/api/studio/line-sheets?client=${client.id}`).then(r => r.json()).then(j => setReleases(j.releases || [])).catch(() => {});
+  }, [client]);
   useEffect(() => {
     if (!q.trim() || client) { setResults([]); return; }
     const t = setTimeout(async () => {
@@ -56,7 +64,7 @@ function NewSheet({ onClose, onCreated }: any) {
     if (!client || !title.trim()) { setErr("Pick a client and give it a title."); return; }
     setBusy(true); setErr("");
     try {
-      const r = await fetch("/api/studio/line-sheets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientId: client.id, title: title.trim(), season: season.trim() || null }) }).then(x => x.json());
+      const r = await fetch("/api/studio/line-sheets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientId: client.id, title: title.trim(), season: season.trim() || null, releaseId: releaseId || null }) }).then(x => x.json());
       if (r.error) { setErr(r.error); return; }
       onCreated(r.sheet.id);
     } finally { setBusy(false); }
@@ -76,6 +84,13 @@ function NewSheet({ onClose, onCreated }: any) {
           {results.map((c: any) => (
             <button key={c.id} onClick={() => setClient(c)} style={{ display: "block", width: "100%", textAlign: "left", background: H.surface, border: `1px solid ${H.line2}`, borderRadius: 9, padding: "9px 12px", marginTop: 6, cursor: "pointer", fontFamily: H.font, color: H.text, fontSize: 12.5, fontWeight: 800, textTransform: "uppercase" }}>{c.name}</button>
           ))}
+        </>)}
+        {client && (<>
+          <label style={{ ...lbl, marginTop: 12 }}>Release</label>
+          <select value={releaseId} onChange={e => setReleaseId(e.target.value)} style={{ ...inp, colorScheme: "dark" }}>
+            <option value="">New release (named after the sheet)</option>
+            {releases.map((r: any) => <option key={r.id} value={r.id}>{r.title}</option>)}
+          </select>
         </>)}
         <label style={{ ...lbl, marginTop: 12 }}>Title</label>
         <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Sike Ops Line Sheet" style={inp} />

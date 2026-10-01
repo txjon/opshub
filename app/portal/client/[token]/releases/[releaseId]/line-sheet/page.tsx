@@ -1,41 +1,25 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useClientPortal } from "../_shared/context";
 
 // THE LINE SHEET, client side (mig 190) — the product line as a webstore they
 // react to: shelves, product cards (front/back nested), one tap to thumb.
-// Always the latest PUBLISHED version; drafts never show here.
+// Always the latest PUBLISHED version; drafts never show here. Since mig 192
+// it's the proposal stage of one release, so it lives under that release.
 const C = { bg: "#0a0a0a", panel: "#131313", surface: "#1e1e1e", line: "rgba(255,255,255,.13)", line2: "rgba(255,255,255,.07)", text: "#fff", dim: "rgba(255,255,255,.6)", faint: "rgba(255,255,255,.38)", amber: "#f4b22b", green: "#58c93c", blue: "#8fc7d8", red: "#ff5a6e", font: "Inter, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif", mono: "ui-monospace, 'SF Mono', Menlo, monospace" };
 const thumbUrl = (id: string, size = 500) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
 const fmt = (iso?: string) => iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
 
-export default function LineSheetsTab() {
-  const { token } = useClientPortal() as any;
-  const [sheets, setSheets] = useState<any[] | null>(null);
-  const [open, setOpen] = useState<string | null>(null);
-  useEffect(() => { fetch(`/api/portal/client/${token}/line-sheets`).then(r => r.json()).then(j => { const list = j.sheets || []; setSheets(list); if (list.length === 1) setOpen(list[0].id); }).catch(() => setSheets([])); }, [token]);
-  if (sheets === null) return <div style={{ padding: 40, color: C.faint, fontFamily: C.font, fontSize: 13 }}>Loading…</div>;
-  if (open) return <SheetView token={token} sheetId={open} onBack={sheets.length > 1 ? () => setOpen(null) : undefined} />;
-  return (
-    <div style={{ maxWidth: 1100, margin: "0 auto", padding: "26px 18px 90px", fontFamily: C.font, color: C.text }}>
-      <h1 style={{ fontSize: "clamp(26px,4.5vw,40px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.02em", margin: "0 0 18px" }}>Line sheets.</h1>
-      {sheets.length === 0 && <div style={{ color: C.faint, fontSize: 13 }}>Nothing here yet.</div>}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
-        {sheets.map(s => (
-          <button key={s.id} onClick={() => setOpen(s.id)} style={{ textAlign: "left", background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, padding: "16px 18px", color: C.text, cursor: "pointer", fontFamily: C.font }}>
-            <div style={{ fontSize: 15, fontWeight: 900, textTransform: "uppercase" }}>{s.title}</div>
-            <div style={{ fontSize: 10.5, fontFamily: C.mono, color: C.faint, marginTop: 4 }}>{s.season ? `${s.season} · ` : ""}v{s.current_version} · {s.itemCount} items</div>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
+export default function ReleaseLineSheet({ params }: { params: { token: string; releaseId: string } }) {
+  return <SheetView token={params.token} releaseId={params.releaseId} />;
 }
 
-function SheetView({ token, sheetId, onBack }: { token: string; sheetId: string; onBack?: () => void }) {
+function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
   const [data, setData] = useState<any>(null);
-  const load = () => fetch(`/api/portal/client/${token}/line-sheets/${sheetId}`).then(r => r.json()).then(j => { if (!j.error) setData(j); });
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [sheetId]);
+  const [missing, setMissing] = useState(false);
+  const load = () => fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`).then(r => r.json()).then(j => { if (j.error) setMissing(true); else setData(j); }).catch(() => setMissing(true));
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [releaseId]);
+  const back = <a href={`/portal/client/${token}/releases`} style={{ color: C.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", textDecoration: "none" }}>‹ {data?.release?.title || "Releases"}</a>;
+  if (missing) return <div style={{ maxWidth: 1100, margin: "0 auto", padding: "26px 18px", fontFamily: C.font }}>{back}<div style={{ color: C.faint, fontSize: 13, marginTop: 14 }}>No line sheet on this release yet.</div></div>;
   if (!data) return <div style={{ padding: 40, color: C.faint, fontFamily: C.font, fontSize: 13 }}>Loading…</div>;
   const { sheet, version, sections } = data;
   const items: any[] = data.items;
@@ -48,7 +32,7 @@ function SheetView({ token, sheetId, onBack }: { token: string; sheetId: string;
   async function react(it: any, thumb: "up" | "down") {
     const next = it.thumb === thumb ? null : thumb;
     setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, thumb: next } : x) }));
-    const r = await fetch(`/api/portal/client/${token}/line-sheets/${sheetId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: it.id, thumb: next }) }).catch(() => null);
+    const r = await fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: it.id, thumb: next }) }).catch(() => null);
     if (!r || !r.ok) load();
   }
 
@@ -93,8 +77,8 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "26px 18px 90px", fontFamily: C.font, color: C.text }}>
-      {onBack && <button onClick={onBack} style={{ background: "none", border: "none", color: C.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", fontFamily: C.font, padding: 0 }}>‹ Line sheets</button>}
-      <div style={{ display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap", marginTop: onBack ? 8 : 0 }}>
+      {back}
+      <div style={{ display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap", marginTop: 8 }}>
         <h1 style={{ fontSize: "clamp(26px,4.5vw,40px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.02em", margin: 0 }}>{sheet.title}</h1>
         {sheet.season && <span style={{ fontFamily: C.mono, fontSize: 12, color: C.amber }}>{sheet.season}</span>}
       </div>

@@ -81,7 +81,12 @@ export async function DELETE(_req: NextRequest, { params }: { params: { token: s
     const ctx = await owned(params.token, params.releaseId);
     if (!ctx) return NextResponse.json({ error: "Not found" }, { status: 404 });
     if ((ctx.release as any).status !== "building") return NextResponse.json({ error: "Only a release that's still building can be removed" }, { status: 409 });
-    await ctx.db.from("releases").delete().eq("id", (ctx.release as any).id);
+    // A line sheet is built by us on this release (mig 192, FK restrict) —
+    // the client can't delete our work out from under it.
+    const { count: sheets } = await ctx.db.from("line_sheets").select("id", { count: "exact", head: true }).eq("release_id", (ctx.release as any).id);
+    if (sheets) return NextResponse.json({ error: "This release has a line sheet on it. Ask us to remove it." }, { status: 409 });
+    const { error } = await ctx.db.from("releases").delete().eq("id", (ctx.release as any).id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ success: true });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Failed" }, { status: 500 });

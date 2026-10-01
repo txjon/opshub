@@ -241,15 +241,25 @@ export default function ReleasesPage() {
           {drops.map((d: any) => {
             const h = healthLine(d);
             return (
-              <button key={d.id} onClick={() => { setOpen(d); load(d.id); }}
-                style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, padding: "16px 18px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text }}>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{d.title}</span>
-                  {d.target_live_date && <span style={{ fontSize: 10.5, fontFamily: C.mono, color: C.faint }}>live {fmtDate(d.target_live_date)}</span>}
-                  <span style={{ marginLeft: "auto", fontSize: 10.5, fontFamily: C.mono, color: C.muted }}>{d.slots.length} piece{d.slots.length === 1 ? "" : "s"}</span>
-                </div>
-                <div style={{ fontSize: 12, color: h.color, fontWeight: 700, marginTop: 5 }}>{h.text}</div>
-              </button>
+              <div key={d.id}>
+                <button onClick={() => { setOpen(d); load(d.id); }}
+                  style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: d.lineSheet ? "16px 16px 0 0" : 16, width: "100%", padding: "16px 18px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{d.title}</span>
+                    {d.target_live_date && <span style={{ fontSize: 10.5, fontFamily: C.mono, color: C.faint }}>live {fmtDate(d.target_live_date)}</span>}
+                    <span style={{ marginLeft: "auto", fontSize: 10.5, fontFamily: C.mono, color: C.muted }}>{d.slots.length} piece{d.slots.length === 1 ? "" : "s"}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: h.color, fontWeight: 700, marginTop: 5 }}>{h.text}</div>
+                </button>
+                {d.lineSheet && (
+                  <a href={`/portal/client/${token}/releases/${d.id}/line-sheet`}
+                    style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", background: C.surface, border: `1px solid ${C.border}`, borderTop: "none", borderRadius: "0 0 16px 16px", padding: "11px 18px", color: C.text, textDecoration: "none", fontFamily: C.font }}>
+                    <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" }}>Line sheet</span>
+                    <span style={{ fontSize: 10.5, fontFamily: C.mono, color: C.muted }}>v{d.lineSheet.version} · {d.lineSheet.pieces} proposed{d.lineSheet.kept ? ` · ${d.lineSheet.kept} kept` : ""}</span>
+                    <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>View ›</span>
+                  </a>
+                )}
+              </div>
             );
           })}
         </div>

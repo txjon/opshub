@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // Client Hub — RELEASES (mig 134). The client-side release builder:
 // gather product lines from ACROSS their ideas into one dated release.
 // GET → their releases with slots + per-slot readiness (contributing idea
-// approved?). POST → start a release. 'releases' grant required.
+// approved?) + the published line sheet summary (mig 192). POST → start a release. 'releases' grant required.
 // (Renamed from /drops Aug 11 2026; the legacy staging board API moved
 // to /staging-releases to free this namespace.)
 
@@ -61,6 +61,21 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         });
       }
     }
+    // Line sheet (mig 192) — the release's proposal stage. PUBLISHED only;
+    // a draft is ours alone. kept = live thumbs-up on undropped items.
+    const sheetByRelease: Record<string, any> = {};
+    if (ids.length) {
+      const { data: sheets } = await db.from("line_sheets")
+        .select("id, release_id, current_version").in("release_id", ids).gt("current_version", 0);
+      const sids = (sheets || []).map((s: any) => s.id);
+      const { data: sItems } = sids.length
+        ? await db.from("line_sheet_items").select("sheet_id, dropped, client_thumb").in("sheet_id", sids)
+        : { data: [] as any[] };
+      for (const sh of (sheets || []) as any[]) {
+        const mine = ((sItems || []) as any[]).filter(i => i.sheet_id === sh.id && !i.dropped);
+        sheetByRelease[sh.release_id] = { version: sh.current_version, pieces: mine.length, kept: mine.filter(i => i.client_thumb === "up").length };
+      }
+    }
     // Payable for cut drops — read the born job's invoice state (same
     // gating as the order surfaces: nothing shows until the invoice is
     // actually sent or a non-draft payment record exists).
@@ -104,6 +119,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       drops: (releases || []).map((r: any) => ({
         ...r,
         slots: slotsByRelease[r.id] || [],
+        lineSheet: sheetByRelease[r.id] || null,
         payable: r.status === "cut" && r.job_id ? (payableByJob[r.job_id] || null) : null,
       })),
     });
