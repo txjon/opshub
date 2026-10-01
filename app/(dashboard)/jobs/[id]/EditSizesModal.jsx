@@ -5,6 +5,8 @@
 import React, { useState, useEffect } from "react";
 import { T, font, mono, SIZE_ORDER } from "@/lib/theme";
 import { distribute, DEFAULT_CURVE, WAIST_INSEAM_CURVE } from "./BuySheetTab";
+import SizeGridInput from "@/components/SizeGridInput";
+import { parseSizeMatrix } from "@/lib/size-grid";
 
 // ═══════════════════════════════════════════════════════════════
 // EditSizesModal — add/remove sizes + set qtys on an item without
@@ -270,4 +272,17 @@ export function EditSizesModal({ item, onClose, onSave, zIndex = 110 }) {
       </div>
     </div>
   );
+}
+
+// Carried over from the classic ProductBuilder (left behind when this modal
+// was extracted in 1fb21c6d, which crashed Edit sizes).
+function sortSizesLocal(arr) {
+  const order = ["OSFA","OS","XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL"];
+  return [...arr].sort((a, b) => {
+    const ai = order.indexOf(a), bi = order.indexOf(b);
+    if (ai === -1 && bi === -1) return a.localeCompare(b);
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
 }
