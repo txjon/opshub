@@ -21,7 +21,7 @@ async function me() {
   return { user, name: (profile as any)?.full_name || user.email || "HPD" };
 }
 async function loadFull(db: any, id: string) {
-  const { data: sheet } = await db.from("line_sheets").select("*, clients(id, name)").eq("id", id).maybeSingle();
+  const { data: sheet } = await db.from("line_sheets").select("*, clients(id, name, portal_token)").eq("id", id).maybeSingle();
   if (!sheet) return null;
   const [{ data: sections }, { data: items }, { data: versions }] = await Promise.all([
     db.from("line_sheet_sections").select("*").eq("sheet_id", id).order("sort"),

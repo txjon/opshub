@@ -222,6 +222,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
       <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", marginBottom: 24 }}>
         <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>{sheet.clients?.name}</span>
         <span style={tag(sheet.current_version ? H.blue : H.amber, 9.5)}>{sheet.current_version ? `v${sheet.current_version} live in their hub` : "Draft · never published"}</span>
+        {sheet.current_version > 0 && sheet.clients?.portal_token && <a href={`/portal/client/${sheet.clients.portal_token}/line-sheets`} target="_blank" rel="noreferrer" style={{ ...tag(H.text, 9.5), textDecoration: "none", border: `1px solid ${H.line}`, borderRadius: 8, padding: "4px 9px" }}>View as client ↗</a>}
         {versions.length > 0 && <span style={{ fontSize: 10, fontFamily: H.mono, color: H.faint }}>last publish {fmtStamp(versions[versions.length - 1].published_at)}</span>}
         <span style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "center" }}>
           <input ref={fileIn} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { if (e.target.files?.length) enqueue(e.target.files); if (fileIn.current) fileIn.current.value = ""; }} />
