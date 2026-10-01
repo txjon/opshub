@@ -101,6 +101,11 @@ export default function IntakePage() {
   const [open, setOpen] = useState<Submission | null>(null);
   const [menuLeads, setMenuLeads] = useState<MenuLead[]>([]);
   const [matchNames, setMatchNames] = useState<Record<string, string>>({});
+  // Search (Oct 1 2026): a responded lead got buried in the collapsed
+  // Browsing bucket. Name / email / company across EVERY bucket; a search
+  // opens each bucket with a hit and hides the empty ones, so the result
+  // still says where it's filed.
+  const [query, setQuery] = useState("");
 
   async function load() {
     // Scope to the active tenant. intake_submissions uses company_slug (text,
@@ -129,15 +134,21 @@ export default function IntakePage() {
 
   useEffect(() => { load(); }, []);
 
+  const q = query.trim().toLowerCase();
+  const subHit = (x: Submission) => !q || [x.contact_name, x.contact_email, x.company, x.project_name].some(v => (v || "").toLowerCase().includes(q));
+  const leadHit = (l: MenuLead) => !q || [l.email, l.contact?.name, l.client_match ? matchNames[l.client_match] : null].some(v => (v || "").toLowerCase().includes(q));
+  const leads = menuLeads.filter(leadHit);
+
   const buckets = useMemo(() => {
-    const r = rows || [];
+    const r = (rows || []).filter(subHit);
     return {
       new: r.filter(s => s.status === "new"),
       reviewed: r.filter(s => s.status === "reviewed"),
       converted: r.filter(s => s.status === "converted"),
       declined: r.filter(s => s.status === "declined"),
     };
-  }, [rows]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, q]);
 
   if (rows === null) {
     return <div style={{ padding: 24, color: T.muted, fontSize: 13, fontFamily: font }}>Loading...</div>;
@@ -157,6 +168,9 @@ export default function IntakePage() {
         </a>
       </header>
 
+      <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search intake by name, email, or company…" aria-label="Search intake"
+        style={{ width: "min(420px, 100%)", boxSizing: "border-box", fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 999, border: "none", background: "#ffffff", color: "#0a0a0a", fontFamily: font, outline: "none", marginBottom: 18 }} />
+
       <StatStrip
         n={buckets.new.length}
         r={buckets.reviewed.length}
@@ -167,60 +181,34 @@ export default function IntakePage() {
       {/* The pipeline holds OPEN work only — a converted lead is a job now
           (open job → on the card) and parks in its own collapsed bucket
           below, like the /start Converted bucket. */}
-      <MenuLeadBucket
-        label="The Build · quote pipeline"
-        color={T.purple}
-        leads={menuLeads.filter(l => ["quote_requested", "quoted", "accepted"].includes(l.status) && !l.job_id)}
-        matchNames={matchNames}
-        onChanged={load}
-        emptyText="No open quote requests from The Build."
-      />
-
-      <Bucket
-        label="New"
-        color={T.accent}
-        items={buckets.new}
-        onClick={setOpen}
-        emptyText="No new submissions. The /start form pipes here."
-      />
-      <Bucket
-        label="Reviewed · in flight"
-        color={T.amber}
-        items={buckets.reviewed}
-        onClick={setOpen}
-      />
-      <Bucket
-        label="Converted"
-        color={T.green}
-        items={buckets.converted}
-        onClick={setOpen}
-        collapsedByDefault
-      />
-      <Bucket
-        label="Declined"
-        color={T.faint}
-        items={buckets.declined}
-        onClick={setOpen}
-        collapsedByDefault
-      />
-
-      <MenuLeadBucket
-        label="The Build · converted"
-        color={T.green}
-        leads={menuLeads.filter(l => l.status === "converted" || !!l.job_id)}
-        matchNames={matchNames}
-        onChanged={load}
-        emptyText="Nothing converted from The Build yet."
-        collapsedByDefault
-      />
-      <MenuLeadBucket
-        label="The Build · browsing"
-        color={T.faint}
-        leads={menuLeads.filter(l => !["quote_requested", "quoted", "accepted", "converted"].includes(l.status) && !l.job_id)}
-        matchNames={matchNames}
-        onChanged={load}
-        collapsedByDefault
-      />
+      {(() => {
+        // A search remounts every bucket expanded (key) and drops the empty
+        // ones; cleared, the page is exactly the normal view again.
+        const searching = !!q;
+        const k = searching ? "q" : "all";
+        const show = (n: number) => !searching || n > 0;
+        const pipeline = leads.filter(l => ["quote_requested", "quoted", "accepted"].includes(l.status) && !l.job_id);
+        const buildConverted = leads.filter(l => l.status === "converted" || !!l.job_id);
+        const browsing = leads.filter(l => !["quote_requested", "quoted", "accepted", "converted"].includes(l.status) && !l.job_id);
+        const hits = pipeline.length + buildConverted.length + browsing.length + buckets.new.length + buckets.reviewed.length + buckets.converted.length + buckets.declined.length;
+        return (<>
+          {searching && hits === 0 && <div style={{ fontSize: 13, color: T.muted, padding: "8px 0 24px" }}>Nothing in intake matches &ldquo;{query.trim()}&rdquo;.</div>}
+          {/* The pipeline holds OPEN work only — a converted lead is a job now
+              (open job → on the card) and parks in its own collapsed bucket
+              below, like the /start Converted bucket. */}
+          {show(pipeline.length) && <MenuLeadBucket key={`pipe-${k}`} label="The Build · quote pipeline" color={T.purple} leads={pipeline}
+            matchNames={matchNames} onChanged={load} emptyText="No open quote requests from The Build." />}
+          {show(buckets.new.length) && <Bucket key={`new-${k}`} label="New" color={T.accent} items={buckets.new} onClick={setOpen}
+            emptyText="No new submissions. The /start form pipes here." />}
+          {show(buckets.reviewed.length) && <Bucket key={`rev-${k}`} label="Reviewed · in flight" color={T.amber} items={buckets.reviewed} onClick={setOpen} />}
+          {show(buckets.converted.length) && <Bucket key={`conv-${k}`} label="Converted" color={T.green} items={buckets.converted} onClick={setOpen} collapsedByDefault={!searching} />}
+          {show(buckets.declined.length) && <Bucket key={`dec-${k}`} label="Declined" color={T.faint} items={buckets.declined} onClick={setOpen} collapsedByDefault={!searching} />}
+          {show(buildConverted.length) && <MenuLeadBucket key={`bconv-${k}`} label="The Build · converted" color={T.green} leads={buildConverted}
+            matchNames={matchNames} onChanged={load} emptyText="Nothing converted from The Build yet." collapsedByDefault={!searching} />}
+          {show(browsing.length) && <MenuLeadBucket key={`brow-${k}`} label="The Build · browsing" color={T.faint} leads={browsing}
+            matchNames={matchNames} onChanged={load} collapsedByDefault={!searching} />}
+        </>);
+      })()}
 
       {open && (
         <DetailModal
