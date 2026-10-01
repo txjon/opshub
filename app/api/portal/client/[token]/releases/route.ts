@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { isRerunLineId, isProductLineId, briefApproved } from "@/lib/release-lanes";
 import { hubClientLookup } from "@/lib/hub-client";
+import { clientSheetView } from "@/lib/line-sheets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -61,27 +62,24 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         });
       }
     }
-    // Line sheet (mig 192) — the release's proposal stage. Everything here
-    // reads the PUBLISHED snapshot (drafts are ours alone); thumbs are live.
-    // covers = first image of the first few pieces, shelf order, for the hero.
+    // Line sheet (mig 192) — the release's proposal stage, read through THE
+    // client view (lib/line-sheets clientSheetView: organizing live, art only
+    // once published). covers = first image of the first few pieces, shelf order.
     const sheetByRelease: Record<string, any> = {};
     if (ids.length) {
       const { data: sheets } = await db.from("line_sheets")
         .select("id, release_id, current_version").in("release_id", ids).gt("current_version", 0);
       for (const sh of (sheets || []) as any[]) {
-        const { data: v } = await db.from("line_sheet_versions").select("snapshot, published_at").eq("sheet_id", sh.id).eq("n", sh.current_version).maybeSingle();
-        const snap: any = (v as any)?.snapshot || { sections: [], items: [] };
+        const view = await clientSheetView(db, sh);
         const secSort: Record<string, number> = {};
-        for (const sec of snap.sections || []) secSort[sec.id] = sec.sort;
-        const pieces = [...(snap.items || [])].sort((x: any, y: any) =>
-          ((secSort[x.section_id] ?? 1e9) - (secSort[y.section_id] ?? 1e9)) || (x.sort - y.sort));
-        const { data: live } = await db.from("line_sheet_items").select("id, client_thumb").eq("sheet_id", sh.id).not("client_thumb", "is", null);
-        const onSheet = new Set(pieces.map((i: any) => i.id));
-        const thumbs = ((live || []) as any[]).filter(i => onSheet.has(i.id));
+        for (const sec of view.sections) secSort[sec.id] = sec.sort;
+        const pieces = [...view.items].sort((x: any, y: any) =>
+          ((secSort[x.section_id ?? ""] ?? 1e9) - (secSort[y.section_id ?? ""] ?? 1e9)) || (x.sort - y.sort));
+        const thumbs = pieces.filter(i => i.thumb);
         sheetByRelease[sh.release_id] = {
-          version: sh.current_version, publishedAt: (v as any)?.published_at || null,
-          pieces: pieces.length, reacted: thumbs.length, kept: thumbs.filter(i => i.client_thumb === "up").length,
-          covers: pieces.map((i: any) => i.images?.[0]?.driveId).filter(Boolean).slice(0, 8),
+          version: sh.current_version, publishedAt: view.version.published_at,
+          pieces: pieces.length, reacted: thumbs.length, kept: thumbs.filter(i => i.thumb === "up").length,
+          covers: pieces.map(i => i.images[0]?.driveId).filter(Boolean).slice(0, 8),
         };
       }
     }

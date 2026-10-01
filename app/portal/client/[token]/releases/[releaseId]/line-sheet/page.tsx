@@ -60,7 +60,7 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
           {it.badge && <span style={{ position: "absolute", top: 8, left: 8, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: it.badge === "new" ? C.green : C.amber, background: "rgba(10,10,10,.85)", borderRadius: 6, padding: "3px 8px", zIndex: 3 }}>{it.badge}</span>}
         </div>
         <div style={{ padding: "10px 12px 12px" }}>
-          <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25 }}>{it.name || (it.item_no ? String(it.item_no).padStart(2, "0") : "\u2014")}</div>
+          <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25 }}>{it.name || (it.item_no ? String(it.item_no).padStart(2, "0") : "Untitled")}</div>
           <div style={{ display: "flex", gap: 8, marginTop: 9 }}>
             <button onClick={() => react(it, "up")} aria-label="Thumbs up" style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: `1px solid ${it.thumb === "up" ? C.green : C.line}`, background: it.thumb === "up" ? "rgba(88,201,60,.14)" : "transparent", cursor: "pointer", opacity: it.thumb === "down" ? 0.45 : 1, color: it.thumb === "up" ? C.green : C.dim, display: "grid", placeItems: "center" }}><ThumbIcon dir="up" /></button>
             <button onClick={() => react(it, "down")} aria-label="Thumbs down" style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: `1px solid ${it.thumb === "down" ? C.red : C.line}`, background: it.thumb === "down" ? "rgba(255,90,110,.12)" : "transparent", cursor: "pointer", opacity: it.thumb === "up" ? 0.45 : 1, color: it.thumb === "down" ? C.red : C.dim, display: "grid", placeItems: "center" }}><ThumbIcon dir="down" /></button>
@@ -112,7 +112,7 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
         {updCount > 0 && <span style={{ color: C.amber }}>{updCount} updated</span>}
       </div>
       {version.note && <div style={{ marginTop: 10, padding: "11px 14px", background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.blue}`, borderRadius: 10, fontSize: 13, color: C.dim, maxWidth: 640 }}>{version.note}</div>}
-      <div style={{ marginTop: 6, fontSize: 11.5, color: C.faint }}>Thumb anything up or down — we see it instantly.</div>
+      <div style={{ marginTop: 6, fontSize: 11.5, color: C.faint }}>Thumb anything up or down. We see it instantly.</div>
       <div className="lsx-anchor" />
       {shelves.length > 1 && (
         <nav className="lsx-filters" aria-label="Shelves">

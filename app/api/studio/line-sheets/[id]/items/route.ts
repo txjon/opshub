@@ -29,9 +29,24 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const db = admin();
   const { data: maxRow } = await db.from("line_sheet_items").select("sort").eq("sheet_id", params.id).order("sort", { ascending: false }).limit(1).maybeSingle();
   let sort = ((maxRow as any)?.sort || 0) + 1;
+  // splitFrom = unpair. Splitting is organizing (live, Oct 1 2026): the new
+  // singles inherit the source's published state + shelf and get their own
+  // numbers, so they stay on the client's sheet instead of vanishing until
+  // the next publish. Plain uploads stay drafts (added_in null).
+  let from: any = null;
+  if (b.splitFrom) {
+    const { data } = await db.from("line_sheet_items").select("section_id, added_in, sort").eq("id", b.splitFrom).eq("sheet_id", params.id).maybeSingle();
+    from = data;
+  }
+  let nextNo = 0;
+  if (from?.added_in != null) {
+    const { data: maxNo } = await db.from("line_sheet_items").select("item_no").eq("sheet_id", params.id).not("item_no", "is", null).order("item_no", { ascending: false }).limit(1).maybeSingle();
+    nextNo = (((maxNo as any)?.item_no) || 0) + 1;
+  }
   const rows = imgs.map((i: any) => ({
-    sheet_id: params.id, section_id: null, name: null, sort: sort++,
+    sheet_id: params.id, section_id: from ? from.section_id : null, name: null, sort: sort++,
     images: [{ id: newImageId(), driveId: String(i.driveId), name: i.name || null }],
+    ...(from?.added_in != null ? { added_in: from.added_in, item_no: nextNo++ } : {}),
   }));
   const { data, error } = await db.from("line_sheet_items").insert(rows as never).select("*");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -51,7 +66,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const { data: donor } = await db.from("line_sheet_items").select("*").eq("id", b.mergeFrom).eq("sheet_id", params.id).maybeSingle();
     if (!donor) return NextResponse.json({ error: "Merge source not found" }, { status: 404 });
     const merged = [ ...((item as any).images || []), ...((donor as any).images || []) ];
-    await db.from("line_sheet_items").update({ images: merged, name: (item as any).name || (donor as any).name } as never).eq("id", b.id);
+    // Grouping is organizing (live): the client's reaction survives it. The
+    // kept item inherits the donor's thumb when it has none of its own.
+    const keepThumb = (item as any).client_thumb ? {} : (donor as any).client_thumb ? {
+      client_thumb: (donor as any).client_thumb, client_thumb_at: (donor as any).client_thumb_at, client_thumb_version: (donor as any).client_thumb_version,
+    } : {};
+    await db.from("line_sheet_items").update({ images: merged, name: (item as any).name || (donor as any).name, ...keepThumb } as never).eq("id", b.id);
     if ((donor as any).added_in == null) await db.from("line_sheet_items").delete().eq("id", b.mergeFrom);
     else await db.from("line_sheet_items").update({ dropped: true } as never).eq("id", b.mergeFrom);
   }

@@ -96,6 +96,8 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const items: any[] = data.items.filter((i: any) => !i.dropped).sort((a: any, b: any) => (a.sort || 0) - (b.sort || 0));
   const dropped: any[] = data.items.filter((i: any) => i.dropped);
   const tray = items.filter(i => !i.section_id);
+  // Organizing is live in their hub; only never-published uploads wait (Oct 1 2026).
+  const unpublished = items.filter(i => !i.dropped && i.added_in == null).length;
   const noOf = (it: any) => it.item_no ? String(it.item_no).padStart(2, "0") : null;
 
   async function patchSheet(body: any) { setBusy(true); try { const r = await fetch(`/api/studio/line-sheets/${params.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(x => x.json()); if (r.error) setErr(r.error); await load(); return r; } finally { setBusy(false); } }
@@ -159,7 +161,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     const [first, ...rest] = it.images || [];
     if (!rest.length) return;
     await patchItem({ id: it.id, images: [first] });
-    await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ images: rest.map((r: any) => ({ driveId: r.driveId, name: r.name })) }) });
+    await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ splitFrom: it.id, images: rest.map((r: any) => ({ driveId: r.driveId, name: r.name })) }) });
     await load();
   }
 
@@ -226,6 +228,20 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         </div>
       )}
 
+      {/* Not-published alert (Jon, Oct 1): organizing is live in their hub,
+          but new uploads aren't — say so up top until they're published.
+          DESIGN.md: 3px accent rail, no color wash. */}
+      {unpublished > 0 && (
+        <div role="status" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", borderLeft: `3px solid ${H.amber}`, background: H.panel, borderRadius: "0 10px 10px 0", padding: "11px 14px", marginBottom: 16 }}>
+          <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.amber }}>Not published</span>
+          <span style={{ fontSize: 12.5, color: H.text }}>
+            {sheet.current_version
+              ? `${unpublished} new upload${unpublished === 1 ? " isn't" : "s aren't"} in their hub yet. Organizing is already live.`
+              : `The client can't see this sheet yet: ${unpublished} item${unpublished === 1 ? "" : "s"} waiting for the first publish.`}
+          </span>
+          <button disabled={busy} onClick={() => setPublishOpen(true)} style={{ ...primaryBtn, padding: "8px 16px", marginLeft: "auto" }}>Publish {sheet.current_version ? `v${sheet.current_version + 1}` : "v1"} →</button>
+        </div>
+      )}
       <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint }}><a href="/studio/line-sheets" style={{ color: H.faint, textDecoration: "none" }}>‹ Line sheets</a></div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap", margin: "6px 0 4px" }}>
         <input defaultValue={sheet.title} onBlur={e => { if (e.target.value.trim() && e.target.value !== sheet.title) patchSheet({ title: e.target.value }); }}
@@ -329,7 +345,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         <div onClick={e => { if (e.target === e.currentTarget) setPublishOpen(false); }} style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(0,0,0,.8)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
           <div style={{ background: "#161616", border: `1px solid ${H.line}`, borderRadius: 18, width: "100%", maxWidth: 460, padding: "20px 22px" }}>
             <div style={{ fontSize: 15, fontWeight: 900, textTransform: "uppercase" }}>Publish v{sheet.current_version + 1}</div>
-            <div style={{ fontSize: 12, color: H.dim, marginTop: 6, lineHeight: 1.5 }}>The client&rsquo;s hub updates to this exact sheet. New items get a NEW badge; visually changed items get UPDATED and their thumb resets — unchanged items keep their 👍/👎.</div>
+            <div style={{ fontSize: 12, color: H.dim, marginTop: 6, lineHeight: 1.5 }}>New uploads go live in their hub{unpublished ? ` (${unpublished} waiting)` : ""}. Names, shelves and grouping are already live without publishing. New items get a NEW badge; items with new art get UPDATED and their thumb resets. Everything else keeps its 👍/👎.</div>
             {tray.length > 0 && <div style={{ fontSize: 12, color: H.amber, marginTop: 8 }}>Heads up: {tray.length} item{tray.length === 1 ? " is" : "s are"} still in the tray — they publish shelf-less at the bottom.</div>}
             <label style={{ ...lbl, marginTop: 12 }}>What changed <span style={{ color: H.faint }}>(the client sees this)</span></label>
             <textarea value={publishNote} onChange={e => setPublishNote(e.target.value)} rows={2} placeholder="e.g. your swaps are in, added the M81 and a popup sticker pack" style={{ ...inp, resize: "vertical" }} />

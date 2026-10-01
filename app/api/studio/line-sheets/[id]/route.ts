@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { visualKey } from "@/lib/line-sheets";
+import { publishedImageIds } from "@/lib/line-sheets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,23 +47,24 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (!sheet) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const now = new Date().toISOString();
 
-  // ── PUBLISH: the draft becomes v(n+1) the client can see ──────────────────
+  // ── PUBLISH: new uploads become visible as v(n+1). Organizing is already
+  // live (lib/line-sheets clientSheetView); the snapshot is history. ────────
   if (b.publish) {
     const n = ((sheet as any).current_version || 0) + 1;
     const { data: items } = await db.from("line_sheet_items").select("*").eq("sheet_id", params.id).order("sort");
     const { data: sections } = await db.from("line_sheet_sections").select("*").eq("sheet_id", params.id).order("sort");
-    // last snapshot's visual fingerprints — the carry rule's baseline
-    const { data: lastV } = await db.from("line_sheet_versions").select("snapshot").eq("sheet_id", params.id).eq("n", n - 1).maybeSingle();
-    const lastKeys: Record<string, string> = {};
-    for (const it of ((lastV as any)?.snapshot?.items || [])) lastKeys[it.id] = visualKey(it.images);
+    // every image any version ever showed the client — the carry rule's
+    // baseline. Organizing (grouping a front with its back) is live and never
+    // resets a thumb; only NEW ART on an existing item does (Oct 1 2026).
+    const published = await publishedImageIds(db, params.id);
     let added = 0, updated = 0, droppedN = 0;
     for (const it of (items || []) as any[]) {
       const patch: Record<string, any> = {};
       if (it.dropped && it.dropped_in == null) { patch.dropped_in = n; droppedN++; }
       if (!it.dropped) {
         if (it.added_in == null) { patch.added_in = n; added++; }
-        else if (lastKeys[it.id] != null && lastKeys[it.id] !== visualKey(it.images)) {
-          // visually changed → UPDATED badge, and the thumb resets: the
+        else if ((it.images || []).some((img: any) => !published.has(img.driveId))) {
+          // new art landed on it → UPDATED badge, and the thumb resets: the
           // client is judging a new picture (the carry rule).
           patch.updated_in = n;
           patch.client_thumb = null; patch.client_thumb_at = null; patch.client_thumb_version = null;
