@@ -34,7 +34,6 @@ export default function LineSheetsTab() {
 
 function SheetView({ token, sheetId, onBack }: { token: string; sheetId: string; onBack?: () => void }) {
   const [data, setData] = useState<any>(null);
-  const [flipped, setFlipped] = useState<Set<string>>(new Set());
   const load = () => fetch(`/api/portal/client/${token}/line-sheets/${sheetId}`).then(r => r.json()).then(j => { if (!j.error) setData(j); });
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [sheetId]);
   if (!data) return <div style={{ padding: 40, color: C.faint, fontFamily: C.font, fontSize: 13 }}>Loading…</div>;
@@ -53,28 +52,32 @@ function SheetView({ token, sheetId, onBack }: { token: string; sheetId: string;
     if (!r || !r.ok) load();
   }
 
+const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: dir === "down" ? "rotate(180deg)" : undefined, verticalAlign: "middle" }} aria-hidden>
+      <path d="M7 10v12" /><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" />
+    </svg>
+  );
+
   const itemCard = (it: any) => {
     const imgs = it.images || [];
-    const flip = flipped.has(it.id) && imgs.length > 1;
-    const show = flip ? imgs[1] : imgs[0];
     return (
       <div key={it.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, overflow: "hidden", width: "100%" }}>
-        <button onClick={() => imgs.length > 1 && setFlipped(prev => { const n = new Set(prev); n.has(it.id) ? n.delete(it.id) : n.add(it.id); return n; })}
-          style={{ display: "block", width: "100%", border: "none", padding: 0, background: "#fff", cursor: imgs.length > 1 ? "pointer" : "default", position: "relative" }}>
-          <div style={{ position: "relative", aspectRatio: "1", width: "100%" }}>
-            {imgs.length > 1 && !flip && imgs[1] && (
-              <img src={thumbUrl(imgs[1].driveId, 400)} alt="" referrerPolicy="no-referrer" style={{ position: "absolute", top: "8%", left: "30%", width: "68%", height: "86%", objectFit: "contain", filter: "brightness(.97)", mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.display = "none"; }} />
-            )}
-            {show && <img src={thumbUrl(show.driveId, 600)} alt="" referrerPolicy="no-referrer" style={{ position: "absolute", top: 0, left: 0, width: imgs.length > 1 ? "78%" : "100%", height: "100%", objectFit: "contain", mixBlendMode: imgs.length > 1 ? "multiply" : undefined }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />}
-          </div>
-          {it.badge && <span style={{ position: "absolute", top: 8, left: 8, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: it.badge === "new" ? C.green : C.amber, background: "rgba(10,10,10,.85)", borderRadius: 6, padding: "3px 8px" }}>{it.badge}</span>}
-          {imgs.length > 1 && <span style={{ position: "absolute", bottom: 8, right: 8, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: "#666", background: "rgba(255,255,255,.92)", borderRadius: 6, padding: "3px 8px" }}>{flip ? "back · tap" : "tap to flip"}</span>}
-        </button>
+        <div style={{ position: "relative", aspectRatio: "1", width: "100%", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {imgs.length > 1 ? (
+            <>
+              <img src={thumbUrl(imgs[0].driveId, 480)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" style={{ width: "62%", height: "92%", objectFit: "contain", marginRight: "-14%", zIndex: 2, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
+              <img src={thumbUrl(imgs[1].driveId, 480)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" style={{ width: "62%", height: "92%", objectFit: "contain", zIndex: 1, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+            </>
+          ) : imgs[0] ? (
+            <img src={thumbUrl(imgs[0].driveId, 480)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
+          ) : null}
+          {it.badge && <span style={{ position: "absolute", top: 8, left: 8, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: it.badge === "new" ? C.green : C.amber, background: "rgba(10,10,10,.85)", borderRadius: 6, padding: "3px 8px", zIndex: 3 }}>{it.badge}</span>}
+        </div>
         <div style={{ padding: "10px 12px 12px" }}>
           <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25 }}>{it.name || "Untitled"}</div>
           <div style={{ display: "flex", gap: 8, marginTop: 9 }}>
-            <button onClick={() => react(it, "up")} aria-label="Thumbs up" style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: `1px solid ${it.thumb === "up" ? C.green : C.line}`, background: it.thumb === "up" ? "rgba(88,201,60,.14)" : "transparent", fontSize: 14, cursor: "pointer", opacity: it.thumb === "down" ? 0.45 : 1 }}>👍</button>
-            <button onClick={() => react(it, "down")} aria-label="Thumbs down" style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: `1px solid ${it.thumb === "down" ? C.red : C.line}`, background: it.thumb === "down" ? "rgba(255,90,110,.12)" : "transparent", fontSize: 14, cursor: "pointer", opacity: it.thumb === "up" ? 0.45 : 1 }}>👎</button>
+            <button onClick={() => react(it, "up")} aria-label="Thumbs up" style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: `1px solid ${it.thumb === "up" ? C.green : C.line}`, background: it.thumb === "up" ? "rgba(88,201,60,.14)" : "transparent", cursor: "pointer", opacity: it.thumb === "down" ? 0.45 : 1, color: it.thumb === "up" ? C.green : C.dim, display: "grid", placeItems: "center" }}><ThumbIcon dir="up" /></button>
+            <button onClick={() => react(it, "down")} aria-label="Thumbs down" style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: `1px solid ${it.thumb === "down" ? C.red : C.line}`, background: it.thumb === "down" ? "rgba(255,90,110,.12)" : "transparent", cursor: "pointer", opacity: it.thumb === "up" ? 0.45 : 1, color: it.thumb === "down" ? C.red : C.dim, display: "grid", placeItems: "center" }}><ThumbIcon dir="down" /></button>
           </div>
         </div>
       </div>
@@ -102,7 +105,7 @@ function SheetView({ token, sheetId, onBack }: { token: string; sheetId: string;
         {updCount > 0 && <span style={{ color: C.amber }}>{updCount} updated</span>}
       </div>
       {version.note && <div style={{ marginTop: 10, padding: "11px 14px", background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.blue}`, borderRadius: 10, fontSize: 13, color: C.dim, maxWidth: 640 }}>{version.note}</div>}
-      <div style={{ marginTop: 6, fontSize: 11.5, color: C.faint }}>Tap 👍 or 👎 on anything — we see it instantly. Tap a card to see the back.</div>
+      <div style={{ marginTop: 6, fontSize: 11.5, color: C.faint }}>Thumb anything up or down — we see it instantly.</div>
       {sections.map((s: any) => shelf(s.name, bySection[s.id] || []))}
       {shelf(sections.length ? "More" : "The line", loose)}
     </div>
