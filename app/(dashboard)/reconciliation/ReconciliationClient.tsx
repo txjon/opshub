@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { useConfirm } from "@/components/useConfirm";
-import { buildPoRefIndex, resolvePoRef, type JobLite } from "@/lib/po-ref-match";
+import { buildPoRefIndex, resolvePoRef, poRefKey, parsePoRef, type JobLite } from "@/lib/po-ref-match";
 import { buildPrintersMap, calcCostProduct } from "@/lib/pricing";
 import { computeBillingQueue } from "@/lib/billing-queue";
 import { VarianceView } from "./VarianceView";
@@ -70,14 +70,6 @@ const inTol = (billed: number, expected: number) => {
 const autoReason = (billed: number, expected: number) => {
   if (inTol(billed, expected)) return "matches";
   return billed > expected ? "over_accept" : "under";
-};
-
-// Parse a PO ref into its job digits + item letters. "4313-F" → {4313,[F]};
-// "4313ABCDEFGHIJKLMNOPQR" → {4313,[A..R]} (a vendor billing many items in one line).
-const parsePoRef = (ref: string | null | undefined): { digits: string | null; letters: string[] } => {
-  const m = (ref || "").toUpperCase().replace(/[^A-Z0-9]/g, "").match(/^(\d{3,4})([A-Z]*)$/);
-  if (!m) return { digits: null, letters: [] };
-  return { digits: m[1], letters: m[2] ? m[2].split("") : [] };
 };
 
 const money = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -350,7 +342,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
   const poIndex = useMemo(() => {
     const m: Record<string, { poRef: string; job_id: string; job_number: string; qb: string | null; client_name: string | null; vendorName: string; apVendorId: string | null; itemName: string; projected: number }> = {};
     for (const j of queue.jobs) for (const v of j.vendors) for (const it of v.items) {
-      m[it.poRef.toUpperCase().replace(/[^A-Z0-9]/g, "")] = { poRef: it.poRef, job_id: j.id, job_number: j.job_number, qb: j.qb_invoice_number, client_name: j.client_name, vendorName: v.name, apVendorId: v.apVendorId, itemName: it.name, projected: it.expected };
+      m[poRefKey(it.poRef)] = { poRef: it.poRef, job_id: j.id, job_number: j.job_number, qb: j.qb_invoice_number, client_name: j.client_name, vendorName: v.name, apVendorId: v.apVendorId, itemName: it.name, projected: it.expected };
     }
     return m;
   }, [queue]);
@@ -360,7 +352,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
   const billedPoTotals = useMemo(() => {
     const m: Record<string, number> = {};
     for (const e of entries) {
-      const k = (e.po_ref || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const k = poRefKey(e.po_ref);
       if (k) m[k] = Math.round(((m[k] || 0) + Number(e.amount || 0)) * 100) / 100;
     }
     return m;
@@ -387,7 +379,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
   }, [entries]);
   const priorBilledFor = (resolved: NbResolved | null): number => {
     if (!resolved) return 0;
-    const poKey = resolved.poRef.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const poKey = poRefKey(resolved.poRef);
     const jvKey = `${resolved.job_id}::${resolved.apVendorId}`;
     if ((vendorLineCount[jvKey] || 0) === 1) return billedJobVendorTotals[jvKey] || billedPoTotals[poKey] || 0;
     return billedPoTotals[poKey] || 0;
@@ -395,7 +387,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
   const billedPoAmounts = useMemo(() => {
     const m: Record<string, number[]> = {};
     for (const e of entries) {
-      const k = (e.po_ref || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const k = poRefKey(e.po_ref);
       if (k) (m[k] = m[k] || []).push(Number(e.amount || 0));
     }
     return m;
@@ -403,13 +395,13 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
   // A same-amount re-entry on a PO is the real double-bill signal (vs a legit
   // additional charge, which has a different amount). Only this hard-blocks on save.
   const isExactDup = (poRef: string, amt: number) => {
-    const k = poRef.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const k = poRefKey(poRef);
     return amt > 0 && (billedPoAmounts[k] || []).some(a => Math.abs(a - amt) < 0.005);
   };
   // Resolve a typed PO ref to a New Bill line — a single item, OR a multi-item ref
   // (one line covering several POs, summed projection), matching how vendors invoice.
   const resolveNbPo = (input: string) => {
-    const norm = input.toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const norm = poRefKey(input);
     if (poIndex[norm]) { const h = poIndex[norm]; return { ...h, multi: false, multiVendor: false }; }
     const { digits, letters } = parsePoRef(input);
     if (!digits || letters.length < 2) return null;
@@ -826,7 +818,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
                 {nbLines.length === 0 && <div style={{ padding: "10px 0", fontSize: 12, color: T.faint }}>No lines — click “+ Add line” (or +5/+10), then fill each column down.</div>}
                 {nbLines.map(l => {
                   const amt = parseAmount(l.amount);
-                  const poKey = l.resolved ? l.resolved.poRef.toUpperCase().replace(/[^A-Z0-9]/g, "") : "";
+                  const poKey = l.resolved ? poRefKey(l.resolved.poRef) : "";
                   // Saved → read-only confirmation. This line is now in billedPoTotals, so variance
                   // = total billed on the PO − projected (do NOT re-add this line, and no dup alerts:
                   // it would flag itself). Empty rows are dropped from the saved summary.
