@@ -158,7 +158,13 @@ export default function ProjectsBoard() {
   // One bucket per job: cancelled (search only) · completed · on hold · active.
   type Bucket = "active" | "on_hold" | "completed" | "cancelled";
   const bucketOf = (r: Row): Bucket => r.job.phase === "cancelled" ? "cancelled" : r.stage.complete ? "completed" : r.job.phase === "on_hold" ? "on_hold" : "active";
-  const untouchedDays = (r: Row) => Math.max(0, Math.floor((Date.now() - new Date(r.job.updated_at || r.job.created_at).getTime()) / 864e5));
+  // True hold date when stamped (mig 196 trigger); pre-196 holds fall back to
+  // last-touched and say so ("untouched", not "on hold").
+  const holdSince = (r: Row): { at: string; stamped: boolean } => {
+    const ts = (r.job as any).phase_timestamps?.on_hold;
+    return ts ? { at: ts, stamped: true } : { at: r.job.updated_at || r.job.created_at, stamped: false };
+  };
+  const heldDays = (r: Row) => Math.max(0, Math.floor((Date.now() - new Date(holdSince(r).at).getTime()) / 864e5));
   // Client filter options follow the tab — completed clients aren't necessarily active ones.
   const clients = useMemo(() => [...new Set(rows.filter(r => bucketOf(r) === tab).map(clientName))].sort(), [rows, tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -169,9 +175,8 @@ export default function ProjectsBoard() {
   const done = base.filter(r => bucketOf(r) === "completed");
   const activeAll = rows.filter(r => bucketOf(r) === "active");
   const heldAll = rows.filter(r => bucketOf(r) === "on_hold");
-  // On hold: longest untouched first, so the stale ones surface (no hold date
-  // is recorded, so last-touched is the honest clock).
-  const held = useMemo(() => base.filter(r => bucketOf(r) === "on_hold").sort((a, b) => untouchedDays(b) - untouchedDays(a)), [base]); // eslint-disable-line react-hooks/exhaustive-deps
+  // On hold: longest held first, so the stale ones surface.
+  const held = useMemo(() => base.filter(r => bucketOf(r) === "on_hold").sort((a, b) => heldDays(b) - heldDays(a)), [base]); // eslint-disable-line react-hooks/exhaustive-deps
   // Search reaches every bucket: matches outside the current tab list below
   // it, labeled, so nothing parked or cancelled is ever unfindable.
   const BUCKET_LABEL: Record<Bucket, string> = { active: "Active", on_hold: "On hold", completed: "Completed", cancelled: "Cancelled" };
@@ -233,7 +238,7 @@ export default function ProjectsBoard() {
         loading ? <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center" }}>Loading…</div> : (
         <div style={{ marginTop: 4 }}>
           <SliceSortRow>
-            <span style={{ fontSize: 12, color: T.muted }}>{held.length} on hold · longest untouched first · take one off hold and it&rsquo;s back in Active</span>
+            <span style={{ fontSize: 12, color: T.muted }}>{held.length} on hold · longest held first · take one off hold and it&rsquo;s back in Active</span>
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", flex: isMobile ? "1 1 100%" : undefined }}>
               <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={sel}>
                 <option value="">All clients</option>
@@ -243,7 +248,7 @@ export default function ProjectsBoard() {
           </SliceSortRow>
           {held.map(r => (
             <div key={r.job.id}>
-              <div style={{ fontSize: 10.5, fontWeight: 700, color: untouchedDays(r) > 60 ? T.amber : T.faint, margin: "10px 0 -4px 2px", fontFamily: mono }}>untouched {untouchedDays(r)}d</div>
+              <div title={holdSince(r).stamped ? `On hold since ${new Date(holdSince(r).at).toLocaleDateString()}` : "Held before hold dates were recorded: days since last edit"} style={{ fontSize: 10.5, fontWeight: 700, color: heldDays(r) > 60 ? T.amber : T.faint, margin: "10px 0 -4px 2px", fontFamily: mono }}>{holdSince(r).stamped ? "on hold" : "untouched"} {heldDays(r)}d</div>
               <Strip r={r} thumbs={thumbs} proofStatus={proofStatus} flash={flashId === r.job.id} onOpen={() => openJob(r)} onRemember={() => rememberJob(r)} />
             </div>
           ))}

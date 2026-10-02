@@ -708,8 +708,16 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     } catch (e) { failed("Phase recalc failed — not saved", e); }
   };
   const setPhase = async (phase: string, recalc = false) => {
+    const prev = job.phase;
     setJob((j: any) => ({ ...j, phase }));
-    try { await (createClient().from("jobs") as any).update({ phase }).eq("id", job.id); logJobActivity(job.id, `Phase → ${phase}`); } catch (e) { failed("Phase change failed — not saved", e); }
+    // supabase returns { error } rather than throwing: check it, or a failed
+    // save shows the new phase while the DB keeps the old one (Oct 2 2026).
+    // phase_timestamps.on_hold is stamped by the DB trigger (mig 196).
+    try {
+      const { error } = await (createClient().from("jobs") as any).update({ phase }).eq("id", job.id);
+      if (error) { setJob((j: any) => ({ ...j, phase: prev })); failed("Phase change failed — not saved", error); }
+      else logJobActivity(job.id, `Phase → ${phase}`);
+    } catch (e) { setJob((j: any) => ({ ...j, phase: prev })); failed("Phase change failed — not saved", e); }
     setMenuOpen(false);
   };
   const duplicateJob = async () => {
