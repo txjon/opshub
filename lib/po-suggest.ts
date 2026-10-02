@@ -19,7 +19,7 @@ export function suggestPoField(k: PoFieldKey, item: any, cp: any, clientName: st
     const indiv = (cp?.customCosts || []).some((c: any) => /individually packaged/i.test(c?.desc || ""));
     // Explicit 0 = free / client-supplied blanks (same rule the phase engine uses).
     if (cost !== null && cost !== undefined && cost !== "" && Number(cost) === 0) {
-      return `${clientName || "Client"} stock — client-supplied blanks${indiv ? ", arriving individually packaged" : ""}`;
+      return `${clientName || "Client"} stock - client-supplied blanks${indiv ? ", arriving individually packaged" : ""}`;
     }
     if (!item.blank_vendor) return null;
     const what = `${item.blank_vendor}${item.blank_sku ? ` · ${item.blank_sku}` : ""}${units ? ` · ${units.toLocaleString()} u` : ""}`;
@@ -27,8 +27,8 @@ export function suggestPoField(k: PoFieldKey, item: any, cp: any, clientName: st
   }
   if (k === "production_notes_po") {
     const cf = carriedFrom(item);
-    if (cf?.ref) return `Re-order of ${cf.ref} — same art as before`;
-    if (cf?.jobNumber) return `Re-order of ${cf.jobNumber} — same art as before`;
+    if (cf?.ref) return `Re-order of ${cf.ref} - same art as before`;
+    if (cf?.jobNumber) return `Re-order of ${cf.jobNumber} - same art as before`;
     return null;
   }
   if (k === "packing_notes") {

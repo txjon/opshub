@@ -711,7 +711,7 @@ export async function POST(
             await resend.emails.send({
               from: process.env.EMAIL_FROM_PO || "production@housepartydistro.com",
               to: "production@housepartydistro.com",
-              subject: `Vendor discrepancy — ${decorator.name} · ${ctx.item.name} · ${projectRef}`,
+              subject: `Vendor discrepancy - ${decorator.name} · ${ctx.item.name} · ${projectRef}`,
               html: renderBrandedEmail({
                 heading: `Vendor flagged a discrepancy`,
                 bodyHtml: `<strong>${decorator.name}</strong> reported an issue on <strong>${ctx.item.name}</strong> (${projectRef}):<br/><br/><em>"${note.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}"</em>`,

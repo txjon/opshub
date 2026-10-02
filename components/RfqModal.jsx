@@ -29,7 +29,7 @@ export default function RfqModal({ job, costProds, decoratorRecords = [], onClos
     const contactsNext = {};
     (dec?.contacts_list || []).forEach((c, i) => { if (c?.email) contactsNext[i] = true; });
     setRfqRecipientSel(contactsNext);
-    setRfqSubject(`Quote request — ${job?.job_number || ""} — ${job?.clients?.name || job?.title || ""}`.trim());
+    setRfqSubject(`Quote request - ${job?.job_number || ""} - ${job?.clients?.name || job?.title || ""}`.trim());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rfqVendor]);
 
@@ -113,7 +113,7 @@ export default function RfqModal({ job, costProds, decoratorRecords = [], onClos
               <div style={sectionLabel}>Decorator</div>
               <select value={rfqVendor} onChange={e => setRfqVendor(e.target.value)}
                 style={{ ...inp, cursor: "pointer", borderColor: rfqVendor ? T.accent + "66" : T.border, color: rfqVendor ? T.text : T.muted }}>
-                <option value="">— select decorator —</option>
+                <option value="">- select decorator -</option>
                 {decoratorRecords.map(d => (
                   <option key={d.id} value={d.short_code || d.name}>{d.name}{d.short_code ? ` (${d.short_code})` : ""}</option>
                 ))}
@@ -135,7 +135,7 @@ export default function RfqModal({ job, costProds, decoratorRecords = [], onClos
               </div>
               {eligible.length === 0 ? (
                 <div style={{ padding: "12px", fontSize: 11, color: T.faint, textAlign: "center", border: `1px dashed ${T.border}`, borderRadius: 6 }}>
-                  No items with quantities yet — add items first.
+                  No items with quantities yet - add items first.
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 200, overflow: "auto" }}>
@@ -153,7 +153,7 @@ export default function RfqModal({ job, costProds, decoratorRecords = [], onClos
                           {String.fromCharCode(65 + idx)}
                         </span>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{p.name || "—"}</div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{p.name || "-"}</div>
                           <div style={{ fontSize: 10, color: T.muted }}>
                             {(p.totalQty || 0).toLocaleString()} units
                             {p.style ? ` · ${p.style}` : ""}
@@ -230,7 +230,7 @@ export default function RfqModal({ job, costProds, decoratorRecords = [], onClos
                   <div style={{ padding: "10px 14px", fontSize: 12, color: T.text, lineHeight: 1.55, background: T.card, fontFamily: font }}>
                     <div style={{ fontWeight: 600, marginBottom: 4 }}>Hi {rfqVendor || "{Vendor}"},</div>
                     <div style={{ marginBottom: 6 }}>
-                      Can you please provide pricing for the item(s) in the attachment? The PDF lays out each item — please reply with: pricing, setup fees, and estimated shipping cost. In addition, we need realistic production lead time and post-production transit time.
+                      Can you please provide pricing for the item(s) in the attachment? The PDF lays out each item - please reply with: pricing, setup fees, and estimated shipping cost. In addition, we need realistic production lead time and post-production transit time.
                     </div>
                     {rfqBody.trim() && (
                       <div style={{ marginTop: 8, padding: "8px 10px", background: T.surface, borderLeft: `3px solid ${T.accent}`, borderRadius: 3, whiteSpace: "pre-wrap" }}>
@@ -238,7 +238,7 @@ export default function RfqModal({ job, costProds, decoratorRecords = [], onClos
                       </div>
                     )}
                     <div style={{ marginTop: 8, fontSize: 11, color: T.muted, fontStyle: "italic" }}>
-                      Reach out if anything in the spec is unclear or if you need additional info — we&apos;ll send through whatever you need.
+                      Reach out if anything in the spec is unclear or if you need additional info - we&apos;ll send through whatever you need.
                     </div>
                     <div style={{ marginTop: 8 }}>Thanks,<br />House Party Distro</div>
                   </div>

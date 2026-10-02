@@ -46,7 +46,7 @@ function buildDecoSpec(p: any): { label: string; detail: string }[] {
     if (screens > 0) parts.push(`${screens} color${screens !== 1 ? "s" : ""}`);
     if (ld.shared && ld.shareGroup) parts.push(`shared (group ${ld.shareGroup})`);
     if (ld.puffColors) parts.push(`${ld.puffColors} puff`);
-    lines.push({ label: name || `Location ${loc}`, detail: parts.join(" · ") || "—" });
+    lines.push({ label: name || `Location ${loc}`, detail: parts.join(" · ") || "-" });
   }
 
   // Tag print
@@ -69,7 +69,7 @@ function buildDecoSpec(p: any): { label: string; detail: string }[] {
         if (name.toLowerCase().includes("fleece")) continue; // fleece handled by toggle
         const stored = p.specialtyQtys[name + "_count"] || 0;
         const count = stored > 0 && stored < activeLocs ? stored : activeLocs;
-        lines.push({ label: name.replace(/([A-Z])/g, " $1").trim(), detail: count > 0 ? `${count} location${count !== 1 ? "s" : ""}` : "—" });
+        lines.push({ label: name.replace(/([A-Z])/g, " $1").trim(), detail: count > 0 ? `${count} location${count !== 1 ? "s" : ""}` : "-" });
       }
     }
   }
@@ -117,7 +117,7 @@ const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&l
 
     const decoSection = decoSpec.length > 0 ? `
       <div style="margin-top:6px;border-top:0.5px solid #e8e8e8;padding-top:5px">
-        <div style="font-size:7px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:3px">Decoration spec — please quote</div>
+        <div style="font-size:7px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:3px">Decoration spec - please quote</div>
         <table style="width:100%;border-collapse:collapse;font-size:9px">
           ${decoSpec.map((l: any) => `
             <tr>
@@ -131,7 +131,7 @@ const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&l
 
     return `<div style="border-left:3px solid #1a1a1a;padding-left:16px;margin-bottom:16px;page-break-inside:avoid">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-        <div style="font-size:13px;font-weight:700">${item.letter} — ${item.name}</div>
+        <div style="font-size:13px;font-weight:700">${item.letter} - ${item.name}</div>
         <div style="font-size:10px;color:#888">${item.totalQty.toLocaleString()} units</div>
       </div>
       <div style="display:flex;gap:12px;margin-bottom:4px;font-size:9px;color:#555">
@@ -185,7 +185,7 @@ const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&l
   const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" , timeZone: "America/Los_Angeles" });
   const shipDate = data.target_ship_date
     ? new Date(data.target_ship_date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" , timeZone: "America/Los_Angeles" })
-    : "—";
+    : "-";
 
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
 <style>* { box-sizing: border-box; margin: 0; padding: 0; } body { font-family: ${font}; font-size: 11px; color: #1a1a1a; background: white; }</style>
@@ -201,7 +201,7 @@ const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&l
     </div>
     <div style="text-align:right">
       <div style="font-size:20px;font-weight:800;letter-spacing:-0.5px;color:#1a1a1a">QUOTE REQUEST</div>
-      <div style="font-size:11px;color:#666;margin-top:2px;font-weight:600">HPD ${data.job_number || "—"}</div>
+      <div style="font-size:11px;color:#666;margin-top:2px;font-weight:600">HPD ${data.job_number || "-"}</div>
       <div style="font-size:10px;color:#888;margin-top:4px">${data.client_name} · ${data.vendor_name}</div>
     </div>
   </div>
@@ -215,7 +215,7 @@ const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&l
       <span style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa">Ship to <span style="color:#666">(for shipping cost estimate)</span></span>
       <span style="font-size:8px;padding:1px 6px;border-radius:99;background:${data.shipping_route === "drop_ship" ? "#dcfce7" : "#dbeafe"};color:${data.shipping_route === "drop_ship" ? "#15803d" : "#1d4ed8"};font-weight:600">${data.shipping_route === "drop_ship" ? "Drop ship" : "HPD warehouse"}</span>
     </div>
-    <div style="line-height:1.7;white-space:pre-wrap">${data.ship_to_address || "—"}</div>
+    <div style="line-height:1.7;white-space:pre-wrap">${data.ship_to_address || "-"}</div>
   </div>
 
   <div style="background:#fffbe6;border:0.5px solid #f0d000;padding:8px 12px;border-radius:4px;margin-bottom:16px;font-size:10px;color:#5a4400;line-height:1.5">
@@ -343,11 +343,11 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
       vendorDefaultRoute: route === "drop_ship" ? ((decoratorRecord as any)?.default_shipping_route || null) : null,
       hpdBlock: tenantWarehouse,
     });
-    const shipToAddress = paper.address || (route === "drop_ship" ? "Drop ship address — to be confirmed" : tenantWarehouse);
+    const shipToAddress = paper.address || (route === "drop_ship" ? "Drop ship address - to be confirmed" : tenantWarehouse);
 
     const rfqData = {
-      job_number: (job.job_number || "—") + (itemLetters ? `-${itemLetters}` : ""),
-      client_name: (job.clients as any)?.name || "—",
+      job_number: (job.job_number || "-") + (itemLetters ? `-${itemLetters}` : ""),
+      client_name: (job.clients as any)?.name || "-",
       target_ship_date: job.target_ship_date,
       vendor_name: vendorName,
       vendor_short_code: (decoratorRecord as any)?.short_code || vendorName,

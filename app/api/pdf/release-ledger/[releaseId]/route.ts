@@ -121,7 +121,7 @@ export async function GET(req: NextRequest, { params }: { params: { releaseId: s
   </style></head><body>
   <header>
     <div><div style="font-size:9px;letter-spacing:0.14em;color:#8a90a0;text-transform:uppercase">House Party Distro · ${esc((release as any).clients?.name || "")}</div>
-    <h1>${esc((release as any).title)} — Pre-Order Ledger</h1></div>
+    <h1>${esc((release as any).title)} - Pre-Order Ledger</h1></div>
     <div class="meta">${(release as any).window_close_date ? `Window closes ${(release as any).window_close_date}<br>` : ""}Report generated ${today}</div>
   </header>
   <div class="strip">
@@ -137,7 +137,7 @@ export async function GET(req: NextRequest, { params }: { params: { releaseId: s
   return new NextResponse(pdf as any, {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": contentDisposition(`${(release as any).title} — Ledger.pdf`, req.nextUrl.searchParams.get("download")),
+      "Content-Disposition": contentDisposition(`${(release as any).title} - Ledger.pdf`, req.nextUrl.searchParams.get("download")),
     },
   });
 }

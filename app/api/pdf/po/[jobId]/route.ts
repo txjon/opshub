@@ -223,7 +223,7 @@ function calcDecorationLines(p: any, allProds: any[] = []): { label: string; qty
         // missing" (Jon, Jul 26).
         if (sharedScreensToSkip > 0) {
           if (autoScreens === 0) {
-            lines.push({ label: `Screens shared — billed once with the group (${sharedScreensToSkip} screens)`, qty: 0, rate: 0, total: 0 });
+            lines.push({ label: `Screens shared - billed once with the group (${sharedScreensToSkip} screens)`, qty: 0, rate: 0, total: 0 });
             continue;
           }
           label = `Screen fees (${autoScreens} screens; ${sharedScreensToSkip} shared, billed with group)`;
@@ -319,7 +319,7 @@ const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&l
 
     return `<div style="border-left:3px solid ${isNew ? "#f97316" : "#1a1a1a"};padding-left:16px;margin-bottom:16px;page-break-inside:avoid">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-        <div style="font-size:13px;font-weight:700">${item.letter} — ${item.name}${newChip}</div>
+        <div style="font-size:13px;font-weight:700">${item.letter} - ${item.name}${newChip}</div>
         <div style="font-size:10px;color:#888">${item.totalQty.toLocaleString()} units</div>
       </div>
       <div style="display:flex;gap:12px;margin-bottom:4px;font-size:9px;color:#555">
@@ -340,11 +340,11 @@ const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&l
           .map((sz: string) => {
             const s = subs[sz] || {};
             const garment = [s.label, s.color].filter(Boolean).join(" · ");
-            const parts = [garment, s.note].filter(Boolean).join(" — ");
+            const parts = [garment, s.note].filter(Boolean).join(" - ");
             return `<div style="padding:2px 0"><span style="display:inline-block;min-width:34px;font-weight:800;font-family:${mono}">${sz}</span><span style="color:#7a5200">(${item.qtys[sz]} pcs)</span> &nbsp;${parts || "substitute blank"}</div>`;
           }).join("");
         return rows ? `<div style="font-size:9.5px;color:#7a5200;padding:6px 9px;background:#fff4d6;border:1px solid #f0c869;border-radius:4px;margin-bottom:6px">
-          <div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;color:#9a6400;margin-bottom:3px">⚠ Blank substitution — different garment for these sizes</div>
+          <div style="font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:0.08em;color:#9a6400;margin-bottom:3px">⚠ Blank substitution - different garment for these sizes</div>
           ${rows}
         </div>` : "";
       })()}
@@ -373,7 +373,7 @@ const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&l
             <div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#888">Production files · ${prints.length} print file${prints.length === 1 ? "" : "s"}${data.release_version ? ` · release v${data.release_version}` : ""}</div>
             ${data.portal_url ? `<a href="${data.portal_url}" style="display:inline-block;text-decoration:none;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#fff;background:#1a1a1a;padding:4px 10px;border-radius:4px">Download files ↗</a>` : ""}
           </div>
-          ${prints.length === 0 ? `<div style="font-size:9px;color:#b00020;font-weight:700">No print file on this item yet — do not print until one is provided.</div>` : ""}
+          ${prints.length === 0 ? `<div style="font-size:9px;color:#b00020;font-weight:700">No print file on this item yet - do not print until one is provided.</div>` : ""}
           <div style="display:flex;gap:8px;align-items:flex-start">
             ${thumbs ? `<div style="display:flex;gap:3px;flex-shrink:0">${thumbs}</div>` : ""}
             <div style="flex:1;min-width:0">${prints.map((f: any) => row(f, true)).join("")}${others.map((f: any) => row(f, false)).join("")}</div>
@@ -412,7 +412,7 @@ const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&l
     ? (data.target_ship_date === "ASAP"
         ? "ASAP"
         : new Date(data.target_ship_date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" , timeZone: "America/Los_Angeles" }))
-    : "—";
+    : "-";
 
   // Revision banner — only on resends. The original PO is implicitly
   // superseded; we tell the decorator with a loud red strip + the
@@ -425,8 +425,8 @@ const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&l
   // added to an existing item) used to promise NEW chips that never appear.
   const hasNewItems = data.is_revision && (data.items || []).some((it: any) => !it.sent_to_decorator_date);
   const revisionDetail = hasNewItems
-    ? `Items marked <strong style="background:#fff;color:#f97316;padding:0 5px;border-radius:2px;font-size:9px">NEW</strong> were added since the original send — please process accordingly.`
-    : `Costs or details on existing items were updated since the original send — please review the line items and process accordingly.`;
+    ? `Items marked <strong style="background:#fff;color:#f97316;padding:0 5px;border-radius:2px;font-size:9px">NEW</strong> were added since the original send - please process accordingly.`
+    : `Costs or details on existing items were updated since the original send - please review the line items and process accordingly.`;
   const revisionBanner = data.is_revision ? `
     <div style="background:#f97316;color:#fff;padding:10px 14px;border-radius:4px;margin-bottom:14px;display:flex;align-items:center;gap:12px">
       <div style="font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.08em">⚠ Revised PO</div>
@@ -449,7 +449,7 @@ const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&l
       </div>
     </div>
     <div style="text-align:right">
-      <div style="font-size:20px;font-weight:800;letter-spacing:-0.5px;color:#1a1a1a">${data.branding.poNumberPrefix || "PO"}# ${data.job_number || "—"}${data.is_revision ? ` <span style="font-size:11px;color:#f97316;font-weight:700">REVISED</span>` : ""}</div>
+      <div style="font-size:20px;font-weight:800;letter-spacing:-0.5px;color:#1a1a1a">${data.branding.poNumberPrefix || "PO"}# ${data.job_number || "-"}${data.is_revision ? ` <span style="font-size:11px;color:#f97316;font-weight:700">REVISED</span>` : ""}</div>
       <div style="font-size:10px;color:#888;margin-top:4px">${data.client_name} · ${data.vendor_name}</div>
     </div>
   </div>
@@ -457,7 +457,7 @@ const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&l
   ${revisionBanner}
 
   <div style="display:flex;gap:0;border:0.5px solid #ccc;margin-bottom:16px">
-    ${[["Date",dateLabel],["Ship date",shipDate],["Vendor ID",data.vendor_short_code||data.vendor_name],["Ship method",data.ship_method||"—"],["Ship acct #",data.shipping_account||"—"]].map(([k,v],i,arr)=>`<div style="flex:1;padding:5px 8px;${i<arr.length-1?"border-right:0.5px solid #ccc":""}"><div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:2px">${k}</div><div style="font-size:10px;font-weight:600;color:#1a1a1a">${v}</div></div>`).join("")}
+    ${[["Date",dateLabel],["Ship date",shipDate],["Vendor ID",data.vendor_short_code||data.vendor_name],["Ship method",data.ship_method||"-"],["Ship acct #",data.shipping_account||"-"]].map(([k,v],i,arr)=>`<div style="flex:1;padding:5px 8px;${i<arr.length-1?"border-right:0.5px solid #ccc":""}"><div style="font-size:7.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:2px">${k}</div><div style="font-size:10px;font-weight:600;color:#1a1a1a">${v}</div></div>`).join("")}
   </div>
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:16px;font-size:10px">
@@ -467,7 +467,7 @@ const esc = (v: any) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&l
     </div>
     <div>
       <div style="font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#aaa;margin-bottom:6px">Ship to</div>
-      <div style="line-height:1.7;white-space:pre-wrap">${data.ship_to_address || "\u2014"}</div>
+      <div style="line-height:1.7;white-space:pre-wrap">${data.ship_to_address || "-"}</div>
     </div>
   </div>
 
@@ -650,7 +650,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
 
     const poData = {
       job_number: ((job as any).qb_invoice_number || job.job_number) + itemLetters,
-      client_name: (job.clients as any)?.name || "—",
+      client_name: (job.clients as any)?.name || "-",
       // PO date = the date the PO was originally marked sent (if it
       // ever was). Falls back to today's render time so first-print
       // PDFs still get a date. Stored when "Mark sent" runs in POTab.

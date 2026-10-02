@@ -16,7 +16,7 @@ import { getPdfBranding } from "@/lib/branding";
 // when pricing_data is loaded).
 
 const FONT = `-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif`;
-const fmtD = (n: any) => (n === null || n === undefined || isNaN(Number(n))) ? "—" : "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtD = (n: any) => (n === null || n === undefined || isNaN(Number(n))) ? "-" : "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const esc = (s: any) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const sectionLabel = (t: string) => `<div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#aaa;margin:16px 0 7px">${esc(t)}</div>`;
 
@@ -70,10 +70,10 @@ function buildHtml(dec: any, pd: any, branding: any): string {
   const SETUP_LABELS: Record<string, string> = { Seps: "Separations (per screen)", Screens: "Screens (every order)", "Tag Screens": "Neck Label Screens (one time - per size)" };
 
   const printTbl = matrixTable(qtys, prices, pd.tagPrices);
-  const screenPrint = printTbl ? sectionLabel("Screen Print — per print") + printTbl : "";
+  const screenPrint = printTbl ? sectionLabel("Screen Print - per print") + printTbl : "";
 
   const minsTbl = kvTable(pd.minimums, MIN_LABELS);
-  const minsSec = minsTbl ? sectionLabel("Less than minimum — flat rate per print location") + minsTbl : "";
+  const minsSec = minsTbl ? sectionLabel("Less than minimum - flat rate per print location") + minsTbl : "";
   const setupTbl = kvTable(pd.setup, SETUP_LABELS);
   const setupSec = setupTbl ? sectionLabel("Setup Fees") + setupTbl : "";
   const finishingTbl = kvTable(pd.finishing);
@@ -81,7 +81,7 @@ function buildHtml(dec: any, pd: any, branding: any): string {
   const packagingTbl = kvTable(pd.packaging);
   const packagingSec = packagingTbl ? sectionLabel("Packaging") + packagingTbl : "";
   const specialtyTbl = kvTableTwoCol(pd.specialty);
-  const specialtySec = specialtyTbl ? `<div style="break-inside:avoid;page-break-inside:avoid">${sectionLabel("Specialty Upcharges — per print")}${specialtyTbl}</div>` : "";
+  const specialtySec = specialtyTbl ? `<div style="break-inside:avoid;page-break-inside:avoid">${sectionLabel("Specialty Upcharges - per print")}${specialtyTbl}</div>` : "";
 
   // Below Screen Print + Neck Label: a 50/50 row, then a 3-up row.
   //   Row 1 — left: Setup Fees   ·   right: Less-than-minimum, Finishing
@@ -118,7 +118,7 @@ function buildHtml(dec: any, pd: any, branding: any): string {
   </div>
   ${body}
   <div style="margin-top:22px;padding-top:14px;border-top:0.5px solid #e5e7eb;font-size:10px;color:#999;line-height:1.6">
-    Internal decorator pricing — ${esc(branding.name || "House Party Distro")}. Generated ${today}.
+    Internal decorator pricing - ${esc(branding.name || "House Party Distro")}. Generated ${today}.
   </div>
 </div></body></html>`;
 }

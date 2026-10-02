@@ -62,7 +62,7 @@ export function renderPOHTML(data: POData): string {
           ${item.color ? `<div class="sub">${item.color}</div>` : ""}
           ${item.decoration ? `<div class="sub">${item.decoration}</div>` : ""}
         </td>
-        ${allSizes.map((s) => `<td class="col-size">${item.sizes[s] ?? "—"}</td>`).join("")}
+        ${allSizes.map((s) => `<td class="col-size">${item.sizes[s] ?? "-"}</td>`).join("")}
         <td class="col-qty"><strong>${item.total_qty.toLocaleString()}</strong></td>
         <td class="col-cost">${formatCurrency(item.unit_cost)}</td>
         <td class="col-total">${formatCurrency(item.line_total)}</td>
@@ -74,7 +74,7 @@ export function renderPOHTML(data: POData): string {
   const sizeTotalsHTML = allSizes
     .map((s) => {
       const sum = data.line_items.reduce((acc, item) => acc + (item.sizes[s] ?? 0), 0);
-      return `<td class="col-size totals-cell">${sum || "—"}</td>`;
+      return `<td class="col-size totals-cell">${sum || "-"}</td>`;
     })
     .join("");
 
@@ -281,7 +281,7 @@ export function renderPOHTML(data: POData): string {
           ? `<div class="primary">${data.ship_to_name}</div>
             ${data.ship_to_address ? `<p>${data.ship_to_address}</p>` : ""}
             ${data.ship_to_city ? `<p>${data.ship_to_city}${data.ship_to_state ? ", " + data.ship_to_state : ""} ${data.ship_to_zip ?? ""}</p>` : ""}`
-          : `<p>—</p>`
+          : `<p>-</p>`
       }
     </div>
     <div class="info-cell">

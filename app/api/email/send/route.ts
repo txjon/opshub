@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
       const poNumCore = tenantPrefix && rawPoNum.startsWith(tenantPrefix + "-")
         ? rawPoNum.slice(tenantPrefix.length + 1)
         : rawPoNum;
-      defaultSubject = subject || `PO# ${tenantPrefix} ${poNumCore} — ${companyName}${vendor ? ` — ${vendor}` : ""}`.trim();
+      defaultSubject = subject || `PO# ${tenantPrefix} ${poNumCore} - ${companyName}${vendor ? ` - ${vendor}` : ""}`.trim();
       filename = `po-${qbInvNum || jobNum || jobId.slice(0, 8)}.pdf`;
     } else if (type === "invoice") {
       pdfUrl = `${baseUrl}/api/pdf/invoice/${jobId}?download=1`;
@@ -130,7 +130,7 @@ export async function POST(req: NextRequest) {
       const itemsQs = Array.isArray(rfqItemIds) && rfqItemIds.length > 0 ? `&items=${encodeURIComponent(rfqItemIds.join(","))}` : "";
       pdfUrl = `${baseUrl}/api/pdf/rfq/${jobId}?download=1${vendor ? `&vendor=${encodeURIComponent(vendor)}` : ""}${itemsQs}`;
       fromAddress = namedFrom(fromProduction);
-      defaultSubject = subject || `Quote request — ${jobNum || ""} — ${projectTitle || ""}`.trim();
+      defaultSubject = subject || `Quote request - ${jobNum || ""} - ${projectTitle || ""}`.trim();
       filename = `rfq-${jobNum || jobId.slice(0, 8)}.pdf`;
     } else {
       return NextResponse.json({ error: "Invalid type" }, { status: 400 });
@@ -334,11 +334,11 @@ export async function POST(req: NextRequest) {
               : "";
             return renderBrandedEmail({
               eyebrow: companyName,
-              heading: `Quote request — ${jobNum || ""}`.trim(),
+              heading: `Quote request - ${jobNum || ""}`.trim(),
               greeting: `Hi ${vendor || "there"},`,
-              bodyHtml: `Can you please provide pricing for the item(s) in the attachment? The PDF lays out each item, and the art files are attached for reference — please reply with: pricing, setup fees, and estimated shipping cost. In addition, we need realistic production lead time and post-production transit time.`,
+              bodyHtml: `Can you please provide pricing for the item(s) in the attachment? The PDF lays out each item, and the art files are attached for reference - please reply with: pricing, setup fees, and estimated shipping cost. In addition, we need realistic production lead time and post-production transit time.`,
               extraHtml: (customExtra || "") + rfqArtLinksHtml,
-              hint: `Reach out if anything in the spec is unclear or if you need additional info — we'll send through whatever you need.`,
+              hint: `Reach out if anything in the spec is unclear or if you need additional info - we'll send through whatever you need.`,
               closing: `Thanks,\n${companyName}`,
               align: "left",
             });
@@ -403,7 +403,7 @@ export async function POST(req: NextRequest) {
         body_text: type === "po"
           ? `Purchase order attached (${filename})\n\nPlease find the attached purchase order. Let us know if you have any questions or need clarification on any items.`
           : type === "rfq"
-          ? `Quote request attached (${filename})\n\nWe'd love a quote on the attached items — please reply with pricing, setup fees, and lead time.`
+          ? `Quote request attached (${filename})\n\nWe'd love a quote on the attached items - please reply with pricing, setup fees, and lead time.`
           : type === "quote"
           ? `Quote attached (${filename})\n\nHere's your quote. Take a look and let us know if you have any questions or want to make changes.`
           : type === "invoice"
