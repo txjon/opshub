@@ -49,7 +49,9 @@ export default function ProjectsBoard() {
   const [proofStatus, setProofStatus] = useState<Record<string, { allApproved: boolean; state?: "approved" | "revision" | "pending" | "none" }> | undefined>(undefined);
   const [thumbs, setThumbs] = useState<Record<string, string>>({}); // itemId → drive_file_id (mockup, else proof) for the strip's items peek
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"active" | "completed">("active");
+  // On hold = its own tab (Jon, Oct 2 2026): parked work out of the Active
+  // list but one tap away; never deleted (art is shared by drive_file_id).
+  const [tab, setTab] = useState<"active" | "on_hold" | "completed">("active");
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState("");
   const [clientFilter, setClientFilter] = useState("");
@@ -65,7 +67,7 @@ export default function ProjectsBoard() {
   useEffect(() => {
     const s = readBoardState();
     if (!s) return;
-    if (s.tab === "active" || s.tab === "completed") setTab(s.tab);
+    if (s.tab === "active" || s.tab === "on_hold" || s.tab === "completed") setTab(s.tab);
     if (typeof s.query === "string") setQuery(s.query);
     if (typeof s.stageFilter === "string") setStageFilter(s.stageFilter);
     if (typeof s.clientFilter === "string") setClientFilter(s.clientFilter);
@@ -109,11 +111,12 @@ export default function ProjectsBoard() {
     (async () => {
       const { data } = await supabase.from("jobs")
         .select("id, job_number, title, phase, shipping_route, payment_terms, quote_approved, quote_approved_at, created_at, updated_at, phase_timestamps, target_ship_date, type_meta, qb_invoice_number, qb_invoice_id, costing_summary, clients(name), payment_records(amount, status, paid_date), items(id, name, sort_order, pipeline_stage, artwork_status, shipping_route, ship_est, expected_arrival, blanks_order_cost, blanks_order_number, received_at_hpd, forwarded_at, webstore_entered_at, buy_sheet_lines(qty_ordered), decorator_assignments(decorators(name, short_code)))")
-        .not("phase", "in", "(cancelled)")
+        // cancelled jobs load too: never in a tab, but search finds them (their
+        // art lives here and only here — Oct 2 2026)
         .order("created_at", { ascending: false });
       const js = (data as any[]) || [];
       setJobs(js);
-      loadJobPhasesBatch(supabase, js.filter(j => j.phase !== "complete").map(j => j.id)).then(setPhaseViews).catch(() => {});
+      loadJobPhasesBatch(supabase, js.filter(j => j.phase !== "complete" && j.phase !== "cancelled").map(j => j.id)).then(setPhaseViews).catch(() => {});
       // Proof approvals (Approved milestone gate) + item thumbnails (the strip's
       // items peek) — one batched pass over the live (non-superseded) proof +
       // mockup files of every active job's items, chunked to keep the .in()
@@ -152,15 +155,27 @@ export default function ProjectsBoard() {
   })), [jobs, phaseViews, proofStatus]);
 
   const clientName = (r: Row) => (r.job.clients as any)?.name || "—";
+  // One bucket per job: cancelled (search only) · completed · on hold · active.
+  type Bucket = "active" | "on_hold" | "completed" | "cancelled";
+  const bucketOf = (r: Row): Bucket => r.job.phase === "cancelled" ? "cancelled" : r.stage.complete ? "completed" : r.job.phase === "on_hold" ? "on_hold" : "active";
+  const untouchedDays = (r: Row) => Math.max(0, Math.floor((Date.now() - new Date(r.job.updated_at || r.job.created_at).getTime()) / 864e5));
   // Client filter options follow the tab — completed clients aren't necessarily active ones.
-  const clients = useMemo(() => [...new Set(rows.filter(r => tab === "completed" ? r.stage.complete : !r.stage.complete).map(clientName))].sort(), [rows, tab]);
+  const clients = useMemo(() => [...new Set(rows.filter(r => bucketOf(r) === tab).map(clientName))].sort(), [rows, tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const q = query.toLowerCase().trim();
   const matchQ = (r: Row) => !q || `${r.job.job_number} ${(r.job as any).qb_invoice_number || ""} ${clientName(r)} ${r.job.title || ""}`.toLowerCase().includes(q);
   const base = rows.filter(r => (!clientFilter || clientName(r) === clientFilter) && matchQ(r));
-  const activeCQ = base.filter(r => !r.stage.complete); // client + search filtered — drives the stage counts
-  const done = base.filter(r => r.stage.complete);
-  const activeAll = rows.filter(r => !r.stage.complete);
+  const activeCQ = base.filter(r => bucketOf(r) === "active"); // client + search filtered — drives the stage counts
+  const done = base.filter(r => bucketOf(r) === "completed");
+  const activeAll = rows.filter(r => bucketOf(r) === "active");
+  const heldAll = rows.filter(r => bucketOf(r) === "on_hold");
+  // On hold: longest untouched first, so the stale ones surface (no hold date
+  // is recorded, so last-touched is the honest clock).
+  const held = useMemo(() => base.filter(r => bucketOf(r) === "on_hold").sort((a, b) => untouchedDays(b) - untouchedDays(a)), [base]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Search reaches every bucket: matches outside the current tab list below
+  // it, labeled, so nothing parked or cancelled is ever unfindable.
+  const BUCKET_LABEL: Record<Bucket, string> = { active: "Active", on_hold: "On hold", completed: "Completed", cancelled: "Cancelled" };
+  const elsewhere = q ? base.filter(r => bucketOf(r) !== tab) : [];
 
   // Stage dropdown TRULY filters: only jobs at the picked stage show.
   const stageCounts = useMemo(() => Object.fromEntries(PROJ_MILESTONES.map(m => [m.k, activeCQ.filter(r => atStage(r, m.k)).length])) as Record<string, number>, [activeCQ]);
@@ -169,13 +184,9 @@ export default function ProjectsBoard() {
   // invoice = highest invoice # first (uninvoiced last); newest = created desc.
   const active = useMemo(() => {
     const byCreated = (a: Row, b: Row) => (b.job.created_at || "").localeCompare(a.job.created_at || "");
-    // On-hold jobs always sink to the bottom — their dates aren't live, so they
-    // must never outrank working jobs in any sort mode.
-    const hold = (r: Row) => (r.job.phase === "on_hold" ? 1 : 0);
     const list = [...filtered];
     if (sortBy === "due") {
       list.sort((a, b) => {
-        if (hold(a) !== hold(b)) return hold(a) - hold(b);
         const da = firstItemDue(a.job), db = firstItemDue(b.job);
         if (da && db) return da.localeCompare(db) || byCreated(a, b);
         if (da) return -1;
@@ -185,14 +196,13 @@ export default function ProjectsBoard() {
     } else if (sortBy === "invoice") {
       const inv = (r: Row) => parseInt((r.job as any).qb_invoice_number, 10);
       list.sort((a, b) => {
-        if (hold(a) !== hold(b)) return hold(a) - hold(b);
         const ia = inv(a), ib = inv(b);
         if (!isNaN(ia) && !isNaN(ib)) return ib - ia;
         if (!isNaN(ia)) return -1;
         if (!isNaN(ib)) return 1;
         return (b.job.job_number || "").localeCompare(a.job.job_number || "");
       });
-    } else list.sort((a, b) => (hold(a) - hold(b)) || byCreated(a, b));
+    } else list.sort(byCreated);
     return list;
   }, [filtered, sortBy]);
 
@@ -211,7 +221,7 @@ export default function ProjectsBoard() {
       {/* Active/Completed toggles + search on ONE row (Jon, Jul 29) — search
           sits left beside the tabs, same height, white pill kept but compact. */}
       <div style={{ display: "flex", gap: 8, alignItems: "center", margin: "14px 0 22px", flexWrap: "wrap" }}>
-        {([["active", `Active · ${activeAll.length}`], ["completed", `Completed · ${rows.filter(r => r.stage.complete).length}`]] as [typeof tab, string][]).map(([k, label]) => (
+        {([["active", `Active · ${activeAll.length}`], ["on_hold", `On hold · ${heldAll.length}`], ["completed", `Completed · ${rows.filter(r => bucketOf(r) === "completed").length}`]] as [typeof tab, string][]).map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)}
             style={{ fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 9, cursor: "pointer", border: `1px solid ${tab === k ? T.text : T.border}`, background: tab === k ? T.text : T.card, color: tab === k ? "#0a0a0a" : T.muted }}>{label}</button>
         ))}
@@ -219,7 +229,27 @@ export default function ProjectsBoard() {
           style={{ width: "min(360px, 100%)", boxSizing: "border-box", fontSize: 13, fontWeight: 600, padding: "8px 16px", borderRadius: 999, border: "none", background: "#ffffff", color: "#0a0a0a", fontFamily: font, outline: "none" }} />
       </div>
 
-      {tab === "active" ? (
+      {tab === "on_hold" ? (
+        loading ? <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center" }}>Loading…</div> : (
+        <div style={{ marginTop: 4 }}>
+          <SliceSortRow>
+            <span style={{ fontSize: 12, color: T.muted }}>{held.length} on hold · longest untouched first · take one off hold and it&rsquo;s back in Active</span>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", flex: isMobile ? "1 1 100%" : undefined }}>
+              <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} style={sel}>
+                <option value="">All clients</option>
+                {clients.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </SliceSortRow>
+          {held.map(r => (
+            <div key={r.job.id}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: untouchedDays(r) > 60 ? T.amber : T.faint, margin: "10px 0 -4px 2px", fontFamily: mono }}>untouched {untouchedDays(r)}d</div>
+              <Strip r={r} thumbs={thumbs} proofStatus={proofStatus} flash={flashId === r.job.id} onOpen={() => openJob(r)} onRemember={() => rememberJob(r)} />
+            </div>
+          ))}
+          {!held.length && <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, marginTop: 8 }}>Nothing on hold{q || clientFilter ? " matches" : ""}.</div>}
+        </div>)
+      ) : tab === "active" ? (
         loading ? <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center" }}>Loading…</div> : (<>
           <style>{`@keyframes projChipPop{from{transform:translateY(2px);opacity:.35}to{transform:none;opacity:1}}.proj-chip{animation:projChipPop .13s ease-out}`}</style>
           <SliceSortRow>
@@ -277,6 +307,18 @@ export default function ProjectsBoard() {
           </SliceSortRow>
           {doneSorted.map(r => <Strip key={r.job.id} r={r} thumbs={thumbs} proofStatus={proofStatus} completed flash={flashId === r.job.id} onOpen={() => openJob(r)} onRemember={() => rememberJob(r)} />)}
           {!doneSorted.length && <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, marginTop: 8 }}>No completed projects match.</div>}
+        </div>
+      )}
+
+      {elsewhere.length > 0 && !loading && (
+        <div style={{ marginTop: 26 }}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: T.muted, marginBottom: 6 }}>Also matching &ldquo;{query.trim()}&rdquo; in other tabs</div>
+          {elsewhere.map(r => (
+            <div key={r.job.id}>
+              <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: bucketOf(r) === "cancelled" ? T.red : T.faint, margin: "10px 0 -4px 2px" }}>{BUCKET_LABEL[bucketOf(r)]}</div>
+              <Strip r={r} thumbs={thumbs} proofStatus={proofStatus} completed={bucketOf(r) === "completed"} flash={flashId === r.job.id} onOpen={() => openJob(r)} onRemember={() => rememberJob(r)} />
+            </div>
+          ))}
         </div>
       )}
     </BoardFrame>
