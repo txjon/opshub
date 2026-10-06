@@ -51,7 +51,8 @@ export type Owner =
   | { kind: "product_mockup"; id: string }
   | { kind: "client_file"; id: string; clientId: string }
   | { kind: "legacy_art"; id: string; clientId: string | null }
-  | { kind: "lab_request"; id: string };
+  | { kind: "lab_request"; id: string }
+  | { kind: "line_sheet_item"; id: string; sheetId: string };
 
 const admin = () =>
   createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -70,7 +71,7 @@ export async function resolveOwners(db: any, driveFileId: string): Promise<Owner
     db.from(table).select(select).eq(column, driveFileId).limit(25)
       .then((r: any) => { if (r.error) throw new Error(`${table}.${column}: ${r.error.message}`); return r.data || []; });
 
-  const [items, briefs, briefPreviews, lineups, lineupPreviews, clientDocs, legacy, products, lab, proofPdfs, proofMockups] = await Promise.all([
+  const [items, briefs, briefPreviews, lineups, lineupPreviews, clientDocs, legacy, products, lab, proofPdfs, proofMockups, sheetItems] = await Promise.all([
     rows("item_files", "drive_file_id", "id, item_id, stage, superseded_at"),
     rows("art_brief_files", "drive_file_id", "id, brief_id"),
     rows("art_brief_files", "preview_drive_file_id", "id, brief_id"),
@@ -88,6 +89,12 @@ export async function resolveOwners(db: any, driveFileId: string): Promise<Owner
     // enforcement on would blank every proof mockup in every client hub.
     rows("proof_versions", "pdf_drive_file_id", "id, item_id"),
     rows("proof_versions", "mockup_drive_file_id", "id, item_id"),
+    // A line sheet piece keeps its art in an images array, not a column. Art
+    // uploaded straight onto a piece has no other record, so without this the
+    // client's own line sheet 404'd those tiles under enforcement (Oct 2026).
+    db.from("line_sheet_items").select("id, sheet_id")
+      .contains("images", JSON.stringify([{ driveId: driveFileId }])).limit(25)
+      .then((r: any) => { if (r.error) throw new Error(`line_sheet_items: ${r.error.message}`); return r.data || []; }),
   ]);
 
   const out: Owner[] = [];
@@ -103,6 +110,7 @@ export async function resolveOwners(db: any, driveFileId: string): Promise<Owner
   for (const v of [...proofPdfs, ...proofMockups]) {
     out.push({ kind: "item_file", id: v.id, itemId: v.item_id, stage: "proof", superseded: false });
   }
+  for (const s of sheetItems) out.push({ kind: "line_sheet_item", id: s.id, sheetId: s.sheet_id });
   return out;
 }
 
@@ -188,6 +196,14 @@ async function allowsOwner(db: any, who: Audience, owner: Owner): Promise<{ ok: 
   if (owner.kind === "product_mockup") {
     // Catalog imagery: clients browse it in the hub, vendors don't need it.
     return who.kind === "client" ? { ok: true, reason: "catalog" } : { ok: false, reason: "catalog-wrong-audience" };
+  }
+
+  if (owner.kind === "line_sheet_item") {
+    if (who.kind !== "client") return { ok: false, reason: `line-sheet-wrong-audience:${who.kind}` };
+    const { data: sheet } = await db.from("line_sheets").select("client_id").eq("id", owner.sheetId).maybeSingle();
+    return (sheet as any)?.client_id === who.clientId
+      ? { ok: true, reason: "own-line-sheet" }
+      : { ok: false, reason: "other-client-line-sheet" };
   }
 
   return { ok: false, reason: "unhandled" };
