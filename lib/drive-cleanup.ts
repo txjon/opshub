@@ -152,6 +152,7 @@ export async function trashFolderSafely(
   type Entry = { id: string; parent: string; shortcut: boolean };
   const files: Entry[] = [];
   const folders: string[] = [];        // child-first
+  const folderParent = new Map<string, string>();   // within the tree only
   const collect = async (id: string) => {
     let pageToken: string | undefined;
     do {
@@ -161,7 +162,7 @@ export async function trashFolderSafely(
         pageSize: 200, pageToken,
       });
       for (const f of (res.data.files || [])) {
-        if (f.mimeType === "application/vnd.google-apps.folder") await collect(f.id!);
+        if (f.mimeType === "application/vnd.google-apps.folder") { folderParent.set(f.id!, id); await collect(f.id!); }
         else files.push({ id: f.id!, parent: id, shortcut: f.mimeType === "application/vnd.google-apps.shortcut" });
       }
       pageToken = res.data.nextPageToken || undefined;
@@ -184,25 +185,21 @@ export async function trashFolderSafely(
     catch { keptFiles++; keptIn.add(f.parent); }
   }
 
-  // 4. Child-first, trash folders that kept nothing (a kept child keeps its parents).
-  const parentOf = new Map<string, string>();
-  for (const f of files) parentOf.set(f.id, f.parent);
-  const keptFolders = new Set(keptIn);
+  // 4. Every ancestor of a kept file is kept — decided BEFORE any folder is
+  //    trashed. Trashing a folder trashes everything inside it, so a kept
+  //    file under a trashed parent is lost anyway. (Oct 2026: the old loop
+  //    skipped a kept folder before propagating to its parent, so the project
+  //    folder went to the trash and took HPD-2609-037's proof mockup with it.)
+  const keptFolders = new Set<string>();
+  for (const start of Array.from(keptIn)) {
+    for (let id: string | undefined = start; id && !keptFolders.has(id); id = folderParent.get(id)) {
+      keptFolders.add(id);
+    }
+  }
   for (const id of folders) {
     if (keptFolders.has(id)) continue;
     try { await drive.files.update({ fileId: id, requestBody: { trashed: true } }); }
-    catch { keptFolders.add(id); }
-    if (keptFolders.has(id)) {
-      // propagate upward so ancestors are kept too
-      const res: any = await drive.files.get({ fileId: id, fields: "parents" }).catch(() => null);
-      for (const p of (res?.data?.parents || [])) keptFolders.add(p);
-    }
-  }
-  // a kept child folder must keep its ancestors: re-walk child-first
-  for (const id of folders) {
-    if (!keptFolders.has(id)) continue;
-    const res: any = await drive.files.get({ fileId: id, fields: "parents" }).catch(() => null);
-    for (const p of (res?.data?.parents || [])) keptFolders.add(p);
+    catch { /* left in place: nothing inside it is kept, so nothing is at risk */ }
   }
 
   return { trashedFiles, keptFiles, folderTrashed: !keptFolders.has(folderId) };

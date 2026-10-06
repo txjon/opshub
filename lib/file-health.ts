@@ -31,25 +31,37 @@ async function referencedFileIds(db: any): Promise<Map<string, { file_name: stri
   // company's jobs are closed and its files are not coming back, so reporting
   // them is a permanent, unactionable line in the daily email (IHM, Sep 2026).
   // companies.is_active is the existing flag; flip it and the tenant drops out.
+  //
+  // CANCELLED projects are closed the same way. "Delete project" cancels the
+  // job and trashes its Drive folder on purpose, so its items' files are
+  // meant to be gone; watching them reported a deliberate delete as a loss
+  // (HPD-2609-036, Oct 2026). A file a live project still shares is watched
+  // through that project's own row. Un-cancel a job and it is watched again.
   const retiredItems = new Set<string>();
   {
     const { data: dead } = await db.from("companies").select("id").eq("is_active", false);
     const deadIds = (dead || []).map((c: any) => c.id);
+    const jobIds: string[] = [];
     if (deadIds.length) {
-      const jobIds: string[] = [];
       for (let f = 0; ; f += 1000) {
         const { data, error } = await db.from("jobs").select("id").in("company_id", deadIds).range(f, f + 999);
         if (error) break;
         jobIds.push(...(data || []).map((j: any) => j.id));
         if (!data || data.length < 1000) break;
       }
-      for (let i = 0; i < jobIds.length; i += 200) {
-        for (let f = 0; ; f += 1000) {
-          const { data, error } = await db.from("items").select("id").in("job_id", jobIds.slice(i, i + 200)).range(f, f + 999);
-          if (error) break;
-          for (const it of (data || [])) retiredItems.add(it.id);
-          if (!data || data.length < 1000) break;
-        }
+    }
+    for (let f = 0; ; f += 1000) {
+      const { data, error } = await db.from("jobs").select("id").eq("phase", "cancelled").range(f, f + 999);
+      if (error) break;
+      jobIds.push(...(data || []).map((j: any) => j.id));
+      if (!data || data.length < 1000) break;
+    }
+    for (let i = 0; i < jobIds.length; i += 200) {
+      for (let f = 0; ; f += 1000) {
+        const { data, error } = await db.from("items").select("id").in("job_id", jobIds.slice(i, i + 200)).range(f, f + 999);
+        if (error) break;
+        for (const it of (data || [])) retiredItems.add(it.id);
+        if (!data || data.length < 1000) break;
       }
     }
   }
