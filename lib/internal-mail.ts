@@ -126,8 +126,8 @@ DONE WHEN: you've answered or it's with a designer. Silence is the only wrong mo
 
 DO THIS:
 1. Open the job: ${APP}/jobs/${e.jobId}
-2. Run the next gate: order blanks + send POs (the Blanks tab shows the 3-gate checklist)
-3. If the invoice hasn't gone out, send it from the Proofs & Invoice tab
+2. Run the next gate: order blanks + send POs (Purchasing & Production on the job page)
+3. If the invoice hasn't gone out, send it from Approvals & Billing on the job page
 
 DONE WHEN: blanks are ordered and POs are out. This is a green light — treat it same-day.`,
       };
