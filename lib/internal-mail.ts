@@ -26,6 +26,12 @@ export type InternalEvent =
   | { kind: "new_idea"; client: string; title: string; notes?: string | null; ready?: boolean }
   | { kind: "client_approved"; client: string; jobNumber: string; jobId: string }
   | { kind: "client_changes"; client: string; jobNumber: string; jobId: string; note?: string | null }
+  // A client payment landed (QB webhook / manual sync — lib/payment-notify).
+  // `stage` is where the job stood, so the DO THIS fits what's actually next.
+  | { kind: "client_paid"; client: string; jobNumber: string; jobId: string; invoiceNumber: string | null;
+      amount: number; paidTotal: number; invoiceTotal: number;
+      items: { name: string; units: number }[];
+      stage: "needs_pos" | "in_motion" | "complete" }
   | { kind: "drop_ready"; client: string; title: string; targetLive?: string | null; newLines: number; pipeLines: number }
   | { kind: "idea_greenlit"; client: string; title: string; door: "order" | "later"; productCount: number; jobId?: string | null; jobNumber?: string | null }
   | { kind: "product_run"; client: string; title: string; units: number; jobId: string; jobNumber: string }
@@ -33,7 +39,8 @@ export type InternalEvent =
   // THE DESIGNER DOOR (mig 165): the outside designer moved on a work order.
   | { kind: "designer_delivery" | "designer_reply"; title: string; woType: string; briefId: string; woId: string; jobId?: string | null; designer: string; note?: string | null };
 
-function build(e: InternalEvent): { to: string[]; subject: string; text: string } {
+// Exported for previews/tests only — sending goes through sendInternalMail.
+export function build(e: InternalEvent): { to: string[]; subject: string; text: string } {
   // Directive voice (Jon: "here's what's coming is nice — here's what to do
   // with it is better"): every email = what happened, DO THIS (numbered,
   // with the exact link), DONE WHEN (the completion condition).
@@ -124,6 +131,54 @@ DO THIS:
 
 DONE WHEN: blanks are ordered and POs are out. This is a green light — treat it same-day.`,
       };
+    case "client_paid": {
+      const $ = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const balance = Math.max(0, Math.round((e.invoiceTotal - e.paidTotal) * 100) / 100);
+      const paidInFull = e.invoiceTotal > 0 && balance < 0.01;
+      const inv = e.invoiceNumber ? `Invoice #${e.invoiceNumber}` : "Invoice";
+      const units = e.items.reduce((a, i) => a + i.units, 0);
+      const itemLines = e.items.map(i => `  - ${i.name}${i.units ? ` (${i.units.toLocaleString()} pcs)` : ""}`).join("\n");
+      const money = paidInFull
+        ? `${inv}: ${$(e.amount)} received. PAID IN FULL (${$(e.paidTotal)}).`
+        : e.invoiceTotal > 0
+        ? `${inv}: ${$(e.amount)} received. ${$(e.paidTotal)} of ${$(e.invoiceTotal)} paid, ${$(balance)} still open.`
+        : `${inv}: ${$(e.amount)} received.`;
+      const next = e.stage === "needs_pos"
+        ? `DO THIS:
+1. Open the job: ${APP}/jobs/${e.jobId}
+2. Purchasing & Production: order the blanks and send the POs
+3. Check the proofs are approved; chase any that aren't before the POs go
+
+DONE WHEN: blanks are ordered and every PO is out. Money is in, so this is same-day.`
+        : e.stage === "in_motion"
+        ? `Production is already moving (POs are out), so nothing new is unlocked.
+
+DO THIS:
+1. Open the job: ${APP}/jobs/${e.jobId}
+2. If anything was held for this payment (a ship, a release, a pickup), release it now${paidInFull ? "" : `
+3. ${$(balance)} is still open: confirm the balance is on the client's radar`}
+
+DONE WHEN: nothing on the job is waiting on money.`
+        : `The job is already complete${paidInFull ? ", and this closes it out" : ""}.
+
+DO THIS:
+1. Open the job: ${APP}/jobs/${e.jobId}${paidInFull ? "\n2. Nothing else: it's settled" : `
+2. ${$(balance)} is still open: confirm the balance is on the client's radar`}
+
+DONE WHEN: ${paidInFull ? "nothing to do. This one is for the record." : "the invoice reads paid in full."}`;
+      return {
+        to: [DEPT.labs],
+        subject: e.stage === "needs_pos"
+          ? `PAID — ${e.jobNumber} (${e.client}) — order blanks + send POs`
+          : `PAID — ${e.jobNumber} (${e.client})${paidInFull ? " — paid in full" : ` — ${$(balance)} open`}`,
+        text: `${e.client} paid. ${money}
+
+${e.items.length} item${e.items.length === 1 ? "" : "s"}${units ? `, ${units.toLocaleString()} pcs` : ""}:
+${itemLines}
+
+${next}`,
+      };
+    }
     case "client_changes":
       return {
         to: [DEPT.labs],
