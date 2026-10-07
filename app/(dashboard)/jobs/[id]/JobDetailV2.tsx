@@ -17,6 +17,7 @@ import { createClient } from "@/lib/supabase/client";
 import { isCostingLocked } from "@/lib/costing-lock";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { resolveRecipientEmails } from "@/lib/recipients";
+import { findRouteMismatchedBoxes, relabelBoxesInbound } from "@/lib/handoff";
 import { calcCostProduct, blankCostTotals, buildPrintersMap, lookupPrintPrice as sharedLookupPrintPrice, lookupTagPrice as sharedLookupTagPrice, effectiveShipRate } from "@/lib/pricing";
 import { DecorationPanel as DecorationPanelRaw } from "./DecorationPanel";
 import { ProofModal as ProofModalRaw } from "./ArtTab";
@@ -773,6 +774,42 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     try { await deletePayment(id); setPayments(prev => prev.filter(x => x.id !== id)); recalcPhase(); } catch (e) { failed("Payment delete failed — not saved", e); }
   };
 
+  // A route change doesn't move boxes that already shipped: they keep the
+  // direction they were recorded with (lib/handoff findRouteMismatchedBoxes).
+  // Offer to fix the open ones so nothing strands between Receiving and
+  // Shipping (HPD-2609-022, Oct 2026).
+  const reconcileBoxesForRoute = async (itemIds: string[], route: string) => {
+    try {
+      const supabase = createClient();
+      const boxes = await findRouteMismatchedBoxes(supabase, itemIds, route);
+      if (!boxes.length) return;
+      const toHpd = route !== "drop_ship";
+      const fixable = toHpd ? boxes.filter(b => !b.mixed) : [];
+      const left = boxes.length - fixable.length;
+      if (fixable.length) {
+        const one = fixable.length === 1;
+        const ok = await confirmDlg({
+          title: one ? "Send the shipped box to Receiving?" : `Send ${fixable.length} shipped boxes to Receiving?`,
+          message: `${one ? "A box already shipped" : `${fixable.length} boxes already shipped`} straight to the client. With this route ${one ? "it comes" : "they come"} through HPD, so ${one ? "it has" : "they have"} to be received before forwarding.`,
+          confirmLabel: "Move to Receiving", confirmColor: T.accent,
+        });
+        if (ok) {
+          const n = await relabelBoxesInbound(supabase, fixable.map(b => b.shipmentId));
+          logJobActivity(job.id, `${n} shipped box${n === 1 ? "" : "es"} moved to Receiving after the route change (was vendor to client)`);
+        }
+      }
+      if (left) {
+        await confirmDlg({
+          title: "A shipped box doesn't match this route",
+          message: toHpd
+            ? `${left === 1 ? "A box" : `${left} boxes`} already shipped straight to the client also ${left === 1 ? "carries" : "carry"} items that aren't changing route, so ${left === 1 ? "it" : "they"} can't be moved to Receiving from here.`
+            : `${left === 1 ? "A box" : `${left} boxes`} already shipped to HPD. ${left === 1 ? "It stays" : "They stay"} on Receiving: receive there, then forward to the client.`,
+          confirmLabel: "Got it", confirmColor: T.accent,
+        });
+      }
+    } catch (e) { failed("Couldn't check shipped boxes against the new route", e); }
+  };
+
   const saveRoute = async (route: string) => {
     if (route === (job.shipping_route || "")) return;
     setJob((j: any) => ({ ...j, shipping_route: route }));
@@ -780,7 +817,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       await (createClient().from("jobs") as any).update({ shipping_route: route }).eq("id", job.id);
       logJobActivity(job.id, `Shipping route set to ${ROUTE_LABEL[route] || route}`);
       recalcPhase(); // route drives receiving vs drop-ship-complete gating
-    } catch (e) { failed("Route save failed — not saved", e); }
+    } catch (e) { failed("Route save failed — not saved", e); return; }
+    // items without their own route follow the job's
+    await reconcileBoxesForRoute(items.filter((x: any) => !x.shipping_route).map((x: any) => x.id), route);
   };
   const removeProduct = async (item: any) => {
     if (!await confirmDlg({ title: "Remove this item?", message: `"${item.name}" and its files come off the job.`, confirmLabel: "Remove item" })) return;
@@ -1307,7 +1346,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const saveItemRoute = async (item: any, route: string) => {
     const v = route || null;
     setItems(prev => prev.map(x => x.id === item.id ? { ...x, shipping_route: v } : x));
-    try { await (createClient().from("items") as any).update({ shipping_route: v }).eq("id", item.id); recalcPhase(); } catch (e) { failed("Route save failed — not saved", e); }
+    try { await (createClient().from("items") as any).update({ shipping_route: v }).eq("id", item.id); recalcPhase(); } catch (e) { failed("Route save failed — not saved", e); return; }
+    const effective = v || job.shipping_route;
+    if (effective) await reconcileBoxesForRoute([item.id], effective);
   };
   // Manual mark / unmark a vendor's PO sent (no email) — mirrors classic chips.
   const markPoSent = async (vendor: string) => {

@@ -158,6 +158,53 @@ export async function deleteShipmentIfEmpty(supabase: Sb, shipmentId: string): P
   return true;
 }
 
+// A box keeps the direction it shipped with. Change an item's route AFTER it
+// shipped and the two disagree: a ship-through item on a vendor→client box is
+// never on Receiving, so it can never be received or forwarded (HPD-2609-022,
+// Oct 6 2026). These find the OPEN boxes (nothing received yet) that disagree
+// with a new route, so the route editor can offer to fix them.
+export type RouteMismatchBox = {
+  shipmentId: string;
+  direction: "inbound" | "direct";
+  // The box also carries items NOT changing route — relabeling it would move
+  // their units too, so it's reported, never flipped.
+  mixed: boolean;
+};
+export async function findRouteMismatchedBoxes(supabase: Sb, itemIds: string[], newRoute: string): Promise<RouteMismatchBox[]> {
+  if (!itemIds.length) return [];
+  const want = newRoute === "drop_ship" ? "direct" : "inbound";
+  const { data: lines, error } = await supabase
+    .from("shipment_lines").select("shipment_id, shipments(id, direction, status)").in("item_id", itemIds);
+  if (error) throw new Error(error.message);
+  const ids = Array.from(new Set((lines || [])
+    .filter((l: any) => l.shipments?.status === "expected" && ["inbound", "direct"].includes(l.shipments?.direction) && l.shipments.direction !== want)
+    .map((l: any) => l.shipment_id as string))) as string[];
+  const out: RouteMismatchBox[] = [];
+  for (const id of ids) {
+    const { data: all, error: e2 } = await supabase.from("shipment_lines").select("item_id, received, shipments(direction)").eq("shipment_id", id);
+    if (e2) throw new Error(e2.message);
+    if ((all || []).some((l: any) => l.received)) continue;   // receiving has started: leave it to the warehouse
+    out.push({
+      shipmentId: id,
+      direction: (all || [])[0]?.shipments?.direction,
+      mixed: (all || []).some((l: any) => !itemIds.includes(l.item_id)),
+    });
+  }
+  return out;
+}
+
+// Vendor→client box → inbound to HPD: it lands on Receiving like any pickup.
+// The destination fields only mean something on a direct box, so they clear
+// (an inbound box's address is HPD). Guarded on still-direct + still-expected.
+export async function relabelBoxesInbound(supabase: Sb, shipmentIds: string[]): Promise<number> {
+  if (!shipmentIds.length) return 0;
+  const { data, error } = await supabase.from("shipments")
+    .update({ direction: "inbound", location_id: null, ship_to_snapshot: null })
+    .in("id", shipmentIds).eq("direction", "direct").eq("status", "expected").select("id");
+  if (error) throw new Error(error.message);
+  return (data || []).length;
+}
+
 // Undo paths (undo-shipped, return-to-production): drop the item's line from
 // any un-received shipment; delete the shipment if that was its last line.
 export async function removeShipmentLineForItem(supabase: Sb, itemId: string): Promise<void> {
