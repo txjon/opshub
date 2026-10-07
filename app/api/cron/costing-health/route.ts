@@ -267,6 +267,38 @@ export async function GET(req: NextRequest) {
       .filter(j => ((j.type_meta?.po_sent_vendors || []) as string[]).length > 0 && !j.qb_invoice_number)
       .map(j => `${j.job_number} (${j.phase}) — PO sent to ${(j.type_meta.po_sent_vendors as string[]).join(", ")}`);
 
+    // (d) Costing names a vendor but the item has no assignment to it. The
+    //     production board groups by assignment ("Unassigned vendor") and the
+    //     vendor portal lists orders by it — so the vendor never sees the work
+    //     (HPD-2609-044 duplicate, Oct 2026). Copy paths now create one
+    //     (lib/vendor-assignments); this catches any path that doesn't.
+    const vendorGaps: string[] = [];
+    {
+      const { data: decs } = await sb.from("decorators").select("id, name, short_code");
+      const decOf = (v: string) => (decs || []).find((d: any) => d.short_code === v || d.name === v);
+      for (let from = 0; ; from += 1000) {
+        const { data: page, error: pErr } = await sb.from("jobs")
+          .select("job_number, phase, costing_data, type_meta, items(id, name, archived_at, decorator_assignments(decorator_id))")
+          .in("phase", Array.from(ACTIVE_PHASES)).order("id").range(from, from + 999);
+        if (pErr) { vendorGaps.push(`check failed: ${pErr.message}`); break; }
+        for (const j of (page || []) as any[]) {
+          const cps: any[] = j.costing_data?.costProds || [];
+          const sent = new Set(((j.type_meta?.po_sent_vendors || []) as string[]).map(v => v.toLowerCase().trim()));
+          const missing: string[] = [];
+          for (const it of (j.items || []) as any[]) {
+            if (it.archived_at) continue;
+            const v = cps.find(c => c?.id === it.id)?.printVendor; const d: any = v && decOf(v);
+            if (d && !(it.decorator_assignments || []).some((a: any) => a.decorator_id === d.id)) missing.push(`${it.name} → ${v}`);
+          }
+          if (missing.length) {
+            const poOut = Array.from(sent).length > 0;
+            vendorGaps.push(`${j.job_number} (${j.phase})${poOut ? " · PO sent" : ""} — ${missing.length} item${missing.length === 1 ? "" : "s"}: ${missing.slice(0, 4).join(", ")}${missing.length > 4 ? "…" : ""}`);
+          }
+        }
+        if (!page || page.length < 1000) break;
+      }
+    }
+
     // ── Missing-file tripwire: does the file we point at still exist? ──
     // A slice of the library each run (oldest-checked first), inside a time
     // budget, so the whole set is covered daily without a long job. 45 files
@@ -279,7 +311,7 @@ export async function GET(req: NextRequest) {
     } catch (e) { console.error("[costing-health] file scan failed", e); }
 
     // Email the owner ONLY when something is wrong. Silent when clean.
-    const sep11Count = badLinks.length + forbiddenPushes.length + poNoInvoice.length;
+    const sep11Count = badLinks.length + forbiddenPushes.length + poNoInvoice.length + vendorGaps.length;
     const missingCount = fileHealth.missing;
     if ((drift.length || healed.length || fleeceGaps.length || phaseDrift.length || qtyHealed.length || qtyDrift.length || sep11Count || missingCount) && process.env.OWNER_EMAIL) {
       try {
@@ -302,6 +334,7 @@ export async function GET(req: NextRequest) {
   ${badLinks.length ? `<h3 style="color:#ef4444;margin:16px 0 8px">PO art link points away from the item's folder (${badLinks.length})</h3><ul style="margin:0;padding-left:20px">${badLinks.map(t => `<li style="margin:4px 0;font-size:14px">${t}</li>`).join("")}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">The printer's "Production Files" button opens this link. Re-pull the proof or set the folder link on the item.</p>` : ""}
   ${forbiddenPushes.length ? `<h3 style="color:#ef4444;margin:16px 0 8px">Cost entries in QB that should never be (${forbiddenPushes.length})</h3><ul style="margin:0;padding-left:20px">${forbiddenPushes.map(t => `<li style="margin:4px 0;font-size:14px">${t}</li>`).join("")}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">Delete the QB Bill, then clear the entry's pushed stamp.</p>` : ""}
   ${poNoInvoice.length ? `<h3 style="color:#d97706;margin:16px 0 8px">PO sent, no invoice on the job (${poNoInvoice.length})</h3><ul style="margin:0;padding-left:20px">${poNoInvoice.map(t => `<li style="margin:4px 0;font-size:14px">${t}</li>`).join("")}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">Draft the invoice, or the job lost its QB link — check job_type_meta_history.</p>` : ""}
+  ${vendorGaps.length ? `<h3 style="color:#d97706;margin:16px 0 8px">Vendor in costing, no assignment (${vendorGaps.length})</h3><ul style="margin:0;padding-left:20px">${vendorGaps.map(t => `<li style="margin:4px 0;font-size:14px">${t}</li>`).join("")}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">These sit under "Unassigned vendor" on the production board and are missing from that vendor's portal. Re-save the item's decoration on the job page, or ask for a backfill.</p>` : ""}
   ${missingCount ? `<h3 style="color:#ef4444;margin:16px 0 8px">Files missing from Google Drive (${missingCount}${fileHealth.newlyMissing ? `, ${fileHealth.newlyMissing} new` : ""})</h3><ul style="margin:0;padding-left:20px">${missing.map(m => `<li style="margin:4px 0;font-size:14px"><b>${m.itemName || m.fileName || "—"}</b>${m.jobNumber ? ` · ${m.jobNumber}` : ""}${m.clientName ? ` · ${m.clientName}` : ""} — ${m.stage || "file"} "${m.fileName || ""}" is gone${m.firstMissingAt ? ` (first seen missing ${fmtPacific(m.firstMissingAt)})` : ""}</li>`).join("")}${missingCount > missing.length ? `<li style="margin:4px 0;font-size:14px;color:#666">…and ${missingCount - missing.length} more</li>` : ""}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">The record points at a Drive file that no longer exists. Check Drive trash first (restorable for 30 days), then re-upload. Deletes have gone to the trash with a reference check since Sep 19 2026.</p>` : ""}
   <p style="margin:20px 0 0;font-size:12px;color:#999">Costing: re-save the job's costing tab. Phase: open the job (V2 heals on load). — OpsHub tripwire</p>
 </div>`;

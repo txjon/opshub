@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { logJobActivityServer } from "@/lib/notify-server";
+import { ensureVendorAssignments } from "@/lib/vendor-assignments";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,9 @@ export const dynamic = "force-dynamic";
 //     item, blank costs reset so CostingTab pulls fresh from the item row)
 //
 // What does NOT get copied:
-//   - decorator_assignments (destination picks its own vendor)
+//   - decorator_assignments progress — a CLEAN assignment is created from the
+//     copied costing vendor (lib/vendor-assignments), or the copy lands on the
+//     production board as "Unassigned vendor" and off the vendor's portal
 //   - pipeline_stage / blanks_order_number / tracking (copy is brand new)
 //   - drive_link (leave null; new folder gets created on first file upload
 //     on the dest item — avoids two items pointing at the same folder)
@@ -168,6 +171,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         costing_data: { ...destCosting, costProds: destCostProds, _savedAt: new Date().toISOString() },
         updated_at: new Date().toISOString(),
       }).eq("id", to_job_id);
+      try { await ensureVendorAssignments(db, [newItem.id], destCostProds); }
+      catch (e: any) { console.error("[item copy] vendor assignment failed:", e?.message || e); }
     }
 
     // 9. Activity logs on both ends.

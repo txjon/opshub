@@ -3,6 +3,7 @@ import { createClient as createAdmin } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { logJobActivityServer } from "@/lib/notify-server";
 import { copyItemIntoJob } from "@/lib/reorder-cart";
+import { ensureVendorAssignments } from "@/lib/vendor-assignments";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,7 +33,11 @@ export const dynamic = "force-dynamic";
 // item_files, so DB state alone keeps the app working.
 //
 // Not copied:
-//   - decorator_assignments (start clean for the new run)
+//   - decorator_assignments progress (start clean for the new run). A CLEAN
+//     assignment per item is created from the copied costing vendor
+//     (lib/vendor-assignments) — without it the duplicate showed "Unassigned
+//     vendor" on the production board and never reached ICON's portal
+//     (HPD-2609-044, Oct 2026).
 //   - pipeline_stage / blanks_order_number / tracking
 //   - quote_approved / quote_approved_at (this job needs its own approval)
 //   - type_meta beyond the explicit allowlist (shipping_notes,
@@ -161,6 +166,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       await db.from("jobs").update({
         costing_data: { ...costing, costProds: remapped, _savedAt: new Date().toISOString() },
       }).eq("id", newJobId);
+      try { await ensureVendorAssignments(db, Object.values(idMap), remapped); }
+      catch (e: any) { console.error("[job duplicate] vendor assignments failed:", e?.message || e); }
     }
 
     // Copy contacts
