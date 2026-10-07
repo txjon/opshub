@@ -191,6 +191,12 @@ export async function POST(req: NextRequest) {
         insertErr = error;
       }
 
+      // 23505 = mig 197's unique (qb_payment_id, qb_invoice_id): the webhook
+      // recorded it in the meantime.
+      if (insertErr?.code === "23505") {
+        results.push({ qbInvoiceId, jobId: job.id, jobTitle: job.title, status: "already_exists" });
+        continue;
+      }
       if (insertErr) {
         results.push({ qbInvoiceId, jobId: job.id, status: "insert_error", error: insertErr.message });
         continue;

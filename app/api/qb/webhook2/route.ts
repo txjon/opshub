@@ -274,6 +274,12 @@ async function processPayment(payment: any, supabase: any, paymentId: string) {
       insertErr = error;
     }
 
+    // 23505 = mig 197's unique (qb_payment_id, qb_invoice_id): a concurrent
+    // retry recorded this payment first. Already done — no activity, no email.
+    if (insertErr?.code === "23505") {
+      console.log("[QB Webhook2] Duplicate (race) — payment", paymentId, "already recorded for invoice", qbInvoiceId);
+      continue;
+    }
     if (insertErr) {
       console.error("[QB Webhook2] WRITE FAILED:", insertErr.message, insertErr.details);
       continue;
