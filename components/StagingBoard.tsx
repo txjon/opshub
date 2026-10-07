@@ -105,7 +105,7 @@ export default function StagingBoard({ items, side }: { items: StagingItem[]; si
       <div style={{ margin: "-6px 0 10px", fontSize: 11.5, color: T.muted }}>
         <span style={{ fontWeight: 700, color: T.text }}>{side === "distro" ? "Distro" : "Front office"}</span> · mirrors <span style={{ fontWeight: 700, color: T.text }}>{otherName}</span> · staged stock ready for Shopify
       </div>
-      <ToggleSearch options={[["ready", `Ready to enter · ${ready.length}`], ["entered", `Entered · ${entered.length}`]]}
+      <ToggleSearch options={[["ready", `Ready to enter · ${ready.length}`], ["entered", `Entered, last 90 days · ${entered.length}`]]}
         value={view} onChange={setView} query={query} setQuery={setQuery} placeholder="Search client, item, invoice, or blank…" />
 
       <KpiStrip metrics={METRICS} get={k => agg[k]} onClick={setKpi} />
@@ -120,7 +120,7 @@ export default function StagingBoard({ items, side }: { items: StagingItem[]; si
 
       {shown.length === 0 ? (
         <div style={{ color: T.muted, fontSize: 14, padding: 40, textAlign: "center", background: T.card, border: `1px solid ${T.border}`, borderRadius: 12 }}>
-          {query || client !== "all" ? "No items match." : view === "ready" ? "Nothing staged to enter." : "Nothing entered into Shopify yet."}
+          {query || client !== "all" ? "No items match." : view === "ready" ? "Nothing staged to enter." : "Nothing entered into Shopify in the last 90 days."}
         </div>
       ) : view === "ready" ? (
         <Card>{shown.map((it, i) => renderRow(it, i, false))}</Card>

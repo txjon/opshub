@@ -47,9 +47,29 @@ async function allRows<T = any>(
 ): Promise<T[]> {
   const out: T[] = [];
   for (let from = 0; ; from += 1000) {
-    const { data } = await build(from, from + 999);
+    const { data, error } = await build(from, from + 999);
+    // A failed read must never look like "no rows": that's how /staging2 went
+    // blank (Oct 6 2026) — every item read as never staged, never entered.
+    if (error) throw new Error(`Board read failed: ${error.message || error}`);
     out.push(...((data as T[]) || []));
     if (!data || (data as T[]).length < 1000) break;
+  }
+  return out;
+}
+
+// An .in() list rides in the URL. Past ~390 uuids the request fails outright
+// (/staging2: 395 items, Oct 6 2026), so every id-list read goes in chunks —
+// each chunk paged through allRows. Rows for one id never straddle chunks, so
+// per-id ordering (e.g. newest mockup first) holds.
+const IN_CHUNK = 150;
+async function allRowsIn<T = any>(
+  ids: string[],
+  build: (chunk: string[], from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let i = 0; i < ids.length; i += IN_CHUNK) {
+    const chunk = ids.slice(i, i + IN_CHUNK);
+    out.push(...await allRows<T>((f, t) => build(chunk, f, t)));
   }
   return out;
 }
@@ -78,8 +98,8 @@ export async function loadItemState(sb: Sb, itemId: string): Promise<ItemView | 
 async function deriveItemsBatch(sb: Sb, items: any[]): Promise<ItemView[]> {
   if (!items.length) return [];
   const ids = items.map(i => i.id);
-  const allMoves = await allRows(( f, t) => sb
-    .from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", ids).order("id").range(f, t));
+  const allMoves = await allRowsIn(ids, (c, f, t) => sb
+    .from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", c).order("id").range(f, t));
   const byItem = new Map<string, Movement[]>();
   for (const m of allMoves || []) {
     const arr = byItem.get(m.item_id) || []; arr.push(toMovement(m)); byItem.set(m.item_id, arr);
@@ -224,10 +244,10 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
   const jobById = new Map<string, any>((jobs || []).map((j: any) => [j.id, j]));
   if (!jobById.size) return [];
 
-  const items = await allRows((f, t) => sb
+  const items = await allRowsIn(Array.from(jobById.keys()), (c, f, t) => sb
     .from("items")
     .select("id, job_id, name, mockup_color, garment_type, shipping_route, ship_final, sort_order, pipeline_stage, pipeline_timestamps, expected_arrival, ship_est, buy_sheet_lines(size, qty_ordered), decorator_assignments(decorator_id, decorators(name, short_code))")
-    .in("job_id", Array.from(jobById.keys())).order("id").range(f, t));
+    .in("job_id", c).order("id").range(f, t));
   if (!items?.length) return [];
   // PO order. Without this the strip's rows (and their A/B/C letters in the
   // Board) ride Postgres's arbitrary return order and can disagree with the
@@ -243,8 +263,8 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
 
   // batch movements
   const ids = items.map((i: any) => i.id);
-  const allMoves = await allRows((f, t) => sb
-    .from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id, tracking").in("item_id", ids).order("id").range(f, t));
+  const allMoves = await allRowsIn(ids, (c, f, t) => sb
+    .from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id, tracking").in("item_id", c).order("id").range(f, t));
   const byItem = new Map<string, Movement[]>();
   const rawByItem = new Map<string, any[]>();
   for (const m of allMoves || []) {
@@ -254,17 +274,17 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
 
   // latest mockup/proof per item, for the row thumbnail. Prefer a real mockup
   // (an image) over a proof (often a PDF, which has no thumbnail).
-  const mockupFiles = await allRows((f, t) => sb
+  const mockupFiles = await allRowsIn(ids, (c, f, t) => sb
     .from("item_files").select("item_id, drive_file_id, stage, created_at")
-    .in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", ids)
+    .in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", c)
     .order("created_at", { ascending: false }).order("item_id").range(f, t));
   const mockupById = new Map<string, string>();
   for (const f of mockupFiles || []) { if (f.stage === "mockup" && f.drive_file_id && !mockupById.has(f.item_id)) mockupById.set(f.item_id, f.drive_file_id); }
   for (const f of mockupFiles || []) { if (f.drive_file_id && !mockupById.has(f.item_id)) mockupById.set(f.item_id, f.drive_file_id); }
 
   // pending production-declared pulls per item
-  const pulls = await allRows((f, t) => sb
-    .from("pull_requests").select("id, item_id, kind, qtys, reason, status").in("item_id", ids).in("status", ["pending", "partial"]).order("id").range(f, t));
+  const pulls = await allRowsIn(ids, (c, f, t) => sb
+    .from("pull_requests").select("id, item_id, kind, qtys, reason, status").in("item_id", c).in("status", ["pending", "partial"]).order("id").range(f, t));
   const pullsByItem = new Map<string, PullReq[]>();
   for (const p of pulls || []) {
     const a = pullsByItem.get(p.item_id) || []; a.push({ id: p.id, kind: p.kind, qtys: p.qtys || {}, reason: p.reason }); pullsByItem.set(p.item_id, a);
@@ -282,8 +302,8 @@ export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
     if (l.job_id && !jobIds.has(l.job_id)) continue;
     const a = locsByClient.get(l.client_id) || []; a.push(l); locsByClient.set(l.client_id, a);
   }
-  const splitRows = await allRows((f, t) => sb.from("item_destinations")
-    .select("item_id, location_id, qtys, sort_order").in("item_id", ids).order("id").range(f, t));
+  const splitRows = await allRowsIn(ids, (c, f, t) => sb.from("item_destinations")
+    .select("item_id, location_id, qtys, sort_order").in("item_id", c).order("id").range(f, t));
   const splitsByItem = new Map<string, any[]>();
   for (const r of splitRows || []) { const a = splitsByItem.get(r.item_id) || []; a.push(r); splitsByItem.set(r.item_id, a); }
   const boxIds = Array.from(new Set((allMoves || []).map((m: any) => m.shipment_id).filter(Boolean)));
@@ -586,7 +606,7 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
   const lineItemIds = Array.from(new Set(open.flatMap((s: any) => (byShip.get(s.id) || []).map((l: any) => l.item_id)).filter(Boolean)));
   const splitTagByItem = new Map<string, string>();
   if (lineItemIds.length) {
-    const sRows = await allRows((f, t) => sb.from("item_destinations").select("item_id, location_id, qtys, sort_order").in("item_id", lineItemIds).order("id").range(f, t));
+    const sRows = await allRowsIn(lineItemIds as string[], (c, f, t) => sb.from("item_destinations").select("item_id, location_id, qtys, sort_order").in("item_id", c).order("id").range(f, t));
     const locIds = Array.from(new Set((sRows || []).map((r: any) => r.location_id)));
     const { data: locRows } = locIds.length ? await sb.from("client_locations").select("id, label, address").in("id", locIds) : { data: [] as any[] };
     const locById = new Map<string, any>((locRows || []).map((l: any) => [l.id, l]));
@@ -726,12 +746,14 @@ export async function loadJobPhase(sb: Sb, jobId: string): Promise<JobPhaseView 
 export async function loadJobPhasesBatch(sb: Sb, jobIds: string[]): Promise<Map<string, JobPhaseView>> {
   const out = new Map<string, JobPhaseView>();
   if (!jobIds.length) return out;
-  const { data: jobs } = await sb.from("jobs").select(JOB_PHASE_SELECT).in("id", jobIds);
-  const { data: items } = await sb.from("items").select(JOB_PHASE_ITEM_SELECT).in("job_id", jobIds);
+  // Chunked + paged: the project list hands in every active job, and one URL
+  // carrying all their item ids fails past ~390 (see allRowsIn).
+  const jobs = await allRowsIn(jobIds, (c, f, t) => sb.from("jobs").select(JOB_PHASE_SELECT).in("id", c).order("id").range(f, t));
+  const items = await allRowsIn(jobIds, (c, f, t) => sb.from("items").select(JOB_PHASE_ITEM_SELECT).in("job_id", c).order("id").range(f, t));
   const itemIds = ((items || []) as any[]).map(i => i.id);
-  const { data: payments } = await sb.from("payment_records").select("job_id, amount, status").in("job_id", jobIds);
-  const { data: moves } = itemIds.length ? await sb.from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", itemIds) : { data: [] };
-  const { data: proofs } = itemIds.length ? await sb.from("item_files").select("item_id, approval").eq("stage", "proof").is("superseded_at", null).in("item_id", itemIds) : { data: [] };
+  const payments = await allRowsIn(jobIds, (c, f, t) => sb.from("payment_records").select("job_id, amount, status").in("job_id", c).order("id").range(f, t));
+  const moves = await allRowsIn(itemIds, (c, f, t) => sb.from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", c).order("id").range(f, t));
+  const proofs = await allRowsIn(itemIds, (c, f, t) => sb.from("item_files").select("item_id, approval").eq("stage", "proof").is("superseded_at", null).in("item_id", c).order("id").range(f, t));
 
   const itemsByJob = new Map<string, any[]>();
   for (const it of (items || []) as any[]) { const a = itemsByJob.get(it.job_id) || []; a.push(it); itemsByJob.set(it.job_id, a); }
@@ -780,9 +802,9 @@ export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
   if (!jobs?.length) return [];
   const jobById = new Map<string, any>((jobs as any[]).map(j => [j.id, j]));
 
-  const { data: items } = await sb.from("items")
+  const items = await allRowsIn(Array.from(jobById.keys()), (c, f, t) => sb.from("items")
     .select("id, job_id, name, mockup_color, shipping_route, ship_final, buy_sheet_lines(size, qty_ordered)")
-    .in("job_id", Array.from(jobById.keys()));
+    .in("job_id", c).order("id").range(f, t));
   if (!items?.length) return [];
   // PO order. Without this the strip's rows (and their A/B/C letters in the
   // Board) ride Postgres's arbitrary return order and can disagree with the
@@ -797,13 +819,13 @@ export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
     for (const it of items as any[]) { const n = perJob.get(it.job_id) || 0; letterByItem.set(it.id, String.fromCharCode(65 + n)); perJob.set(it.job_id, n + 1); } }
   const ids = (items as any[]).map(i => i.id);
 
-  const allMoves = await allRows((f, t) => sb.from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", ids).order("id").range(f, t));
+  const allMoves = await allRowsIn(ids, (c, f, t) => sb.from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", c).order("id").range(f, t));
   const byItem = new Map<string, Movement[]>();
   for (const m of allMoves || []) { const a = byItem.get(m.item_id) || []; a.push(toMovement(m)); byItem.set(m.item_id, a); }
 
   // receiveFinal per item = it has inbound shipment lines and ALL are counted in.
   // (A short then is a real shortage, not still-in-transit.)
-  const { data: slines } = await sb.from("shipment_lines").select("item_id, received, shipments(direction)").in("item_id", ids);
+  const slines = await allRowsIn(ids, (c, f, t) => sb.from("shipment_lines").select("item_id, received, shipments(direction)").in("item_id", c).order("id").range(f, t));
   const recvByItem = new Map<string, { inbound: number; received: number }>();
   for (const l of slines || []) {
     if ((l as any).shipments?.direction !== "inbound") continue;
@@ -812,8 +834,8 @@ export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
     recvByItem.set(l.item_id, cur);
   }
 
-  const mockupFiles = await allRows((f, t) => sb.from("item_files")
-    .select("item_id, drive_file_id, stage, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", ids)
+  const mockupFiles = await allRowsIn(ids, (c, f, t) => sb.from("item_files")
+    .select("item_id, drive_file_id, stage, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", c)
     .order("created_at", { ascending: false }).order("item_id").range(f, t));
   const mockById = new Map<string, string>();
   for (const f of mockupFiles || []) { if (f.stage === "mockup" && f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
@@ -830,8 +852,8 @@ export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
     if (l.job_id && !jobById.has(l.job_id)) continue;
     const a = locsByClient.get(l.client_id) || []; a.push(l); locsByClient.set(l.client_id, a);
   }
-  const splitRows = await allRows((f, t) => sb.from("item_destinations")
-    .select("item_id, location_id, qtys, sort_order").in("item_id", ids).order("id").range(f, t));
+  const splitRows = await allRowsIn(ids, (c, f, t) => sb.from("item_destinations")
+    .select("item_id, location_id, qtys, sort_order").in("item_id", c).order("id").range(f, t));
   const splitsByItem = new Map<string, any[]>();
   for (const r of splitRows || []) { const a = splitsByItem.get(r.item_id) || []; a.push(r); splitsByItem.set(r.item_id, a); }
   const boxIds = Array.from(new Set((allMoves || []).map((m: any) => m.shipment_id).filter(Boolean)));
@@ -966,6 +988,7 @@ export type StagingItem = {
   status: string;
 };
 
+export const ENTERED_WINDOW_DAYS = 90;
 export async function loadStagingBoard(sb: Sb): Promise<StagingItem[]> {
   // COMPLETE stage jobs stay on the board: entering the last units flips the
   // job complete, and dropping it here made freshly-entered items vanish from
@@ -977,9 +1000,9 @@ export async function loadStagingBoard(sb: Sb): Promise<StagingItem[]> {
   if (!jobs?.length) return [];
   const jobById = new Map<string, any>((jobs as any[]).map(j => [j.id, j]));
 
-  const items = await allRows((f, t) => sb.from("items")
+  const items = await allRowsIn(Array.from(jobById.keys()), (c, f, t) => sb.from("items")
     .select("id, job_id, name, mockup_color, shipping_route, ship_final, blank_vendor, blank_sku, buy_sheet_lines(size, qty_ordered)")
-    .in("job_id", Array.from(jobById.keys())).order("id").range(f, t));
+    .in("job_id", c).order("id").range(f, t));
   if (!items?.length) return [];
   // PO order. Without this the strip's rows (and their A/B/C letters in the
   // Board) ride Postgres's arbitrary return order and can disagree with the
@@ -994,12 +1017,20 @@ export async function loadStagingBoard(sb: Sb): Promise<StagingItem[]> {
     for (const it of items as any[]) { const n = perJob.get(it.job_id) || 0; letterByItem.set(it.id, String.fromCharCode(65 + n)); perJob.set(it.job_id, n + 1); } }
   const ids = (items as any[]).map(i => i.id);
 
-  const allMoves = await allRows((f, t) => sb.from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id").in("item_id", ids).order("id").range(f, t));
+  const allMoves = await allRowsIn(ids, (c, f, t) => sb.from("movements").select("id, item_id, type, qtys, shipment_id, reverses_id, created_at").in("item_id", c).order("id").range(f, t));
   const byItem = new Map<string, Movement[]>();
-  for (const m of allMoves || []) { const a = byItem.get(m.item_id) || []; a.push(toMovement(m)); byItem.set(m.item_id, a); }
+  const lastEnteredAt = new Map<string, number>();
+  for (const m of allMoves || []) {
+    const a = byItem.get(m.item_id) || []; a.push(toMovement(m)); byItem.set(m.item_id, a);
+    if (m.type === "stage") { const at = Date.parse(m.created_at); if (at > (lastEnteredAt.get(m.item_id) || 0)) lastEnteredAt.set(m.item_id, at); }
+  }
+  // The Entered tab is a recent-history view: fully-entered items drop off 90
+  // days after their last entry, so the board stops growing forever. An item
+  // with ANYTHING still to enter is never aged off, however old.
+  const enteredCutoff = Date.now() - ENTERED_WINDOW_DAYS * 86_400_000;
 
-  const mockupFiles = await allRows((f, t) => sb.from("item_files")
-    .select("item_id, drive_file_id, stage, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", ids)
+  const mockupFiles = await allRowsIn(ids, (c, f, t) => sb.from("item_files")
+    .select("item_id, drive_file_id, stage, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", c)
     .order("created_at", { ascending: false }).order("item_id").range(f, t));
   const mockById = new Map<string, string>();
   for (const f of mockupFiles || []) { if (f.stage === "mockup" && f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
@@ -1012,6 +1043,7 @@ export async function loadStagingBoard(sb: Sb): Promise<StagingItem[]> {
     if (route !== "stage") continue;
     const st = deriveItem({ ordered: orderedFrom(item.buy_sheet_lines || []), route, shipFinal: !!item.ship_final, movements: byItem.get(item.id) || [] });
     if (st.availableToEnterTotal === 0 && st.enteredTotal === 0) continue;   // not yet in the staging window
+    if (st.availableToEnterTotal === 0 && (lastEnteredAt.get(item.id) || 0) < enteredCutoff) continue;   // entered long ago
     // color: costing cp.color (by id/name), else mockup_color
     const cps = (job.costing_data?.costProds || []) as any[];
     const cp = cps.find(c => c?.id === item.id) || cps.find(c => c?.name === item.name);
