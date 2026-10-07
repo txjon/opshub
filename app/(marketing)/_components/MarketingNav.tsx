@@ -15,7 +15,7 @@ import { useEffect, useState } from "react";
 
 const NAV_LINKS: { label: string; href: string; external?: boolean }[] = [
   { label: "Start a Project", href: "/start" },
-  { label: "Blog", href: "https://thehouse.blog/", external: true },
+  { label: "Blog", href: "https://shop.housepartydistro.com/blogs/the-house-blog" },
   { label: "Shop", href: "https://shop.housepartydistro.com" },
 ];
 
