@@ -69,9 +69,7 @@ export async function updateSession(request: NextRequest) {
   // when each phase ships (Services, Work, Start, Client Portal).
   const isMarketingPublic = MARKETING_PUBLIC_PATHS.includes(pathname)
     || pathname.startsWith("/build/")  // The Build — per-lead token URLs (mig 172)
-    || pathname.startsWith("/menu/")   // legacy links in sent emails → redirects to /build
-    // /shop/[handle] — product detail pages, sub-paths of /shop
-    || pathname.startsWith("/shop/");
+    || pathname.startsWith("/menu/");  // legacy links in sent emails → redirects to /build
   // The legacy /onboard intake form stays publicly reachable.
   const isLegacyPublic = pathname.startsWith("/onboard");
   // Client-facing documents share via MAGIC LINKS only (/d/[token] → doc_links,
@@ -155,7 +153,7 @@ export async function updateSession(request: NextRequest) {
 //   Phase 1 — "/" (home)
 //   Phase 2 — "/services", "/work", "/client-portal"
 //   Phase 3 — "/start"
-//   Phase 4 — "/shop" + product detail pages (headless Shopify)
+//   (Phase 4 headless /shop retired Oct 2026 — redirects to native Shopify in next.config.mjs)
 //   Phase 5 — "/contact" (native contact form, replaces AWIO)
 const MARKETING_PUBLIC_PATHS = [
   "/",
@@ -163,6 +161,5 @@ const MARKETING_PUBLIC_PATHS = [
   "/work",
   "/start",
   "/client-portal",
-  "/shop",
   "/contact",
 ];
