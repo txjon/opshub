@@ -17,7 +17,7 @@ import { createClient } from "@/lib/supabase/client";
 import { isCostingLocked } from "@/lib/costing-lock";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { resolveRecipientEmails } from "@/lib/recipients";
-import { calcCostProduct, buildPrintersMap, lookupPrintPrice as sharedLookupPrintPrice, lookupTagPrice as sharedLookupTagPrice, effectiveShipRate } from "@/lib/pricing";
+import { calcCostProduct, blankCostTotals, buildPrintersMap, lookupPrintPrice as sharedLookupPrintPrice, lookupTagPrice as sharedLookupTagPrice, effectiveShipRate } from "@/lib/pricing";
 import { DecorationPanel as DecorationPanelRaw } from "./DecorationPanel";
 import { ProofModal as ProofModalRaw } from "./ArtTab";
 import {
@@ -840,7 +840,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     if (bulkTotal === "" || isNaN(total) || total < 0) return;
     const targets = items.filter((it: any) => selectedIds.has(it.id));
     if (!targets.length) return;
-    const calcs = targets.map((it: any) => { const q = sumQ(it.qtys); const cpu = Number(it.cost_per_unit); return cpu > 0 && q > 0 ? cpu * q : null; });
+    // Split by each item's per-size list cost — what the supplier actually
+    // charged for it. (Splitting by cost_per_unit × qty misallocated mixed size
+    // runs: HPD-2608-013's LA order put ~$12.64 on the wrong item.)
+    const calcs = targets.map((it: any) => { const raw = blankFor(it).raw; return raw > 0 ? raw : null; });
     const calcSum = calcs.reduce((a: number, v: any) => a + (v || 0), 0);
     const allKnown = calcs.every((v: any) => v != null && v > 0);
     const cents = Math.round(total * 100);
@@ -1444,7 +1447,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   const costProds: any[] = job?.costing_data?.costProds || [];
   const cpFor = (item: any) => costProds.find(cp => cp.id === item.id)
     || costProds.find(cp => (cp.name || "").trim().toLowerCase() === (item.name || "").trim().toLowerCase());
-  const calcBlank = (item: any) => (Number(item.cost_per_unit) || 0) * sumQ({ ...(item.qtys || {}) });
+  // Blank estimate = THE costing math (lib/pricing blankCostTotals on the same
+  // assembled costProd the Cost tab prices): per-size price × per-size qty,
+  // raw and buffered. Never cost_per_unit × qty — that's a plain average across
+  // sizes and overstates a normal run whenever 2XL+ cost more.
+  const blankFor = (item: any) => blankCostTotals(assemble(item));
   const vendorGroups: Record<string, any[]> = {};
   // Archived items are closed out — never surface them as a PO group (an
   // archived item with no vendor produced a phantom "Unassigned" PO on 047).
@@ -2362,7 +2369,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               read-out — you key these into the supplier cart). Unlogged rows carry an
               amber edge; logged rows recede so what's left to do is what you see. */}
           {(() => {
-            const cols = isMobile ? "18px minmax(0,1fr)" : "18px minmax(0,1fr) 92px 118px 110px";
+            const cols = isMobile ? "18px minmax(0,1fr)" : "18px minmax(0,1fr) 92px 118px 132px";
             const allLogged = items.length > 0 && blanksOrdered === items.length;
             return (<>
               <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
@@ -2386,13 +2393,22 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                   </div>
                 )}
                 {items.map((item: any, idx: number) => {
-                  const calc = calcBlank(item);
+                  // Est = buffered per-size cost (what margin is built on). A logged
+                  // purchase should land under it; "% of buffer used" shows how much
+                  // of the cushion (supplier shipping, price moves, discrepancies)
+                  // the purchase ate, measured from list.
+                  const bc = blankFor(item);
+                  const calc = bc.buffered;
                   const ordered = item.blanks_order_cost != null && item.blanks_order_cost !== "";
                   const actual = ordered ? Number(item.blanks_order_cost) : null;
                   const sel = selectedIds.has(item.id);
                   const sizes = sortSizes(Object.keys(item.qtys || {})).filter(sz => (item.qtys?.[sz] || 0) > 0);
                   const stateClr = !ordered ? T.amber : (actual! > calc + 0.005 ? T.red : T.green);
                   const stateTxt = !ordered ? "not logged" : Math.abs(actual! - calc) < 0.005 ? "logged ✓" : actual! > calc ? `+${fmtMoney(actual! - calc)} over` : `−${fmtMoney(calc - actual!)} under`;
+                  const cushion = calc - bc.raw;
+                  const bufPct = ordered && cushion > 0.005 ? Math.max(0, Math.round(((actual! - bc.raw) / cushion) * 100)) : null;
+                  const bufTxt = bufPct == null ? null : `${bufPct}% of buffer used`;
+                  const bufClr = bufPct == null ? T.faint : bufPct > 100 ? T.red : bufPct >= 75 ? T.amber : T.faint;
                   return (
                     <div key={item.id} style={{ display: "grid", gridTemplateColumns: cols, gap: isMobile ? 8 : 12, alignItems: "center", padding: "9px 12px", borderTop: idx === 0 ? "none" : `1px solid ${T.border}44`, boxShadow: ordered ? "none" : `inset 3px 0 0 ${T.amber}`, opacity: ordered ? 0.78 : 1 }}>
                       <input type="checkbox" checked={sel} onChange={() => toggleSel(item.id)} style={{ width: 15, height: 15, accentColor: T.accent, cursor: "pointer" }} />
@@ -2426,13 +2442,17 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                             <input key={item.id + ":c:" + (item.blanks_order_cost ?? "")} defaultValue={actual != null ? actual.toFixed(2) : ""} placeholder="total paid" inputMode="decimal" onBlur={e => saveBlankCost(item, e.target.value)}
                               style={{ width: 90, padding: "6px 8px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: mono, outline: "none" }} /></span>
                           <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: stateClr }}>{stateTxt}</span>
+                          {bufTxt && <span style={{ fontSize: 10.5, color: bufClr, fontFamily: mono }}>{bufTxt}</span>}
                         </div>
                       ) : (<>
                         <span style={{ fontSize: 12, color: T.muted, fontFamily: mono, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtMoney(calc)}</span>
                         <span style={{ display: "flex", alignItems: "center", gap: 3, justifyContent: "flex-end" }}><span style={{ fontSize: 11, color: T.muted }}>$</span>
                           <input key={item.id + ":c:" + (item.blanks_order_cost ?? "")} defaultValue={actual != null ? actual.toFixed(2) : ""} placeholder="paid" inputMode="decimal" onBlur={e => saveBlankCost(item, e.target.value)}
                             style={{ width: 92, padding: "6px 8px", borderRadius: 7, border: `1px solid ${ordered ? T.border : T.amber + "66"}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: mono, outline: "none", textAlign: "right" }} /></span>
-                        <span style={{ textAlign: "right", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: stateClr, whiteSpace: "nowrap" }}>{stateTxt}</span>
+                        <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2, whiteSpace: "nowrap" }}>
+                          <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: stateClr }}>{stateTxt}</span>
+                          {bufTxt && <span style={{ fontSize: 10.5, color: bufClr, fontFamily: mono }}>{bufTxt}</span>}
+                        </span>
                       </>)}
                     </div>
                   );
@@ -2896,7 +2916,15 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                             (single source: items.blank_costs; avg → cost_per_unit) */}
                         <div style={{ display: "flex", gap: 20, flexWrap: "wrap", alignItems: "flex-end", marginTop: 16, padding: "10px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface }}>
                           <div style={{ flex: "1 1 auto" }}>
-                            <div style={{ ...wlbl, marginBottom: 6 }}>Blank cost by size <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· avg ${Number(it.cost_per_unit || 0).toFixed(2)}/u</span></div>
+                            <div style={{ ...wlbl, marginBottom: 6 }}>Blank cost by size {(() => {
+                              // Weighted by this item's size run, buffer included — the same
+                              // number the Blank Cost KPI divides out to. Not cost_per_unit
+                              // (a plain average across sizes).
+                              const ap = allAssembled[wsIndex!]; const q = ap?.totalQty || 0;
+                              if (!ap || !q) return null;
+                              const bc = blankCostTotals(ap);
+                              return <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: T.faint }}>· avg ${(bc.buffered / q).toFixed(2)}/u incl. {Math.round((bc.buffer - 1) * 100)}% buffer</span>;
+                            })()}</div>
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                               {sortSizes(Object.keys(it.qtys || {})).map(sz => {
                                 const v = Number((it.blank_costs || {})[sz] ?? it.cost_per_unit ?? 0);

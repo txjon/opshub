@@ -53,11 +53,23 @@ export function effectiveShipRate(p: any): number {
   return DEFAULT_SHIP_RATES[p?.garment_type || ""] ?? 0;
 }
 
-export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclCC: boolean, allProds: any[], printers: Record<string, any>) {
-  const qty = p.totalQty || 0; if (qty === 0) return null;
-  const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
-  const isNonGarment = NON_GARMENT.includes(p.garment_type);
+const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
 
+/**
+ * THE blank cost of a product: per-size price × per-size qty, and the same with
+ * the buffer folded in. `raw` is what the blanks cost at list; `buffered` is
+ * what costing and margin are built on, and what a logged purchase is measured
+ * against. The buffer is there to absorb supplier shipping, sudden price
+ * changes and purchasing discrepancies (Jon, Oct 2026), so a logged purchase
+ * should normally land between the two.
+ *
+ * Never estimate blanks as one average × total qty: 2XL+ upcharges make a plain
+ * average overstate a normal size run (HPD-2608-013: $1,023.57 shown against a
+ * real $963.27).
+ */
+export function blankCostTotals(p: any): { raw: number; buffered: number; buffer: number } {
+  const qty = p.totalQty || 0;
+  const isNonGarment = NON_GARMENT.includes(p.garment_type);
   // Blank cost buffer: LA Apparel 10%, all others 5%. Non-garment items
   // historically never carried a blank cost — their custom-cost lines embed
   // it (the legacy catalog way) — and stale blank_costs on moved/legacy rows
@@ -73,14 +85,21 @@ export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclC
   // allowance to fold in. Normal items: LA Apparel/Cotton Collective 10%, else 5%.
   const blankBuffer = p.passthrough ? 1.0 : (is10pct ? 1.10 : 1.05);
   const hasPickedBlank = !!String(vendor).trim();
-  const blankCost = (isNonGarment && !hasPickedBlank) ? 0 : (() => {
+  const raw = (isNonGarment && !hasPickedBlank) ? 0 : (() => {
     if (p.blankCosts && Object.keys(p.blankCosts).length > 0) {
       let total = 0;
-      Object.entries(p.blankCosts).forEach(([sz, cost]: [string, any]) => { total += (cost || 0) * (p.qtys?.[sz] || 0) * blankBuffer; });
+      Object.entries(p.blankCosts).forEach(([sz, cost]: [string, any]) => { total += (cost || 0) * (p.qtys?.[sz] || 0); });
       return total;
     }
-    return (p.blankCostPerUnit || 0) * qty * blankBuffer;
+    return (p.blankCostPerUnit || 0) * qty;
   })();
+  return { raw, buffered: raw * blankBuffer, buffer: blankBuffer };
+}
+
+export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclCC: boolean, allProds: any[], printers: Record<string, any>) {
+  const qty = p.totalQty || 0; if (qty === 0) return null;
+  const isNonGarment = NON_GARMENT.includes(p.garment_type);
+  const blankCost = blankCostTotals(p).buffered;
 
   // Non-garment items historically price decoration through CUSTOM COST lines
   // only (no blank, print, finishing, or setup) — the location grid on them was
