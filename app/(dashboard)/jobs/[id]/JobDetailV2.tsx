@@ -795,6 +795,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         });
         if (ok) {
           const n = await relabelBoxesInbound(supabase, fixable.map(b => b.shipmentId));
+          if (!n) { failed("No box was moved to Receiving — it may have changed. Refresh and check."); return; }
           logJobActivity(job.id, `${n} shipped box${n === 1 ? "" : "es"} moved to Receiving after the route change (was vendor to client)`);
         }
       }
@@ -819,7 +820,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       recalcPhase(); // route drives receiving vs drop-ship-complete gating
     } catch (e) { failed("Route save failed — not saved", e); return; }
     // items without their own route follow the job's
-    await reconcileBoxesForRoute(items.filter((x: any) => !x.shipping_route).map((x: any) => x.id), route);
+    if (route) await reconcileBoxesForRoute(items.filter((x: any) => !x.shipping_route).map((x: any) => x.id), route);
   };
   const removeProduct = async (item: any) => {
     if (!await confirmDlg({ title: "Remove this item?", message: `"${item.name}" and its files come off the job.`, confirmLabel: "Remove item" })) return;
