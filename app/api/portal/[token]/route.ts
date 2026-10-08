@@ -417,6 +417,14 @@ export async function GET(
       // payment band shows "Updated total" honestly — same math as the
       // internal status bar.
       currentTotal: (() => {
+        // After a shipped-qty finalize the QB total IS the live value — costing
+        // gross is the ordered world and read as phantom growth ("your order
+        // grew… $20,287.50" on #4511 Silencer, Oct 2026). Same rule the client
+        // hub's order route has had since HPD-2606-002.
+        if (variancePushed) {
+          const vt = Number(typeMeta.qb_total_with_tax) || 0;
+          return showTotals && vt > 0 ? Math.round(vt * 100) / 100 : null;
+        }
         const extrasTotal = (Array.isArray(typeMeta.invoice_extra_lines) ? typeMeta.invoice_extra_lines : [])
           .reduce((a: number, l: any) => a + (Number(l?.amount) || 0), 0);
         const gross = Number(costingSummary?.grossRev) || 0;
