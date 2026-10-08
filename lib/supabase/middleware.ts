@@ -155,6 +155,7 @@ export async function updateSession(request: NextRequest) {
 //   Phase 3 — "/start"
 //   (Phase 4 headless /shop retired Oct 2026 — redirects to native Shopify in next.config.mjs)
 //   Phase 5 — "/contact" (native contact form, replaces AWIO)
+//   "/our-clients" — alphabetical client wall (Oct 2026; /clients is the dashboard)
 const MARKETING_PUBLIC_PATHS = [
   "/",
   "/services",
@@ -162,4 +163,5 @@ const MARKETING_PUBLIC_PATHS = [
   "/start",
   "/client-portal",
   "/contact",
+  "/our-clients",
 ];

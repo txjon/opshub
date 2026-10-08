@@ -10,6 +10,7 @@ const FOOTER_MENU: { label: string; href: string; external?: boolean }[] = [
   { label: "Start a Project", href: "/start" },
   { label: "Contact", href: "/contact" },
   { label: "Client Portal", href: "/client-portal" },
+  { label: "Clients", href: "/our-clients" },
   { label: "Shop", href: "https://shop.housepartydistro.com" },
 ];
 
