@@ -454,16 +454,16 @@ export async function loadRecentShipments(sb: Sb): Promise<ShippedBox[]> {
   const active = (ships || []).filter((s: any) => s.status !== "received");
   if (!active.length) return [];
   const ids = active.map((s: any) => s.id);
-  const { data: lines } = await sb.from("shipment_lines")
-    .select("shipment_id, item_id, job_id, description, ship_qtys, items(name, shipping_route, ship_qtys, buy_sheet_lines(qty_ordered), jobs(shipping_route, type_meta, qb_invoice_number, qb_invoice_id, clients(name)))").in("shipment_id", ids);
+  const lines = await allRowsIn(ids, (c, f, t) => sb.from("shipment_lines")
+    .select("id, shipment_id, item_id, job_id, description, ship_qtys, items(name, shipping_route, ship_qtys, buy_sheet_lines(qty_ordered), jobs(shipping_route, type_meta, qb_invoice_number, qb_invoice_id, clients(name)))").in("shipment_id", c).order("id").range(f, t));
   const itemIds = Array.from(new Set((lines || []).map((l: any) => l.item_id).filter(Boolean)));
-  const { data: slips } = itemIds.length
-    ? await sb.from("item_files").select("item_id").eq("stage", "packing_slip").not("drive_link", "is", null).in("item_id", itemIds)
-    : { data: [] as any[] };
+  const slips = itemIds.length
+    ? await allRowsIn(itemIds as string[], (c, f, t) => sb.from("item_files").select("id, item_id").eq("stage", "packing_slip").not("drive_link", "is", null).in("item_id", c).order("id").range(f, t))
+    : [];
   const slipItems = new Set((slips || []).map((s: any) => s.item_id));
-  const { data: mockups } = itemIds.length
-    ? await sb.from("item_files").select("item_id, drive_file_id, stage, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", itemIds).order("created_at", { ascending: false })
-    : { data: [] as any[] };
+  const mockups = itemIds.length
+    ? await allRowsIn(itemIds as string[], (c, f, t) => sb.from("item_files").select("item_id, drive_file_id, stage, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", c).order("created_at", { ascending: false }).order("id").range(f, t))
+    : [];
   const mockById = new Map<string, string>();
   for (const f of mockups || []) { if (f.stage === "mockup" && f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
   for (const f of mockups || []) { if (f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
@@ -551,23 +551,23 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
   const open = ships || [];
   if (!open.length) return [];
   const ids = open.map((s: any) => s.id);
-  const { data: lines } = await sb.from("shipment_lines")
-    .select("shipment_id, item_id, job_id, description, ship_qtys, received_qtys, received, items(name, mockup_color, shipping_route, ship_final, received_qtys, ship_qtys, expected_arrival, buy_sheet_lines(qty_ordered), jobs(shipping_route, type_meta, qb_invoice_number, qb_invoice_id, clients(name)))").in("shipment_id", ids);
+  const lines = await allRowsIn(ids, (c, f, t) => sb.from("shipment_lines")
+    .select("id, shipment_id, item_id, job_id, description, ship_qtys, received_qtys, received, items(name, mockup_color, shipping_route, ship_final, received_qtys, ship_qtys, expected_arrival, buy_sheet_lines(qty_ordered), jobs(shipping_route, type_meta, qb_invoice_number, qb_invoice_id, clients(name)))").in("shipment_id", c).order("id").range(f, t));
   const itemIds = Array.from(new Set((lines || []).map((l: any) => l.item_id).filter(Boolean)));
 
   // pending production-declared pulls per item, to fulfil at receiving
-  const { data: pulls } = itemIds.length
-    ? await sb.from("pull_requests").select("id, item_id, kind, qtys, reason, status").in("item_id", itemIds).in("status", ["pending", "partial"])
-    : { data: [] as any[] };
+  const pulls = itemIds.length
+    ? await allRowsIn(itemIds as string[], (c, f, t) => sb.from("pull_requests").select("id, item_id, kind, qtys, reason, status").in("item_id", c).in("status", ["pending", "partial"]).order("id").range(f, t))
+    : [];
   const pullsByItem = new Map<string, PullReq[]>();
   for (const p of pulls || []) { const a = pullsByItem.get(p.item_id) || []; a.push({ id: p.id, kind: p.kind, qtys: p.qtys || {}, reason: p.reason }); pullsByItem.set(p.item_id, a); }
 
-  const { data: slipFiles } = itemIds.length
-    ? await sb.from("item_files").select("item_id, file_name, drive_file_id, drive_link").eq("stage", "packing_slip").not("drive_file_id", "is", null).in("item_id", itemIds)
-    : { data: [] as any[] };
-  const { data: mockups } = itemIds.length
-    ? await sb.from("item_files").select("item_id, drive_file_id, stage, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", itemIds).order("created_at", { ascending: false })
-    : { data: [] as any[] };
+  const slipFiles = itemIds.length
+    ? await allRowsIn(itemIds as string[], (c, f, t) => sb.from("item_files").select("id, item_id, file_name, drive_file_id, drive_link").eq("stage", "packing_slip").not("drive_file_id", "is", null).in("item_id", c).order("id").range(f, t))
+    : [];
+  const mockups = itemIds.length
+    ? await allRowsIn(itemIds as string[], (c, f, t) => sb.from("item_files").select("item_id, drive_file_id, stage, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", c).order("created_at", { ascending: false }).order("id").range(f, t))
+    : [];
   const mockById = new Map<string, string>();
   for (const f of mockups || []) { if (f.stage === "mockup" && f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
   for (const f of mockups || []) { if (f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
@@ -608,7 +608,7 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
   if (lineItemIds.length) {
     const sRows = await allRowsIn(lineItemIds as string[], (c, f, t) => sb.from("item_destinations").select("item_id, location_id, qtys, sort_order").in("item_id", c).order("id").range(f, t));
     const locIds = Array.from(new Set((sRows || []).map((r: any) => r.location_id)));
-    const { data: locRows } = locIds.length ? await sb.from("client_locations").select("id, label, address").in("id", locIds) : { data: [] as any[] };
+    const locRows = locIds.length ? await allRowsIn(locIds as string[], (c, f, t) => sb.from("client_locations").select("id, label, address").in("id", c).order("id").range(f, t)) : [];
     const locById = new Map<string, any>((locRows || []).map((l: any) => [l.id, l]));
     const byIt = new Map<string, any[]>();
     for (const r of sRows || []) { const a = byIt.get(r.item_id) || []; a.push(r); byIt.set(r.item_id, a); }
@@ -943,12 +943,12 @@ export async function loadForwardedShipments(sb: Sb): Promise<ForwardedShipment[
     .order("created_at", { ascending: false }).limit(160);
   if (!ships?.length) return [];
   const ids = (ships as any[]).map(s => s.id);
-  const { data: lines } = await sb.from("shipment_lines")
-    .select("shipment_id, item_id, job_id, description, ship_qtys, items(name, mockup_color, shipping_route, jobs(job_number, shipping_route, type_meta, qb_invoice_number, qb_invoice_id, clients(name)))").in("shipment_id", ids);
+  const lines = await allRowsIn(ids, (c, f, t) => sb.from("shipment_lines")
+    .select("id, shipment_id, item_id, job_id, description, ship_qtys, items(name, mockup_color, shipping_route, jobs(job_number, shipping_route, type_meta, qb_invoice_number, qb_invoice_id, clients(name)))").in("shipment_id", c).order("id").range(f, t));
   const itemIds = Array.from(new Set((lines || []).map((l: any) => l.item_id).filter(Boolean)));
-  const { data: mockups } = itemIds.length
-    ? await sb.from("item_files").select("item_id, drive_file_id, stage, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", itemIds).order("created_at", { ascending: false })
-    : { data: [] as any[] };
+  const mockups = itemIds.length
+    ? await allRowsIn(itemIds as string[], (c, f, t) => sb.from("item_files").select("item_id, drive_file_id, stage, created_at").in("stage", ["mockup", "proof"]).is("superseded_at", null).in("item_id", c).order("created_at", { ascending: false }).order("id").range(f, t))
+    : [];
   const mockById = new Map<string, string>();
   for (const f of mockups || []) { if (f.stage === "mockup" && f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
   for (const f of mockups || []) { if (f.drive_file_id && !mockById.has(f.item_id)) mockById.set(f.item_id, f.drive_file_id); }
