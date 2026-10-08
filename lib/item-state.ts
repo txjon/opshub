@@ -236,10 +236,11 @@ export type BoardStrip = {
 // The per-item filters below (PO-sent-to-vendor, ledger not-closed) do the
 // real work.
 export async function loadProductionBoard(sb: Sb): Promise<BoardStrip[]> {
-  const { data: allJobs } = await sb
+  const { data: allJobs, error: allJobsErr } = await sb
     .from("jobs")
     .select("id, job_number, title, phase, priority, target_ship_date, shipping_route, type_meta, qb_invoice_number, qb_invoice_id, costing_data, client_id, ship_to_location_id, ship_attn, clients(name)")
     .not("phase", "in", '("complete","cancelled","on_hold")');
+  if (allJobsErr) throw new Error(`Board read failed: allJobs: ${allJobsErr.message}`);
   const jobs = (allJobs || []).filter((j: any) => ((j.type_meta?.po_sent_vendors || []) as string[]).length > 0);
   const jobById = new Map<string, any>((jobs || []).map((j: any) => [j.id, j]));
   if (!jobById.size) return [];
@@ -448,9 +449,10 @@ const sumQ = (q: SizeQtys) => Object.values(q || {}).reduce((a, n) => a + (Numbe
 
 export async function loadRecentShipments(sb: Sb): Promise<ShippedBox[]> {
   const cutoff = new Date(Date.now() - 21 * 86400000).toISOString();
-  const { data: ships } = await sb.from("shipments")
+  const { data: ships, error: shipsErr } = await sb.from("shipments")
     .select("id, tracking, carrier, pickup, status, created_at, packing_slip_file_id, warehouse_notified_at, warehouse_notified_to, location_id, ship_to_snapshot, decorators(name), client_locations(label)")
     .in("direction", ["inbound", "direct"]).gte("created_at", cutoff).order("created_at", { ascending: false }).limit(80);
+  if (shipsErr) throw new Error(`Board read failed: ships: ${shipsErr.message}`);
   const active = (ships || []).filter((s: any) => s.status !== "received");
   if (!active.length) return [];
   const ids = active.map((s: any) => s.id);
@@ -544,10 +546,11 @@ export async function loadReceivingBoard(sb: Sb): Promise<ReceivingBox[]> {
   // off Incoming just because it sat 45+ days (slow freight, stalled receiving).
   // The date window only prunes RECEIVED boxes, to keep the Received tab bounded.
   const cutoff = new Date(Date.now() - 45 * 86400000).toISOString();
-  const { data: ships } = await sb.from("shipments")
+  const { data: ships, error: shipsErr } = await sb.from("shipments")
     .select("id, tracking, carrier, pickup, status, expected_arrival, expected_arrival_edited_at, est_delivery_date, est_delivery_updated_at, delivered_at, carrier_status, last_scan, tracking_error, delivered_not_found_at, created_at, received_at, warehouse_notes, decorators(name, transit_defaults)")
     .eq("direction", "inbound").or(`status.neq.received,created_at.gte.${cutoff}`)
     .order("created_at", { ascending: false }).limit(160);
+  if (shipsErr) throw new Error(`Board read failed: ships: ${shipsErr.message}`);
   const open = ships || [];
   if (!open.length) return [];
   const ids = open.map((s: any) => s.id);
@@ -796,9 +799,10 @@ export type ShippingJob = {
 };
 
 export async function loadShippingBoard(sb: Sb): Promise<ShippingJob[]> {
-  const { data: jobs } = await sb.from("jobs")
+  const { data: jobs, error: jobsErr } = await sb.from("jobs")
     .select("id, job_number, title, phase, shipping_route, type_meta, qb_invoice_number, qb_invoice_id, client_id, ship_to_location_id, ship_attn, clients(name)")
     .in("phase", ["receiving", "shipping", "fulfillment"]);
+  if (jobsErr) throw new Error(`Board read failed: jobs: ${jobsErr.message}`);
   if (!jobs?.length) return [];
   const jobById = new Map<string, any>((jobs as any[]).map(j => [j.id, j]));
 
@@ -938,9 +942,10 @@ export type ForwardedShipment = {
 };
 export async function loadForwardedShipments(sb: Sb): Promise<ForwardedShipment[]> {
   const cutoff = new Date(Date.now() - 45 * 86400000).toISOString();
-  const { data: ships } = await sb.from("shipments")
+  const { data: ships, error: shipsErr } = await sb.from("shipments")
     .select("id, carrier, tracking, pickup, created_at, location_id, ship_to_snapshot, client_locations(label)").eq("direction", "outbound").gte("created_at", cutoff)
     .order("created_at", { ascending: false }).limit(160);
+  if (shipsErr) throw new Error(`Board read failed: ships: ${shipsErr.message}`);
   if (!ships?.length) return [];
   const ids = (ships as any[]).map(s => s.id);
   const lines = await allRowsIn(ids, (c, f, t) => sb.from("shipment_lines")
@@ -994,9 +999,10 @@ export async function loadStagingBoard(sb: Sb): Promise<StagingItem[]> {
   // job complete, and dropping it here made freshly-entered items vanish from
   // the Entered tab (KYS tee / Overpass, Jul 28). The availableToEnter/entered
   // guard below keeps anything without staged history off the board.
-  const { data: jobs } = await sb.from("jobs")
+  const { data: jobs, error: jobsErr } = await sb.from("jobs")
     .select("id, job_number, phase, shipping_route, type_meta, qb_invoice_number, qb_invoice_id, costing_data, clients(name)")
     .or("phase.in.(receiving,shipping,fulfillment),and(phase.eq.complete,shipping_route.eq.stage)");
+  if (jobsErr) throw new Error(`Board read failed: jobs: ${jobsErr.message}`);
   if (!jobs?.length) return [];
   const jobById = new Map<string, any>((jobs as any[]).map(j => [j.id, j]));
 
