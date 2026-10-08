@@ -30,9 +30,8 @@ export default function ClientsPage() {
   return (
     <>
       <PageHero
-        eyebrow="Clients"
-        title="Who we make it for."
-        sub="Past and present, A to Z."
+        title="Clients"
+        sub="Past and present"
       />
 
       <section style={{ padding: "80px 32px 120px", background: "#fff" }}>
