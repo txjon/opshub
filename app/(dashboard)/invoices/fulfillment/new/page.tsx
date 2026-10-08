@@ -637,8 +637,8 @@ export default function NewShipstationReportPage() {
     setCsvErrorPostage(""); setBulkAddMsg("");
     try {
       const { rows } = await parseBulkPostageCsv(await file.text());
-      const { merged, added, skipped } = mergeBulkPurchases(rawBulkRows, rows);
-      if (!added.length) { setBulkAddMsg(`Nothing new. All ${skipped} purchase${skipped === 1 ? " is" : "s are"} already on this invoice.`); return; }
+      const { merged, added, held, skipped } = mergeBulkPurchases(rawBulkRows, rows);
+      if (!added.length && !held.length) { setBulkAddMsg(`Nothing new. All ${skipped} purchase${skipped === 1 ? " is" : "s are"} already on this invoice.`); return; }
       setRawBulkRows(merged as ParsedBulkRow[]);
       const dates = added.map(a => a.transaction_date);
       if (isCombined) {
@@ -648,7 +648,13 @@ export default function NewShipstationReportPage() {
         setPeriodLabel(p => extendPeriodEnd(p, dates));
       }
       const sum = Math.round(added.reduce((a, r) => a + r.amount, 0) * 100) / 100;
-      setBulkAddMsg(`Added ${added.length} new purchase${added.length === 1 ? "" : "s"} (${fmtD(sum)}).${skipped ? ` ${skipped} already on this invoice, skipped.` : ""} Check the period on Review, then save.`);
+      const heldSum = Math.round(held.reduce((a, r) => a + r.amount, 0) * 100) / 100;
+      setBulkAddMsg([
+        added.length ? `Added ${added.length} new purchase${added.length === 1 ? "" : "s"} (${fmtD(sum)}).` : "",
+        held.length ? `${held.length} older purchase${held.length === 1 ? "" : "s"} (${fmtD(heldSum)}) predate this invoice and were added UNCHECKED. They may have been left off on purpose or billed before; tick only if they belong here.` : "",
+        skipped ? `${skipped} already on this invoice, skipped.` : "",
+        "Check the period on Review, then save.",
+      ].filter(Boolean).join(" "));
     } catch (e: any) {
       setCsvErrorPostage(e.message || "Failed to parse CSV");
     }
