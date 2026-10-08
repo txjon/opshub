@@ -312,7 +312,7 @@ export async function GET(req: NextRequest) {
       for (let from = 0; ; from += 1000) {
         const { data: page, error: sErr } = await sb.from("jobs")
           .select("id, job_number, qb_invoice_number, type_meta")
-          .not("type_meta->qb_variance_total", "is", null).order("id").range(from, from + 999);
+          .not("type_meta->>qb_variance_total", "is", null).order("id").range(from, from + 999);
         if (sErr) { invoiceDrift.push(`check failed: ${sErr.message}`); break; }
         stamped.push(...(page || []));
         if (!page || page.length < 1000) break;
