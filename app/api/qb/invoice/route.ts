@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
       userId = user.id;
     }
 
-    const { jobId, useShippedQtys, billableQtys, forceCreate, qbCustomerId, quiet } = await req.json();
+    const { jobId, useShippedQtys: reqUseShipped, billableQtys: reqBillable, forceCreate, qbCustomerId, quiet } = await req.json();
     // quiet: create the QB invoice for its NUMBER only — no payment link mint
     // (zero emails), AR row opens as draft with no due date (hub gate ignores
     // draft, dashboard won't age it). Send invoice later flips it live.
@@ -58,6 +58,17 @@ export async function POST(req: NextRequest) {
     if ((job as any).is_internal) {
       return NextResponse.json({ error: "Internal line — QB invoices are disabled for internal jobs (HPD Web / Labs). Costs still flow to QB through vendor bills." }, { status: 400 });
     }
+
+    // Once the shipped-qty review is approved (qb_variance_pushed_at), those
+    // quantities ARE the invoice. A plain push — Send invoice, Re-sync QB —
+    // used to rebuild from ORDERED qtys and silently undo the review seconds
+    // later: the client's PDF said one total, the QB pay link another
+    // (#4465 / #4498 Spiritus, #4511 Silencer, Sep-Oct 2026). Un-finalizing
+    // on the job page clears the stamp, which re-opens ordered-qty pushes.
+    const tmV = ((job as any).type_meta || {}) as any;
+    const varianceLocked = !reqUseShipped && !reqBillable && !!tmV.qb_variance_pushed_at;
+    const useShippedQtys = !!reqUseShipped || varianceLocked;
+    const billableQtys: Record<string, number> | null = reqBillable || (varianceLocked ? (tmV.qb_variance_billable_qtys || null) : null);
 
     const { data: items } = await admin.from("items")
       .select("*, buy_sheet_lines(size, qty_ordered)")
