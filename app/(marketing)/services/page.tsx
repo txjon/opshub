@@ -10,10 +10,16 @@ import { SERVICE_IMAGES } from "../_components/_placeholder-images";
 
 export const metadata = {
   title: "Services | House Party Distro",
-  description: "Screen printing, embroidery, product sourcing, design, warehousing and fulfillment.",
+  description: "Merch production, custom products, cut-and-sew, e-commerce and creative services.",
 };
 
 const SERVICES: { name: string; offerings: string[]; image: string }[] = [
+  { name: "Merch Production",   offerings: ["Screen printing", "Embroidery", "Finishing"],                       image: SERVICE_IMAGES["Screen Printing"] },
+  { name: "Custom Products",    offerings: ["Accessories", "Promotional products"],                               image: SERVICE_IMAGES["Product Sourcing"] },
+  { name: "Custom Cut-and-Sew", offerings: ["Design & development", "Sampling", "Finishing"],                     image: SERVICE_IMAGES["Embroidery"] },
+  { name: "E-Commerce",         offerings: ["Online store design", "Inventory management", "Fulfillment"],        image: SERVICE_IMAGES["Fulfillment"] },
+  { name: "Creative Services",  offerings: ["Art direction", "Product development"],                              image: SERVICE_IMAGES["Design"] },
+]; image: string }[] = [
   { name: "Screen Printing",           offerings: ["Tees", "Fleece", "Bags", "Specialty inks"],              image: SERVICE_IMAGES["Screen Printing"] },
   { name: "Embroidery",                offerings: ["Headwear", "Patches", "Polos", "Outerwear"],             image: SERVICE_IMAGES["Embroidery"] },
   { name: "Product Sourcing",          offerings: ["Blanks", "Premium brands", "Custom accessories"],        image: SERVICE_IMAGES["Product Sourcing"] },
