@@ -1,12 +1,14 @@
 import Image from "next/image";
 import Link from "next/link";
 import { SERVICE_IMAGES } from "../_components/_placeholder-images";
+import { LogoCarousel } from "../_components/LogoCarousel";
 
 // /services — photo-led service rows (Oct 2026, AKT direction). Brought
 // back from the Sep retirement in a form that says almost nothing: each
 // service is a huge name + one line of offerings beside a photo, rows
 // alternating sides and black/white blocks. The photos do the selling;
-// /start does the talking.
+// /start does the talking. The premium-blanks strip (moved off home)
+// sits under the rows, above the closing CTA.
 
 export const metadata = {
   title: "Services | House Party Distro",
@@ -44,6 +46,8 @@ export default function ServicesPage() {
           </section>
         );
       })}
+
+      <LogoCarousel />
 
       <section style={{ background: "#0a0a0c", color: "#fff", padding: "100px 32px", textAlign: "center" }}>
         <Link href="/start" style={{
