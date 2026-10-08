@@ -199,7 +199,13 @@ export function buildPostageInvoice(rows: ShipmentRow[], markupRate: number, per
 // exclusion must not come back as "new".
 export type BulkPurchase = { idx: number; transaction_date: string; amount: number; included: boolean };
 
-export function mergeBulkPurchases<T extends BulkPurchase>(existing: T[], incoming: BulkPurchase[]): { merged: (T | BulkPurchase)[]; added: BulkPurchase[]; skipped: number } {
+//
+// Only CHECKED rows are saved, so a purchase left off when the invoice was
+// created — or billed on an earlier invoice — isn't on it, and a wider
+// re-export would bring it back looking new. Anything dated before the
+// earliest purchase already on the invoice is added UNCHECKED (`held`): a
+// human ticks it on purpose or it stays off. Never silently double-bill.
+export function mergeBulkPurchases<T extends BulkPurchase>(existing: T[], incoming: BulkPurchase[]): { merged: (T | BulkPurchase)[]; added: BulkPurchase[]; held: BulkPurchase[]; skipped: number } {
   const key = (d: string, a: number) => `${(d || "").trim().toLowerCase()}|${Math.round((Number(a) || 0) * 100)}`;
   const have = new Map<string, number>();
   for (const r of existing) { const k = key(r.transaction_date, r.amount); have.set(k, (have.get(k) || 0) + 1); }
@@ -210,9 +216,18 @@ export function mergeBulkPurchases<T extends BulkPurchase>(existing: T[], incomi
     const n = have.get(k) || 0;
     if (n > 0) { have.set(k, n - 1); skipped++; } else added.push(r);
   }
+  const t = (d: string) => { const x = new Date(d); return isNaN(x.getTime()) ? null : x.getTime(); };
+  const existingTimes = existing.map(r => t(r.transaction_date)).filter((x): x is number => x != null);
+  const earliest = existingTimes.length ? Math.min(...existingTimes) : null;
+  const isEarly = (r: BulkPurchase) => { const x = t(r.transaction_date); return earliest != null && x != null && x < earliest; };
   let next = existing.reduce((m, r) => Math.max(m, r.idx), -1) + 1;
-  const merged = [...existing, ...added.map(r => ({ ...r, idx: next++, included: true }))];
-  return { merged, added, skipped };
+  const newRows = added.map(r => ({ ...r, idx: next++, included: !isEarly(r) }));
+  return {
+    merged: [...existing, ...newRows],
+    added: newRows.filter(r => r.included),
+    held: newRows.filter(r => !r.included),
+    skipped,
+  };
 }
 
 // "MM/DD/YYYY - MM/DD/YYYY" with its end pushed out to the latest of `dates`
