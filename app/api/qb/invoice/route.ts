@@ -7,8 +7,7 @@ import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getOrCreateCustomer, createInvoice, updateInvoice, QBAmbiguousCustomerError, getCustomerById, type QBLineItem } from "@/lib/quickbooks";
-import { billableQtysForItem, sumForwarded } from "@/lib/job/billable-qtys";
-import { deductSamples } from "@/lib/qty";
+import { invoiceLineQtys, sumForwarded } from "@/lib/job/billable-qtys";
 import { todayPacific, addDays } from "@/lib/dates";
 // Note: logs to job_activity after push so dashboard actions are traceable
 // Pricing source of truth: items.sell_per_unit (set by CostingTab, rounded to cent)
@@ -171,26 +170,23 @@ export async function POST(req: NextRequest) {
 
     for (const item of (items || [])) {
       const lines = (item as any).buy_sheet_lines || [];
-      let perSize: Record<string, number> = {};
+      // Variance reviewer's per-line override (waived or manual edit), if any.
+      const override = billableQtys && (item as any).id in billableQtys ? Number(billableQtys[(item as any).id]) : null;
+      let billable: Record<string, number>;
+      let totalQty: number;
       if (useShippedQtys) {
-        perSize = billableQtysForItem({
+        // Delivered − samples, then the override: lib/job/billable-qtys
+        // invoiceLineQtys — the SAME function the invoice PDF bills from.
+        ({ perSize: billable, totalQty } = invoiceLineQtys({
           item: item as any, jobRoute: (job as any).shipping_route,
-          forwardedMap: fwdByItem[(item as any).id] || null,
-        }).perSize;
+          forwardedMap: fwdByItem[(item as any).id] || null, override,
+        }));
       } else {
-        for (const l of lines) perSize[l.size] = l.qty_ordered || 0;
-      }
-      // Bill continuing (delivered − samples). Samples never ship to the
-      // customer so we shouldn't charge for them. No-op for drop-ship items
-      // (sample_qtys is empty) and for ordered-qty mode (samples not yet
-      // pulled at quote time).
-      const billable = useShippedQtys ? deductSamples(perSize, (item as any).sample_qtys) : perSize;
-      let totalQty = Object.values(billable).reduce((a, q) => a + (q || 0), 0);
-
-      // Override with billableQty if variance reviewer set one (waived or manual edit)
-      if (billableQtys && (item as any).id in billableQtys) {
-        const override = Number(billableQtys[(item as any).id]);
-        if (!isNaN(override) && override >= 0) totalQty = Math.floor(override);
+        // Ordered-qty mode (pre-review): samples not yet pulled at quote time.
+        billable = {};
+        for (const l of lines) billable[l.size] = l.qty_ordered || 0;
+        totalQty = Object.values(billable).reduce((a, q) => a + (q || 0), 0);
+        if (override != null && !isNaN(override) && override >= 0) totalQty = Math.floor(override);
       }
 
       if (totalQty === 0) continue;

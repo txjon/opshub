@@ -9,6 +9,7 @@ import { generatePDF } from "@/lib/pdf/browser";
 import { contentDisposition } from "@/lib/pdf/filename";
 import { getPdfBranding, type PdfBranding } from "@/lib/branding";
 import { parseSizeMatrix, sizeMatrixHtml } from "@/lib/size-grid";
+import { invoiceLineQtys, sumForwarded } from "@/lib/job/billable-qtys";
 
 // Pricing source of truth: items.sell_per_unit (set by CostingTab, rounded to cent)
 
@@ -221,7 +222,7 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
 
     const { data: items } = await supabase
       .from("items")
-      .select("id, name, blank_vendor, blank_sku, sell_per_unit, garment_type, shipping_route, ship_qtys, received_qtys, client_eta, buy_sheet_lines(size, qty_ordered)")
+      .select("id, name, blank_vendor, blank_sku, sell_per_unit, garment_type, shipping_route, ship_qtys, received_qtys, sample_qtys, client_eta, buy_sheet_lines(size, qty_ordered)")
       .eq("job_id", jobId)
       .order("sort_order");
 
@@ -261,6 +262,16 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
     // After variance push, use shipped/received per-size qtys for the invoice
     // line items so PDF matches what's been billed in QB. Before: use quote qtys.
     const variancePushed = !!((job.type_meta as any)?.qb_variance_pushed_at || (job.type_meta as any)?.stripe_variance_pushed_at);
+    // Same inputs the QB push bills from: ledger forwards (warehouse routes)
+    // and the reviewer's per-line overrides.
+    const varianceOverrides: Record<string, number> = ((job.type_meta as any)?.qb_variance_billable_qtys || {}) as any;
+    const fwdByItem: Record<string, Record<string, number>> = {};
+    if (variancePushed) {
+      const { data: fwdMoves } = await supabase.from("movements").select("item_id, type, qtys").eq("job_id", jobId).eq("type", "forward");
+      const grouped: Record<string, any[]> = {};
+      for (const m of (fwdMoves || []) as any[]) (grouped[m.item_id] ||= []).push(m);
+      for (const [iid, ms] of Object.entries(grouped)) fwdByItem[iid] = sumForwarded(ms);
+    }
 
     let prods: any[] = [];
     if (costProds.length > 0) {
@@ -276,27 +287,24 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
         const quotedQtys = Object.keys(bslQtys).length > 0 ? bslQtys : (p.qtys || {});
 
         let effectiveQtys: Record<string, number>;
+        let totalQty: number;
         if (variancePushed && dbItem) {
-          const received = (dbItem.received_qtys || {}) as Record<string, number>;
-          const shipped = (dbItem.ship_qtys || {}) as Record<string, number>;
-          // Per-item route wins over the job route (migration 076): a ship_through/
-          // stage item bills received qty; a drop_ship item bills shipped qty, even
-          // when the job's default route differs.
-          const itemRoute = (dbItem as any).shipping_route || (job as any).shipping_route;
-          const prefersReceived = itemRoute === "ship_through" || itemRoute === "stage";
-          const firstChoice = prefersReceived ? received : shipped;
-          const secondChoice = prefersReceived ? shipped : received;
-          effectiveQtys = {};
-          for (const sz of Object.keys(quotedQtys)) {
-            const a = firstChoice[sz];
-            const b = secondChoice[sz];
-            effectiveQtys[sz] = a !== undefined ? a : b !== undefined ? b : (quotedQtys[sz] || 0);
-          }
+          // Billed exactly as the QB push bills it (lib/job/billable-qtys
+          // invoiceLineQtys): delivered − samples, then the reviewer's override.
+          // Own math here made the PDF and the QB pay link disagree (#4498/#4465/#4511).
+          const override = (dbItem as any).id in varianceOverrides ? Number(varianceOverrides[(dbItem as any).id]) : null;
+          const line = invoiceLineQtys({ item: dbItem as any, jobRoute: (job as any).shipping_route, forwardedMap: fwdByItem[(dbItem as any).id] || null, override });
+          totalQty = line.totalQty;
+          // Size grid: the delivered sizes — unless the override bills the
+          // quoted run ("bill as quoted"), then the quoted grid adds up to it.
+          const quotedTotal = Object.values(quotedQtys).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
+          const deliveredTotal = Object.values(line.perSize).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
+          effectiveQtys = totalQty !== deliveredTotal && totalQty === quotedTotal ? quotedQtys : line.perSize;
         } else {
           effectiveQtys = quotedQtys;
+          totalQty = Object.values(effectiveQtys).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
         }
 
-        const totalQty = Object.values(effectiveQtys).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
         if (totalQty === 0) return null;
         const sellPerUnit = parseFloat(dbItem?.sell_per_unit) || 0;
         const grossRev = Math.round(sellPerUnit * totalQty * 100) / 100;

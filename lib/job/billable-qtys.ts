@@ -13,6 +13,8 @@
 // Missing sizes fall through to ordered (matches packing-slip logic; an
 // explicit 0 in a higher source is respected).
 
+import { deductSamples } from "@/lib/qty";
+
 export type SizeMap = Record<string, number>;
 
 export function sumForwarded(movements: { type: string; qtys: SizeMap | null }[]): SizeMap {
@@ -60,4 +62,28 @@ export function billableQtysForItem(opts: {
     perSize[sz] = v !== undefined ? v : ordered[sz];
   }
   return { perSize, source: topSource };
+}
+
+/**
+ * THE quantity an invoice bills for an item once shipped quantities apply:
+ * the delivered chain above, minus pulled samples (they never reach the
+ * client), then the variance reviewer's per-line override if there is one
+ * (a waive, a manual edit, or "bill as quoted").
+ *
+ * The QB invoice push AND the invoice PDF both call this. They used to do
+ * the math separately, and the client's PDF and the QB pay link disagreed
+ * (#4498 / #4465 / #4511, Oct 2026).
+ */
+export function invoiceLineQtys(opts: {
+  item: Parameters<typeof billableQtysForItem>[0]["item"] & { sample_qtys?: SizeMap | null };
+  jobRoute?: string | null;
+  forwardedMap?: SizeMap | null;
+  override?: number | null;  // type_meta.qb_variance_billable_qtys[item.id]
+}): { perSize: SizeMap; totalQty: number } {
+  const { perSize } = billableQtysForItem(opts);
+  const billable = deductSamples(perSize, opts.item.sample_qtys);
+  let totalQty = Object.values(billable).reduce((a, q) => a + (q || 0), 0);
+  const o = opts.override == null ? NaN : Number(opts.override);
+  if (!isNaN(o) && o >= 0) totalQty = Math.floor(o);
+  return { perSize: billable, totalQty };
 }

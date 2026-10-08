@@ -10,7 +10,7 @@
 // Callers gate on the derive step: only call when step === "reconcile"
 // (fully shipped, not yet stamped). Safe to call twice — the stamp check
 // makes it idempotent.
-import { billableQtysForItem, sumForwarded, type SizeMap } from "@/lib/job/billable-qtys";
+import { invoiceLineQtys, sumForwarded, type SizeMap } from "@/lib/job/billable-qtys";
 import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 
 export async function maybeAutoFinalizeInvoice(supabase: any, jobId: string): Promise<boolean> {
@@ -24,7 +24,7 @@ export async function maybeAutoFinalizeInvoice(supabase: any, jobId: string): Pr
 
   const [{ data: items }, { data: moves }] = await Promise.all([
     supabase.from("items")
-      .select("id, shipping_route, ship_qtys, received_qtys, buy_sheet_lines(size, qty_ordered)")
+      .select("id, shipping_route, ship_qtys, received_qtys, sample_qtys, buy_sheet_lines(size, qty_ordered)")
       .eq("job_id", jobId),
     supabase.from("movements").select("item_id, type, qtys").eq("job_id", jobId).eq("type", "forward"),
   ]);
@@ -36,7 +36,11 @@ export async function maybeAutoFinalizeInvoice(supabase: any, jobId: string): Pr
   for (const it of items as any[]) {
     const ordered: SizeMap = {};
     for (const l of it.buy_sheet_lines || []) ordered[l.size] = Number(l.qty_ordered) || 0;
-    const { perSize } = billableQtysForItem({
+    // Compare what a QB push would BILL (delivered − samples — the shared
+    // invoiceLineQtys), not raw delivered. Stamping final turns every later
+    // push into a shipped-qty push, so a job whose delivered count matches
+    // only because pulled samples are hidden in it would quietly under-bill.
+    const { perSize } = invoiceLineQtys({
       item: it, jobRoute: (job as any).shipping_route,
       forwardedMap: sumForwarded(movesByItem[it.id] || []),
     });

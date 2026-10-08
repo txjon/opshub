@@ -299,6 +299,35 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // (e) QB invoice total ≠ the approved shipped total. Send invoice used to
+    //     re-push ORDERED qtys over the shipped-qty review, so the client's PDF
+    //     and the QB pay link disagreed (#4465 / #4498 / #4511, Oct 2026 —
+    //     fixed at the route). Flags OVER-billing always (paid or not: the
+    //     client is being charged for goods they never got) and under-billing
+    //     while money is still open; an under-billed invoice already paid in
+    //     full is a settled, accepted call (#4363) and stays quiet.
+    const invoiceDrift: string[] = [];
+    {
+      const stamped: any[] = [];
+      for (let from = 0; ; from += 1000) {
+        const { data: page, error: sErr } = await sb.from("jobs")
+          .select("id, job_number, qb_invoice_number, type_meta")
+          .not("type_meta->qb_variance_total", "is", null).order("id").range(from, from + 999);
+        if (sErr) { invoiceDrift.push(`check failed: ${sErr.message}`); break; }
+        stamped.push(...(page || []));
+        if (!page || page.length < 1000) break;
+      }
+      const drifted = stamped.filter(j => Math.abs(Number(j.type_meta.qb_variance_total) - Number(j.type_meta.qb_total_with_tax)) > 0.005);
+      for (const j of drifted) {
+        const approved = Number(j.type_meta.qb_variance_total), qb = Number(j.type_meta.qb_total_with_tax);
+        const { data: pays } = await sb.from("payment_records").select("amount, status").eq("job_id", j.id);
+        const paid = ((pays || []) as any[]).filter(p => p.status === "paid" || p.status === "partial").reduce((a, p) => a + (Number(p.amount) || 0), 0);
+        const over = qb > approved;
+        if (!over && paid >= qb - 0.005) continue;   // under-billed and settled
+        invoiceDrift.push(`${j.job_number} #${j.qb_invoice_number} — QB $${qb.toFixed(2)} vs approved $${approved.toFixed(2)} (${over ? "OVER" : "under"}-billed $${Math.abs(qb - approved).toFixed(2)}; paid $${paid.toFixed(2)})`);
+      }
+    }
+
     // ── Missing-file tripwire: does the file we point at still exist? ──
     // A slice of the library each run (oldest-checked first), inside a time
     // budget, so the whole set is covered daily without a long job. 45 files
@@ -311,7 +340,7 @@ export async function GET(req: NextRequest) {
     } catch (e) { console.error("[costing-health] file scan failed", e); }
 
     // Email the owner ONLY when something is wrong. Silent when clean.
-    const sep11Count = badLinks.length + forbiddenPushes.length + poNoInvoice.length + vendorGaps.length;
+    const sep11Count = badLinks.length + forbiddenPushes.length + poNoInvoice.length + vendorGaps.length + invoiceDrift.length;
     const missingCount = fileHealth.missing;
     if ((drift.length || healed.length || fleeceGaps.length || phaseDrift.length || qtyHealed.length || qtyDrift.length || sep11Count || missingCount) && process.env.OWNER_EMAIL) {
       try {
@@ -335,6 +364,7 @@ export async function GET(req: NextRequest) {
   ${forbiddenPushes.length ? `<h3 style="color:#ef4444;margin:16px 0 8px">Cost entries in QB that should never be (${forbiddenPushes.length})</h3><ul style="margin:0;padding-left:20px">${forbiddenPushes.map(t => `<li style="margin:4px 0;font-size:14px">${t}</li>`).join("")}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">Delete the QB Bill, then clear the entry's pushed stamp.</p>` : ""}
   ${poNoInvoice.length ? `<h3 style="color:#d97706;margin:16px 0 8px">PO sent, no invoice on the job (${poNoInvoice.length})</h3><ul style="margin:0;padding-left:20px">${poNoInvoice.map(t => `<li style="margin:4px 0;font-size:14px">${t}</li>`).join("")}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">Draft the invoice, or the job lost its QB link — check job_type_meta_history.</p>` : ""}
   ${vendorGaps.length ? `<h3 style="color:#d97706;margin:16px 0 8px">Vendor in costing, no assignment (${vendorGaps.length})</h3><ul style="margin:0;padding-left:20px">${vendorGaps.map(t => `<li style="margin:4px 0;font-size:14px">${t}</li>`).join("")}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">These sit under "Unassigned vendor" on the production board and are missing from that vendor's portal. Re-save the item's decoration on the job page, or ask for a backfill.</p>` : ""}
+  ${invoiceDrift.length ? `<h3 style="color:#ef4444;margin:16px 0 8px">QB invoice ≠ approved shipped total (${invoiceDrift.length})</h3><ul style="margin:0;padding-left:20px">${invoiceDrift.map(t => `<li style="margin:4px 0;font-size:14px">${t}</li>`).join("")}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">The client's PDF and their QB pay link disagree. Re-sync QB on the job pushes the approved shipped quantities.</p>` : ""}
   ${missingCount ? `<h3 style="color:#ef4444;margin:16px 0 8px">Files missing from Google Drive (${missingCount}${fileHealth.newlyMissing ? `, ${fileHealth.newlyMissing} new` : ""})</h3><ul style="margin:0;padding-left:20px">${missing.map(m => `<li style="margin:4px 0;font-size:14px"><b>${m.itemName || m.fileName || "—"}</b>${m.jobNumber ? ` · ${m.jobNumber}` : ""}${m.clientName ? ` · ${m.clientName}` : ""} — ${m.stage || "file"} "${m.fileName || ""}" is gone${m.firstMissingAt ? ` (first seen missing ${fmtPacific(m.firstMissingAt)})` : ""}</li>`).join("")}${missingCount > missing.length ? `<li style="margin:4px 0;font-size:14px;color:#666">…and ${missingCount - missing.length} more</li>` : ""}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">The record points at a Drive file that no longer exists. Check Drive trash first (restorable for 30 days), then re-upload. Deletes have gone to the trash with a reference check since Sep 19 2026.</p>` : ""}
   <p style="margin:20px 0 0;font-size:12px;color:#999">Costing: re-save the job's costing tab. Phase: open the job (V2 heals on load). — OpsHub tripwire</p>
 </div>`;
