@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
 import { groupLineItems } from "@/lib/shipstation-group";
-import { parseCsv, findCol, parseMoney, dateOnly, normalizeProvider } from "@/lib/shipstation-csv";
+import { parseCsv, findCol, parseMoney, dateOnly, normalizeProvider, mergeBulkPurchases, extendPeriodEnd } from "@/lib/shipstation-csv";
 import { nextPeriodSuggestion, parsePeriodRange } from "@/lib/billing-period";
 
 // ── Sales CSV row shape ───────────────────────────────────────────────────
@@ -180,6 +180,7 @@ export default function NewShipstationReportPage() {
   const [postagePeriodLabel, setPostagePeriodLabel] = useState<string>("");
   const [csvError, setCsvError] = useState("");
   const [csvErrorPostage, setCsvErrorPostage] = useState("");
+  const [bulkAddMsg, setBulkAddMsg] = useState("");
 
   // Sales-specific
   const [rawRows, setRawRows] = useState<ParsedRow[]>([]);
@@ -625,6 +626,31 @@ export default function NewShipstationReportPage() {
     } catch (e: any) {
       setCsvErrorPostage(e.message || "Failed to parse CSV");
       setRawBulkRows([]);
+    }
+  }
+  // Edit mode: add purchases made after the invoice went out (FOG #4528, Oct
+  // 2026). Drop in a fresh ledger export — it repeats what's already billed,
+  // so only the purchases beyond those are added (lib/shipstation-csv
+  // mergeBulkPurchases). The sales half is never touched. The postage period
+  // stretches to the newest purchase when it's a date range.
+  async function onAddBulkCsvFile(file: File) {
+    setCsvErrorPostage(""); setBulkAddMsg("");
+    try {
+      const { rows } = await parseBulkPostageCsv(await file.text());
+      const { merged, added, skipped } = mergeBulkPurchases(rawBulkRows, rows);
+      if (!added.length) { setBulkAddMsg(`Nothing new. All ${skipped} purchase${skipped === 1 ? " is" : "s are"} already on this invoice.`); return; }
+      setRawBulkRows(merged as ParsedBulkRow[]);
+      const dates = added.map(a => a.transaction_date);
+      if (isCombined) {
+        const nextPostage = extendPeriodEnd(postagePeriodLabel, dates);
+        if (nextPostage !== postagePeriodLabel) { setPostagePeriodLabel(nextPostage); setPeriodLabel(derivePeriod(salesPeriodLabel, nextPostage)); }
+      } else {
+        setPeriodLabel(p => extendPeriodEnd(p, dates));
+      }
+      const sum = Math.round(added.reduce((a, r) => a + r.amount, 0) * 100) / 100;
+      setBulkAddMsg(`Added ${added.length} new purchase${added.length === 1 ? "" : "s"} (${fmtD(sum)}).${skipped ? ` ${skipped} already on this invoice, skipped.` : ""} Check the period on Review, then save.`);
+    } catch (e: any) {
+      setCsvErrorPostage(e.message || "Failed to parse CSV");
     }
   }
 
@@ -1344,6 +1370,19 @@ export default function NewShipstationReportPage() {
   // rows or the bulk ledger, depending on the active mode — so the gates,
   // counters, and Next buttons work the same for both flavors.
   const postageLoaded = isBulkPostage ? rawBulkRows.length : rawPostageRows.length;
+  // Edit mode only: add purchases from a newer ledger export (onAddBulkCsvFile).
+  const addPurchasesBar = !!editId && isBulkPostage ? (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", margin: "0 0 10px" }}>
+      <label style={{ ...btnGhost, cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
+        + Add purchases from CSV
+        <input type="file" accept=".csv,text/csv" style={{ display: "none" }}
+          onChange={e => { const f = e.target.files?.[0]; if (f) onAddBulkCsvFile(f); e.target.value = ""; }} />
+      </label>
+      <span style={{ fontSize: 11.5, color: csvErrorPostage ? T.red : bulkAddMsg ? T.green : T.faint }}>
+        {csvErrorPostage || bulkAddMsg || "Drop in the newest ShipStation postage export. Purchases already on this invoice are skipped."}
+      </span>
+    </div>
+  ) : null;
   const postageSelectedCount = isBulkPostage ? selectedBulkRows.length : selectedPostageRows.length;
   // canNextFrom* gates per type. Combined requires both halves at every
   // stage — empty CSVs / zero rows / missing prices on either side
@@ -1395,7 +1434,7 @@ export default function NewShipstationReportPage() {
         </h1>
         {isEditing && (
           <div style={{ fontSize: 11, color: T.muted, marginTop: 6, maxWidth: "62ch" }}>
-            Adjust pricing, drop rows, or update the period. Changes save back to this invoice — then use Update QB Invoice on the invoice page to push them to QuickBooks.
+            Adjust pricing, drop rows, or update the period.{isBulkPostage ? " To add postage purchases, go to step 2." : ""} Changes save back to this invoice — then use Update QB Invoice on the invoice page to push them to QuickBooks.
           </div>
         )}
       </div>
@@ -1830,6 +1869,7 @@ export default function NewShipstationReportPage() {
       {/* ── Stage 2 — Select purchases (postage-only, bulk) ── */}
       {stage === 2 && isPostage && isBulkPostage && (
         <div style={{ ...card, width: "100%", maxWidth: 1040 }}>
+          {addPurchasesBar}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
             <div style={{ fontSize: 12, color: T.muted }}>
               <span style={{ fontWeight: 700, color: T.text }}>{selectedBulkRows.length}</span> of {rawBulkRows.length} purchases included
@@ -2341,6 +2381,7 @@ export default function NewShipstationReportPage() {
           {/* Postage purchases (bulk) */}
           {isBulkPostage && (
           <div>
+            {addPurchasesBar}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
               <div style={{ fontSize: 12, color: T.muted }}>
                 <span style={{ fontSize: 10, fontWeight: 700, color: T.amber, textTransform: "uppercase", letterSpacing: "0.08em", marginRight: 8 }}>Postage</span>

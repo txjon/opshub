@@ -188,3 +188,44 @@ export function buildPostageInvoice(rows: ShipmentRow[], markupRate: number, per
   };
   return { line_items, totals };
 }
+
+// ── Adding purchases to a saved bulk-postage invoice ─────────────────────
+// A sent invoice gets new postage purchases after the fact (FOG #4528, Oct
+// 2026). The source CSV isn't kept, so the re-export is the client's FULL
+// ledger: the purchases already billed plus the new ones. Match by date +
+// amount, COUNTED PER OCCURRENCE — five $5,000 buys on one day are five
+// distinct rows, and only the ones beyond what's already on the invoice are
+// new. Rows unchecked on the invoice still count as present: a deliberate
+// exclusion must not come back as "new".
+export type BulkPurchase = { idx: number; transaction_date: string; amount: number; included: boolean };
+
+export function mergeBulkPurchases<T extends BulkPurchase>(existing: T[], incoming: BulkPurchase[]): { merged: (T | BulkPurchase)[]; added: BulkPurchase[]; skipped: number } {
+  const key = (d: string, a: number) => `${(d || "").trim().toLowerCase()}|${Math.round((Number(a) || 0) * 100)}`;
+  const have = new Map<string, number>();
+  for (const r of existing) { const k = key(r.transaction_date, r.amount); have.set(k, (have.get(k) || 0) + 1); }
+  const added: BulkPurchase[] = [];
+  let skipped = 0;
+  for (const r of incoming) {
+    const k = key(r.transaction_date, r.amount);
+    const n = have.get(k) || 0;
+    if (n > 0) { have.set(k, n - 1); skipped++; } else added.push(r);
+  }
+  let next = existing.reduce((m, r) => Math.max(m, r.idx), -1) + 1;
+  const merged = [...existing, ...added.map(r => ({ ...r, idx: next++, included: true }))];
+  return { merged, added, skipped };
+}
+
+// "MM/DD/YYYY - MM/DD/YYYY" with its end pushed out to the latest of `dates`
+// (any Date-parseable strings, e.g. "October 7, 2026"). Returns the label
+// unchanged when it isn't a date range or nothing is later — a month-name
+// period ("September 2026") is a human's call, not ours.
+export function extendPeriodEnd(label: string, dates: string[]): string {
+  const m = (label || "").trim().match(/^(\d{2}\/\d{2}\/\d{4})\s*-\s*(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!m) return label;
+  const end = new Date(Number(m[4]), Number(m[2]) - 1, Number(m[3]));
+  let latest = end;
+  for (const s of dates) { const d = new Date(s); if (!isNaN(d.getTime()) && d > latest) latest = d; }
+  if (latest.getTime() === end.getTime()) return label;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${m[1]} - ${p(latest.getMonth() + 1)}/${p(latest.getDate())}/${latest.getFullYear()}`;
+}
