@@ -14,9 +14,8 @@ import { SERVICE_IMAGES } from "./_placeholder-images";
 // scroll while the sticky child stays pinned — height: calc(100vh + 200vw).
 //
 // 4 production services + a merged Warehousing & Fulfillment tile.
-// /services is retired (said too much for the exclusive positioning) —
-// this grid IS the services pitch now, and every tile routes to /start,
-// where the two doors do the heavy lifting.
+// /services is the photo-led rows page (Oct 2026, near-zero copy); every
+// tile here still routes to /start, where the two doors do the heavy lifting.
 
 const SERVICES: { label: string; href: string; image: string }[] = [
   { label: "Screen Printing",              href: "/start", image: SERVICE_IMAGES["Screen Printing"] },
