@@ -39,7 +39,7 @@ export default function ClientsPage() {
           gap: 12,
         }}>
           {CLIENTS.map(c => (
-            <div key={c.slug} className="hpd-client-tile" style={{
+            <div key={c.slug} className="hpd-client-tile" tabIndex={0} style={{
               position: "relative",
               aspectRatio: "1 / 1",
               background: "#0a0a0c",
@@ -68,24 +68,34 @@ export default function ClientsPage() {
                     sizes="(max-width: 540px) 30vw, (max-width: 900px) 20vw, 200px"
                     style={{ objectFit: "contain", padding: "14%" }}
                   />
+                  {/* Hover (tap on phones): plain-text name, since some
+                      logos don't say who the client is. */}
+                  <div className="hpd-client-label hpd-client-hover" aria-hidden>{c.name}</div>
                 </>
               ) : (
-                <div style={{
-                  position: "absolute", inset: 0,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  padding: "14%", textAlign: "center",
-                  // Same type as the PageHero title (Inter 900, tight, caps).
-                  color: "#fff", fontSize: "clamp(18px, 2.1vw, 30px)", fontWeight: 900,
-                  letterSpacing: "-0.02em", textTransform: "uppercase", lineHeight: 1.05,
-                }}>
-                  {c.name}
-                </div>
+                <div className="hpd-client-label">{c.name}</div>
               )}
             </div>
           ))}
         </div>
 
         <style>{`
+          .hpd-client-tile { outline: none; }
+          /* Same type as the PageHero title (Inter 900, tight, caps). */
+          .hpd-client-label {
+            position: absolute; inset: 0;
+            display: flex; align-items: center; justify-content: center;
+            padding: 14%; text-align: center;
+            color: #fff; font-size: clamp(18px, 2.1vw, 30px); font-weight: 900;
+            letter-spacing: -0.02em; text-transform: uppercase; line-height: 1.05;
+          }
+          .hpd-client-hover {
+            background: rgba(10,10,12,0.88);
+            opacity: 0;
+            transition: opacity 0.2s ease;
+          }
+          .hpd-client-tile:hover .hpd-client-hover,
+          .hpd-client-tile:focus .hpd-client-hover { opacity: 1; }
           .hpd-client-scrim {
             position: absolute; inset: 0;
             background: radial-gradient(circle, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.35) 70%);
