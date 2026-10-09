@@ -66,16 +66,17 @@ export default function ClientsPage() {
                     alt={c.name}
                     fill
                     sizes="(max-width: 540px) 30vw, (max-width: 900px) 20vw, 200px"
-                    style={{ objectFit: "contain", padding: "22%" }}
+                    style={{ objectFit: "contain", padding: "14%" }}
                   />
                 </>
               ) : (
                 <div style={{
                   position: "absolute", inset: 0,
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  padding: 20, textAlign: "center",
-                  color: "#fff", fontSize: 15, fontWeight: 800,
-                  letterSpacing: "0.06em", textTransform: "uppercase", lineHeight: 1.25,
+                  padding: "14%", textAlign: "center",
+                  // Same type as the PageHero title (Inter 900, tight, caps).
+                  color: "#fff", fontSize: "clamp(18px, 2.1vw, 30px)", fontWeight: 900,
+                  letterSpacing: "-0.02em", textTransform: "uppercase", lineHeight: 1.05,
                 }}>
                   {c.name}
                 </div>

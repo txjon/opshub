@@ -87,7 +87,6 @@ export const CLIENTS: Client[] = [
   { name: "Tag Firearms", slug: "tag-firearms" },
   { name: "Team Blackshell", slug: "team-blackshell" },
   { name: "Team Room Design", slug: "team-room-design" },
-  { name: "The War Club", slug: "the-war-club" },
   { name: "Thirteen Systems", slug: "thirteen-systems" },
   { name: "THYF", slug: "thyf" },
   { name: "Tobacco Tactical", slug: "tobacco-tactical" },
