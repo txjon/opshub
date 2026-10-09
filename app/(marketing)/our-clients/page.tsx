@@ -92,8 +92,8 @@ export default function ClientsPage() {
             color: #fff; font-size: clamp(18px, 2.1vw, 30px); font-weight: 900;
             letter-spacing: -0.02em; text-transform: uppercase; line-height: 1.05;
           }
-          /* Hover / tap / scroll-reveal ("active"): photo dims, logo swaps
-             for the name in house blue (same as /start, /contact accents). */
+          /* Hover / tap / scroll-reveal ("active"): logo swaps for the name
+             in house blue (same as /start, /contact accents); photo unchanged. */
           .hpd-client-hover {
             color: #73B6C9;
             opacity: 0;
@@ -118,9 +118,6 @@ export default function ClientsPage() {
           }
           .hpd-client-photo { transition: transform 0.4s ease; }
           .hpd-client-tile:hover .hpd-client-photo { transform: scale(1.04); }
-          .hpd-client-tile:hover .hpd-client-scrim,
-          .hpd-client-tile:focus .hpd-client-scrim,
-          .hpd-client-tile.is-revealed .hpd-client-scrim { background: rgba(0,0,0,0.72); }
           @media (max-width: 900px) {
             .hpd-clients-grid { grid-template-columns: repeat(3, 1fr) !important; }
           }
