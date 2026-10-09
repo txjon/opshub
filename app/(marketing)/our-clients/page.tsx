@@ -3,6 +3,7 @@ import path from "node:path";
 import Image from "next/image";
 import { PageHero } from "../_components/PageHero";
 import { CLIENTS } from "./clients";
+import { ScrollReveal } from "./ScrollReveal";
 
 // /our-clients — every client, past and present, one alphabetical grid.
 // Each tile is the client's white logo on black, over an optional square
@@ -79,6 +80,7 @@ export default function ClientsPage() {
           ))}
         </div>
 
+        <ScrollReveal />
         <style>{`
           .hpd-client-tile { outline: none; }
           /* Same type as the PageHero title (Inter 900, tight, caps). */
@@ -96,11 +98,13 @@ export default function ClientsPage() {
             transition: opacity 0.2s ease;
           }
           .hpd-client-tile:hover .hpd-client-hover,
-          .hpd-client-tile:focus .hpd-client-hover { opacity: 1; }
+          .hpd-client-tile:focus .hpd-client-hover,
+          .hpd-client-tile.is-revealed .hpd-client-hover { opacity: 1; }
           /* Name-only tiles: same blue on hover/tap. */
           .hpd-client-plain { transition: color 0.2s ease; }
           .hpd-client-tile:hover .hpd-client-plain,
-          .hpd-client-tile:focus .hpd-client-plain { color: #73B6C9; }
+          .hpd-client-tile:focus .hpd-client-plain,
+          .hpd-client-tile.is-revealed .hpd-client-plain { color: #73B6C9; }
           .hpd-client-scrim {
             position: absolute; inset: 0;
             background: radial-gradient(circle, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.35) 70%);
