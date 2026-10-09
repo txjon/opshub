@@ -67,6 +67,7 @@ export default function ClientsPage() {
                     alt={c.name}
                     fill
                     sizes="(max-width: 540px) 30vw, (max-width: 900px) 20vw, 200px"
+                    className="hpd-client-logo"
                     style={{ objectFit: "contain", padding: "14%" }}
                   />
                   {/* Hover (tap on phones): plain-text name, since some
@@ -91,15 +92,20 @@ export default function ClientsPage() {
             color: #fff; font-size: clamp(18px, 2.1vw, 30px); font-weight: 900;
             letter-spacing: -0.02em; text-transform: uppercase; line-height: 1.05;
           }
+          /* Hover / tap / scroll-reveal ("active"): photo dims, logo swaps
+             for the name in house blue (same as /start, /contact accents). */
           .hpd-client-hover {
-            color: #73B6C9; /* house blue (same as /start, /contact accents) */
-            background: rgba(10,10,12,0.88);
+            color: #73B6C9;
             opacity: 0;
             transition: opacity 0.2s ease;
           }
+          .hpd-client-logo { transition: opacity 0.2s ease; }
           .hpd-client-tile:hover .hpd-client-hover,
           .hpd-client-tile:focus .hpd-client-hover,
           .hpd-client-tile.is-revealed .hpd-client-hover { opacity: 1; }
+          .hpd-client-tile:hover .hpd-client-logo,
+          .hpd-client-tile:focus .hpd-client-logo,
+          .hpd-client-tile.is-revealed .hpd-client-logo { opacity: 0; }
           /* Name-only tiles: same blue on hover/tap. */
           .hpd-client-plain { transition: color 0.2s ease; }
           .hpd-client-tile:hover .hpd-client-plain,
@@ -112,9 +118,9 @@ export default function ClientsPage() {
           }
           .hpd-client-photo { transition: transform 0.4s ease; }
           .hpd-client-tile:hover .hpd-client-photo { transform: scale(1.04); }
-          .hpd-client-tile:hover .hpd-client-scrim {
-            background: radial-gradient(circle, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0.2) 70%);
-          }
+          .hpd-client-tile:hover .hpd-client-scrim,
+          .hpd-client-tile:focus .hpd-client-scrim,
+          .hpd-client-tile.is-revealed .hpd-client-scrim { background: rgba(0,0,0,0.72); }
           @media (max-width: 900px) {
             .hpd-clients-grid { grid-template-columns: repeat(3, 1fr) !important; }
           }
