@@ -4,10 +4,10 @@
 //   node scripts/import-client-art.mjs ~/Desktop/client-art
 //
 // Name each file by the client's slug (see app/(marketing)/our-clients/clients.ts):
-//   <slug>.jpg|.jpeg|.png|.webp|.heic   photo (any size; cropped to a centered square)
 //   <slug>-logo.png                     white logo on transparent
+//   <slug>.jpg|.jpeg|.png|.webp|.heic   optional photo behind the logo (cropped square)
 // Writes public/marketing/clients/<slug>.jpg (1080x1080) and <slug>.png
-// (trimmed, max 1000px), then prints which clients still have no art.
+// (trimmed, max 1000px), then prints which clients still have no logo.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -45,5 +45,5 @@ for (const file of fs.readdirSync(src)) {
 
 if (unknown.length) console.log(`\nSKIPPED (name doesn't match a client slug):\n  ${unknown.join("\n  ")}`);
 const have = new Set(fs.readdirSync(outDir));
-const missing = [...slugs].filter(s => !have.has(`${s}.jpg`) || !have.has(`${s}.png`));
-console.log(`\n${slugs.size - missing.length}/${slugs.size} clients have photo + logo.`);
+const noLogo = [...slugs].filter(s => !have.has(`${s}.png`));
+console.log(`\n${slugs.size - noLogo.length}/${slugs.size} clients have a logo. Name-only: ${noLogo.join(", ") || "none"}`);

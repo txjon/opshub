@@ -5,10 +5,10 @@ import { PageHero } from "../_components/PageHero";
 import { CLIENTS } from "./clients";
 
 // /our-clients — every client, past and present, one alphabetical grid.
-// Each tile is a square photo with the client's white logo centered on a
-// dark scrim. Art lives in public/marketing/clients/<slug>.{jpg,png}; a
-// client missing either file renders as a name-only tile, so the page
-// ships while art is still coming in. (/clients is the OpsHub dashboard;
+// Each tile is the client's white logo on black, over an optional square
+// photo + scrim. Art lives in public/marketing/clients/<slug>.png (logo)
+// and <slug>.jpg (photo, optional). No logo = name-only tile (some clients
+// can't be shown by logo), so the page ships while art is still coming in. (/clients is the OpsHub dashboard;
 // marketing + app share one route tree.) force-static: the art check runs
 // once at build, where public/ is on disk.
 
@@ -21,10 +21,7 @@ export const metadata = {
 
 const ART_DIR = path.join(process.cwd(), "public/marketing/clients");
 
-function hasArt(slug: string) {
-  return fs.existsSync(path.join(ART_DIR, `${slug}.jpg`))
-    && fs.existsSync(path.join(ART_DIR, `${slug}.png`));
-}
+const has = (file: string) => fs.existsSync(path.join(ART_DIR, file));
 
 export default function ClientsPage() {
   return (
@@ -49,17 +46,21 @@ export default function ClientsPage() {
               borderRadius: 8,
               overflow: "hidden",
             }}>
-              {hasArt(c.slug) ? (
+              {has(`${c.slug}.png`) ? (
                 <>
-                  <Image
-                    src={`/marketing/clients/${c.slug}.jpg`}
-                    alt=""
-                    fill
-                    sizes="(max-width: 540px) 50vw, (max-width: 900px) 33vw, 320px"
-                    className="hpd-client-photo"
-                    style={{ objectFit: "cover" }}
-                  />
-                  <div className="hpd-client-scrim" />
+                  {has(`${c.slug}.jpg`) && (
+                    <>
+                      <Image
+                        src={`/marketing/clients/${c.slug}.jpg`}
+                        alt=""
+                        fill
+                        sizes="(max-width: 540px) 50vw, (max-width: 900px) 33vw, 320px"
+                        className="hpd-client-photo"
+                        style={{ objectFit: "cover" }}
+                      />
+                      <div className="hpd-client-scrim" />
+                    </>
+                  )}
                   <Image
                     src={`/marketing/clients/${c.slug}.png`}
                     alt={c.name}
