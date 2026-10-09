@@ -47,21 +47,21 @@ export default function ClientsPage() {
               borderRadius: 8,
               overflow: "hidden",
             }}>
+              {has(`${c.slug}.jpg`) && (
+                <>
+                  <Image
+                    src={`/marketing/clients/${c.slug}.jpg`}
+                    alt=""
+                    fill
+                    sizes="(max-width: 540px) 50vw, (max-width: 900px) 33vw, 320px"
+                    className="hpd-client-photo"
+                    style={{ objectFit: "cover" }}
+                  />
+                  <div className="hpd-client-scrim" />
+                </>
+              )}
               {has(`${c.slug}.png`) ? (
                 <>
-                  {has(`${c.slug}.jpg`) && (
-                    <>
-                      <Image
-                        src={`/marketing/clients/${c.slug}.jpg`}
-                        alt=""
-                        fill
-                        sizes="(max-width: 540px) 50vw, (max-width: 900px) 33vw, 320px"
-                        className="hpd-client-photo"
-                        style={{ objectFit: "cover" }}
-                      />
-                      <div className="hpd-client-scrim" />
-                    </>
-                  )}
                   <Image
                     src={`/marketing/clients/${c.slug}.png`}
                     alt={c.name}
