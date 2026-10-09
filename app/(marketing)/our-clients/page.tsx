@@ -90,6 +90,7 @@ export default function ClientsPage() {
             letter-spacing: -0.02em; text-transform: uppercase; line-height: 1.05;
           }
           .hpd-client-hover {
+            color: #73B6C9; /* house blue (same as /start, /contact accents) */
             background: rgba(10,10,12,0.88);
             opacity: 0;
             transition: opacity 0.2s ease;
