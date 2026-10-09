@@ -73,7 +73,7 @@ export default function ClientsPage() {
                   <div className="hpd-client-label hpd-client-hover" aria-hidden>{c.name}</div>
                 </>
               ) : (
-                <div className="hpd-client-label">{c.name}</div>
+                <div className="hpd-client-label hpd-client-plain">{c.name}</div>
               )}
             </div>
           ))}
@@ -97,6 +97,10 @@ export default function ClientsPage() {
           }
           .hpd-client-tile:hover .hpd-client-hover,
           .hpd-client-tile:focus .hpd-client-hover { opacity: 1; }
+          /* Name-only tiles: same blue on hover/tap. */
+          .hpd-client-plain { transition: color 0.2s ease; }
+          .hpd-client-tile:hover .hpd-client-plain,
+          .hpd-client-tile:focus .hpd-client-plain { color: #73B6C9; }
           .hpd-client-scrim {
             position: absolute; inset: 0;
             background: radial-gradient(circle, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.35) 70%);
