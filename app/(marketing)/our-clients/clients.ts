@@ -58,6 +58,8 @@ export const CLIENTS: Client[] = [
   { name: "Palmetto State Armory", slug: "palmetto-state-armory" },
   { name: "Piece of Mind Guns", slug: "piece-of-mind-guns" },
   { name: "Players Pins", slug: "players-pins" },
+  { name: "Premier Racing", slug: "premier-racing" },
+  { name: "Premier Sportscar Service", slug: "premier-sportscar-service" },
   { name: "Presample Depot", slug: "presample-depot" },
   { name: "Privateer Group", slug: "privateer-group" },
   { name: "Q", slug: "q" },
