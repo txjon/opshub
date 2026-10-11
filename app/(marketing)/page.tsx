@@ -1,9 +1,8 @@
 import { Hero } from "./_components/Hero";
-import { MissionStrip } from "./_components/MissionStrip";
 
 // HPD home page. Current flow:
 //
-//   Hero  →  Mission
+//   Hero (the whole page; the Mission strip merged into it Oct 10 2026)
 //
 // Services + the premium-blanks strip live on /services (Oct 2026 slim-down).
 //
@@ -21,7 +20,6 @@ export default function HomePage() {
   return (
     <div style={{ background: "#0a0a0c", color: "#fff" }}>
       <Hero />
-      <MissionStrip />
     </div>
   );
 }

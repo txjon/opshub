@@ -2,7 +2,7 @@ import Link from "next/link";
 import { HERO_IMAGE } from "./_placeholder-images";
 
 // Full-viewport hero, Killer Merch style — centered uppercase headline
-// dominating the frame, sparse supporting copy, no loud CTA buttons.
+// dominating the frame, sparse supporting copy, one Start a Project button.
 // Photographic background with dark overlay for text legibility.
 
 export function Hero() {
@@ -55,19 +55,28 @@ export function Hero() {
           fontSize: "clamp(16px, 1.5vw, 19px)",
           lineHeight: 1.55,
           color: "rgba(255,255,255,0.85)",
-          maxWidth: 760, margin: "0 auto 32px",
+          maxWidth: 760, margin: "0 auto 24px",
         }}>
           House Party Distro is a single-source production house for premium branded apparel and accessories. Design, manufacturing, and distribution under one roof.
         </p>
+        <p style={{
+          fontSize: "clamp(14px, 1.3vw, 17px)",
+          fontWeight: 700,
+          letterSpacing: "0.1em",
+          textTransform: "uppercase",
+          color: "rgba(255,255,255,0.6)",
+          margin: "0 auto 36px",
+        }}>
+          Based in Las Vegas. Shipped worldwide.
+        </p>
         <Link href="/start" style={{
           display: "inline-block",
-          color: "#fff",
-          fontSize: 13, fontWeight: 700,
+          background: "#fff", color: "#0a0a0c",
+          padding: "16px 36px", borderRadius: 8,
+          fontSize: 14, fontWeight: 700,
           textTransform: "uppercase",
-          letterSpacing: "0.12em",
+          letterSpacing: "0.08em",
           textDecoration: "none",
-          borderBottom: "2px solid #fff",
-          paddingBottom: 4,
         }}>
           Start a Project
         </Link>
