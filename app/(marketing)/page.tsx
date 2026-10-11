@@ -1,11 +1,11 @@
 import { Hero } from "./_components/Hero";
-import { ServiceGrid } from "./_components/ServiceGrid";
 import { MissionStrip } from "./_components/MissionStrip";
-import { LogoCarousel } from "./_components/LogoCarousel";
 
 // HPD home page. Current flow:
 //
-//   Hero  →  Services (scroll-jacked)  →  Mission  →  Blanks marquee
+//   Hero  →  Mission
+//
+// Services + the premium-blanks strip live on /services (Oct 2026 slim-down).
 //
 // Hidden for now (components kept in the codebase, just not mounted):
 //   - ProcessFlow / "How it works" — temporarily hidden
@@ -21,9 +21,7 @@ export default function HomePage() {
   return (
     <div style={{ background: "#0a0a0c", color: "#fff" }}>
       <Hero />
-      <ServiceGrid />
       <MissionStrip />
-      <LogoCarousel />
     </div>
   );
 }
