@@ -47,13 +47,13 @@ function Catalog() {
   const [archive, setArchive] = useState<any[]>([]);
   const [briefs, setBriefs] = useState<any[]>([]);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(false);
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);   // which client the shown data belongs to
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (!clientId) return;
     let live = true;
-    setLoading(true); setErr(null); setProducts([]); setJobs([]); setArchive([]); setBriefs([]); setThumbs({});
+    setLoadedFor(null); setErr(null); setProducts([]); setJobs([]); setArchive([]); setBriefs([]); setThumbs({});
     (async () => {
       try {
         const [{ data: prods, error: pErr }, { data: js, error: jErr }] = await Promise.all([
@@ -90,7 +90,7 @@ function Catalog() {
       } catch (e: any) {
         if (live) setErr(e?.message || "Couldn't load this catalog");
       } finally {
-        if (live) setLoading(false);
+        if (live) setLoadedFor(clientId);
       }
     })();
     return () => { live = false; };
@@ -138,7 +138,7 @@ function Catalog() {
             </div>
             {err ? (
               <div style={{ color: H.red, fontSize: 13, marginTop: 24 }}>{err}. Nothing was changed; reload to try again.</div>
-            ) : loading ? (
+            ) : loadedFor !== clientId ? (
               <div style={{ color: H.faint, fontSize: 13, marginTop: 24 }}>Loading the catalog…</div>
             ) : section === "Catalog" ? (
               <CatalogRail products={products} briefs={briefs} model={model} router={router} secHead={secHead} thumbs={thumbs} clientId={clientId} readOnly />
