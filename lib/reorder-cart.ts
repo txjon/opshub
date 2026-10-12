@@ -70,7 +70,10 @@ export async function copyItemIntoJob(db: Db, src: any, jobId: string, opts: {
 
   const { data: srcFiles } = await db.from("item_files")
     .select("file_name, stage, drive_file_id, drive_link, mime_type, file_size, approval, approved_at, notes")
-    .eq("item_id", src.id).is("superseded_at", null);
+    .eq("item_id", src.id).is("superseded_at", null)
+    // A packing slip belongs to a DELIVERY, not the product: carried, the
+    // new run showed last run's slip on Receiving (HPD-2610-021, Oct 2026).
+    .neq("stage", "packing_slip");
   if ((srcFiles || []).length) {
     const { error: fErr } = await db.from("item_files").insert((srcFiles || []).map((f: any) => ({
       item_id: ni.id, file_name: f.file_name, stage: f.stage, drive_file_id: f.drive_file_id,
