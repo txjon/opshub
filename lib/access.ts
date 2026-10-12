@@ -65,6 +65,9 @@ export const PAGE_CATALOG: CatalogPage[] = [
   { key: "/ecomm/cs", href: "/ecomm/cs", label: "CS Desk", group: "ecomm" },
   // Contacts
   { key: "/clients", href: "/clients", label: "Clients", group: "contacts" },
+  // Products + produced pieces + art archive per client, view + download only —
+  // no balances, orders or contacts (Oct 2026, the creative seat).
+  { key: "/catalog", href: "/catalog", label: "Client Catalog", group: "contacts" },
   { key: "/decorators", href: "/decorators", label: "Decorators", group: "contacts" },
   { key: "/settings/designers", href: "/settings/designers", label: "Designers", group: "contacts" },
   // Admin utilities (bottom of sidebar)
