@@ -5,9 +5,10 @@
 // without the client page's balances, orders and contacts). Moved verbatim
 // from the client page; CatalogRail gained readOnly.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { hasRun } from "@/lib/run-gate";
+import { isCostingLocked } from "@/lib/costing-lock";
 import { H } from "@/components/hub/theme";
 
 const PURPLE = "#fd3aa3";
@@ -90,11 +91,23 @@ export function CatalogRail({ products, briefs, model, router, secHead, thumbs, 
     setCart(c => ({ ...c, [last.itemId]: { name: pc.name, sizes } }));
   };
   const cartCount = Object.keys(cart).length;
+  // Where the cart lands: a NEW intake job (default) or one of this client's
+  // open jobs that can still take items (not quoted/approved — lib/costing-lock).
+  // Same engine either way (lib/reorder-cart). Oct 2026: Taylor needed past
+  // pieces added to a pre-order she'd already started.
+  const [cartDest, setCartDest] = useState<string>("new");
+  const [openJobs, setOpenJobs] = useState<{ id: string; job_number: string | null; title: string | null }[]>([]);
+  useEffect(() => {
+    if (!cartOpen || !clientId) return;
+    createClient().from("jobs").select("id, job_number, title, phase, quote_approved, type_meta")
+      .eq("client_id", clientId).not("phase", "in", "(complete,cancelled)").order("created_at", { ascending: false }).limit(30)
+      .then(({ data }) => setOpenJobs(((data || []) as any[]).filter(j => !isCostingLocked(j))));
+  }, [cartOpen, clientId]);
   const submitCart = async () => {
     setCartBusy(true); setCartErr(null);
     try {
       const items = Object.entries(cart).map(([itemId, v]) => ({ itemId, sizes: v.sizes }));
-      const res = await fetch(`/api/clients/${clientId}/reorder`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items, note: cartNote }) });
+      const res = await fetch(`/api/clients/${clientId}/reorder`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items, note: cartNote, ...(cartDest !== "new" ? { to_job_id: cartDest } : {}) }) });
       const b = await res.json();
       if (!res.ok) throw new Error(b.error || "Couldn't create the reorder");
       router.push(`/jobs/${b.jobId}`);
@@ -314,7 +327,17 @@ export function CatalogRail({ products, briefs, model, router, secHead, thumbs, 
           style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 430, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "clamp(12px,4vh,48px) 16px", overflowY: "auto", fontFamily: H.font }}>
           <div style={{ background: H.card, border: `1px solid ${H.line}`, borderRadius: 16, width: "min(640px, 100%)", padding: "20px 22px", color: H.text }}>
             <div style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", marginBottom: 4 }}>Run it back.</div>
-            <div style={{ fontSize: 11.5, color: H.dim, marginBottom: 14 }}>Lands as ONE intake job — cost and quote it like any order. Quantities prefilled from each piece&rsquo;s last run.</div>
+            <div style={{ fontSize: 11.5, color: H.dim, marginBottom: 14 }}>{cartDest === "new" ? <>Lands as ONE intake job — cost and quote it like any order.</> : <>Adds these pieces to the job you picked, art, blank and vendor carried.</>} Quantities prefilled from each piece&rsquo;s last run.</div>
+            {openJobs.length > 0 && (
+              <label style={{ display: "block", marginTop: 14 }}>
+                <span style={{ display: "block", fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, marginBottom: 6 }}>Add to</span>
+                <select value={cartDest} onChange={e => setCartDest(e.target.value)} disabled={cartBusy}
+                  style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 16, fontFamily: H.font }}>
+                  <option value="new">A new intake job</option>
+                  {openJobs.map(j => <option key={j.id} value={j.id}>{[j.job_number, j.title].filter(Boolean).join(" · ") || "Untitled job"}</option>)}
+                </select>
+              </label>
+            )}
             {Object.entries(cart).map(([itemId, v]) => (
               <div key={itemId} style={{ padding: "10px 0", borderBottom: `1px solid ${H.line}` }}>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
@@ -342,7 +365,7 @@ export function CatalogRail({ products, briefs, model, router, secHead, thumbs, 
             <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
               <button disabled={cartBusy} onClick={submitCart}
                 style={{ background: "#fff", color: H.ink, border: "none", borderRadius: 999, padding: "11px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font, opacity: cartBusy ? 0.6 : 1 }}>
-                {cartBusy ? "Creating…" : `Create intake job · ${cartCount} item${cartCount === 1 ? "" : "s"}`}
+                {cartBusy ? (cartDest === "new" ? "Creating…" : "Adding…") : cartDest === "new" ? `Create intake job · ${cartCount} item${cartCount === 1 ? "" : "s"}` : `Add ${cartCount} item${cartCount === 1 ? "" : "s"} to ${openJobs.find(j => j.id === cartDest)?.job_number || "job"}`}
               </button>
               <button disabled={cartBusy} onClick={() => setCartOpen(false)}
                 style={{ background: "transparent", color: H.dim, border: `1px solid ${H.line}`, borderRadius: 999, padding: "11px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: H.font }}>Keep browsing</button>

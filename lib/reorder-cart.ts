@@ -7,6 +7,8 @@
 import { getItemFolderId, createShortcut } from "@/lib/google-drive";
 import { scaleCurve, aggregateCurve, groupCurve, formatGroup } from "@/lib/size-curves";
 import { carryProofFields } from "@/lib/proof-gate";
+import { isCostingLocked } from "@/lib/costing-lock";
+import { ensureVendorAssignments } from "@/lib/vendor-assignments";
 
 type Db = any;
 // Phase 3 (Aug 24 2026): clients type ONE total — the curve is seeded from
@@ -40,6 +42,12 @@ export async function copyItemIntoJob(db: Db, src: any, jobId: string, opts: {
     // drive_link NOT copied (a moved pointer on the source poisoned a PO,
     // Sep 11) — set below to the new item's own folder once it exists.
     garment_type: src.garment_type || null, drive_link: null, is_fleece: !!src.is_fleece,
+    // The product's own details travel with it (folded in from the old
+    // per-item copy route, Oct 2026): mockup color drives the proof render;
+    // PO + packing notes are how this piece is made and packed.
+    mockup_color: src.mockup_color || null,
+    production_notes_po: src.production_notes_po || null,
+    packing_notes: src.packing_notes || null,
     // which catalog the blank came from (mig 184) — the blank rep order
     // emails THAT supplier's rep; dropping it fell back to the full list.
     blank_supplier: src.blank_supplier || null,
@@ -240,3 +248,96 @@ export async function createReorderJob(db: Db, opts: {
 
   return { jobId: newJobId, jobNumber: newJob.job_number || null, itemCount };
 }
+
+// Add past items into an EXISTING open job — the other half of "run it again"
+// (Oct 2026: Taylor pulling two flags from #4497 into the FT x WP pre-order;
+// the cart could only mint a NEW job, and the item ⋯ copy hid on locked
+// jobs). Every "put this item into that job" path calls this — the item ⋯
+// "Copy to another project" and the internal cart's "add to an open job" —
+// on top of copyItemIntoJob, so a copy is the same however it's made.
+//
+// Destination must be the same client and still editable (not committed —
+// lib/costing-lock): adding to a quoted/approved job would silently change
+// what the client signed off. The source can be anything, locked included:
+// copying OUT never changes it. Each copy gets its costing line (vendor,
+// decoration; quantity copies stripped — buy_sheet_lines are the single
+// source) and a clean vendor assignment.
+export async function addItemsToJob(db: Db, opts: {
+  jobId: string;
+  items: { itemId: string; sizes?: Record<string, number> }[];
+}): Promise<{ added: { srcId: string; newId: string; name: string; fromJob: string }[]; fileErrors: string[]; job: { id: string; job_number: string | null; title: string | null } }> {
+  const lines = (opts.items || []).filter(l => l?.itemId).slice(0, 40);
+  if (!lines.length) throw new Error("Nothing to add");
+
+  const { data: dest } = await db.from("jobs")
+    .select("id, job_number, title, client_id, phase, quote_approved, type_meta, clients(name)")
+    .eq("id", opts.jobId).single();
+  if (!dest) throw new Error("Destination job not found");
+  if (isCostingLocked(dest)) {
+    throw new Error(`${dest.job_number || "That job"} is already quoted or approved, so it can't take new items. Unlock it to revise first, or start a new job.`);
+  }
+
+  const ids = Array.from(new Set(lines.map(l => l.itemId)));
+  const { data: srcItems } = await db.from("items")
+    .select("*, buy_sheet_lines(size, qty_ordered), jobs!inner(id, client_id, job_number, title, qb_invoice_number, costing_data)")
+    .in("id", ids);
+  const byId = new Map<string, any>((srcItems || []).map((it: any) => [it.id, it]));
+  for (const id of ids) {
+    const it = byId.get(id);
+    if (!it) throw new Error("Item not found");
+    if (it.jobs?.client_id !== dest.client_id) throw new Error("Items can only be added to a job for the same client");
+    if (it.jobs?.id === dest.id) throw new Error(`"${it.name || "That item"}" is already on this job. Use Duplicate instead.`);
+  }
+
+  // Source purchasing ref ("4497-A") — invoice # (else job #) + the item's
+  // letter in its SOURCE job, what the decorator knows it by.
+  const srcJobIds = Array.from(new Set((srcItems || []).map((it: any) => it.jobs.id)));
+  const { data: sibs } = await db.from("items").select("id, job_id").in("job_id", srcJobIds).order("sort_order");
+  const letter: Record<string, string> = {}; const seen: Record<string, number> = {};
+  for (const sib of (sibs || []) as any[]) { const n = seen[sib.job_id] || 0; letter[sib.id] = String.fromCharCode(65 + n); seen[sib.job_id] = n + 1; }
+
+  const { data: last } = await db.from("items").select("sort_order").eq("job_id", dest.id).order("sort_order", { ascending: false }).limit(1);
+  let sort = (typeof last?.[0]?.sort_order === "number" ? last[0].sort_order : 0) + 10;
+
+  const added: { srcId: string; newId: string; name: string; fromJob: string }[] = [];
+  const fileErrors: string[] = [];
+  const newCostProds: any[] = [];
+  for (const line of lines) {
+    const src = byId.get(line.itemId);
+    // Quantities: the caller's (cart), else the source's last run.
+    const asked = Object.entries(line.sizes || {})
+      .map(([size, q]) => ({ size: String(size).slice(0, 20), qty: Math.max(0, Math.min(100000, Math.round(Number(q) || 0))) }))
+      .filter(x => x.qty > 0);
+    const sizes = asked.length ? asked
+      : ((src.buy_sheet_lines || []) as any[]).map(l => ({ size: l.size, qty: Number(l.qty_ordered) || 0 })).filter(x => x.qty > 0);
+    const srcRef = `${src.jobs?.qb_invoice_number || src.jobs?.job_number || "?"}-${letter[src.id] || "?"}`;
+    const newId = await copyItemIntoJob(db, src, dest.id, {
+      sizes, sortOrder: sort,
+      drive: dest.clients?.name && dest.title ? { clientName: dest.clients.name, projectTitle: dest.title } : undefined,
+      srcRef, fileErrors,
+    });
+    sort += 10;
+    if (!newId) { fileErrors.push(`${src.name || "item"}: couldn't be created`); continue; }
+    added.push({ srcId: src.id, newId, name: src.name || "Item", fromJob: src.jobs?.qb_invoice_number ? `#${src.jobs.qb_invoice_number}` : (src.jobs?.job_number || "") });
+    // Its costing line from the source job (id, else name), rebound to the copy.
+    const cps: any[] = src.jobs?.costing_data?.costProds || [];
+    const cp = cps.find((c: any) => c?.id === src.id) || cps.find((c: any) => (c?.name || "").trim().toLowerCase() === (src.name || "").trim().toLowerCase());
+    if (cp) {
+      const { qtys, totalQty, ...rest } = cp;
+      newCostProds.push({ ...rest, id: newId, blankCosts: {}, blankCostPerUnit: 0 });
+    }
+  }
+  if (!added.length) throw new Error(fileErrors[0] || "No items could be added");
+
+  if (newCostProds.length) {
+    // Fresh read-modify-write — never clobber costing edited in the meantime.
+    const { data: fresh } = await db.from("jobs").select("costing_data").eq("id", dest.id).single();
+    const cd = (fresh?.costing_data || {}) as any;
+    const costProds = [...(Array.isArray(cd.costProds) ? cd.costProds : []), ...newCostProds];
+    await db.from("jobs").update({ costing_data: { ...cd, costProds, _savedAt: new Date().toISOString() }, updated_at: new Date().toISOString() }).eq("id", dest.id);
+    try { await ensureVendorAssignments(db, added.map(a => a.newId), costProds); }
+    catch (e: any) { console.error("[addItemsToJob] vendor assignments failed:", e?.message || e); }
+  }
+  return { added, fileErrors, job: { id: dest.id, job_number: dest.job_number || null, title: dest.title || null } };
+}
+

@@ -2732,23 +2732,26 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                 <button onClick={() => setWsIndex((wsIndex! + 1) % items.length)} aria-label="Next item" style={navBtn}>›</button>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {!locked && <><div style={{ position: "relative", display: "inline-flex" }}>
+                {/* The ⋯ menu shows on locked jobs too: Copy to another job only READS
+                    this item (lib/reorder-cart addItemsToJob), so a paid/approved job
+                    can feed a new one. Duplicate / Move / Remove change this job — locked. */}
+                <><div style={{ position: "relative", display: "inline-flex" }}>
                   <button onClick={() => setWsMenu(m => !m)} title="More item actions" style={{ ...ghostBtn, padding: "6px 11px", fontWeight: 900 }}>⋯</button>
                   {wsMenu && (
                     <>
                       <div onClick={() => setWsMenu(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
                       <div style={{ position: "absolute", top: 34, right: 0, zIndex: 41, background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, minWidth: 200, padding: 5, boxShadow: "0 12px 40px rgba(0,0,0,0.4)" }}>
-                        <button onClick={async () => { setWsMenu(false); if (!await confirmDlg({ title: "Duplicate this item?", message: `"${it.name}" is copied on this job. Files are shared; blank and decoration carry over.`, confirmLabel: "Duplicate", confirmColor: T.accent })) return; try { const r = await fetch(`/api/items/${it.id}/duplicate`, { method: "POST" }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Duplicate failed"); window.location.reload(); } catch (e: any) { failed("Item duplicate failed", e); } }}
-                          style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Duplicate item</button>
+                        {!locked && <button onClick={async () => { setWsMenu(false); if (!await confirmDlg({ title: "Duplicate this item?", message: `"${it.name}" is copied on this job. Files are shared; blank and decoration carry over.`, confirmLabel: "Duplicate", confirmColor: T.accent })) return; try { const r = await fetch(`/api/items/${it.id}/duplicate`, { method: "POST" }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Duplicate failed"); window.location.reload(); } catch (e: any) { failed("Item duplicate failed", e); } }}
+                          style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Duplicate item</button>}
                         <button onClick={() => { setWsMenu(false); setMoveItem({ id: it.id, name: it.name, mode: "copy" }); }}
                           style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Copy to another job…</button>
-                        <button onClick={() => { setWsMenu(false); setMoveItem({ id: it.id, name: it.name, mode: "move" }); }}
-                          style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Move to another job…</button>
+                        {!locked && <button onClick={() => { setWsMenu(false); setMoveItem({ id: it.id, name: it.name, mode: "move" }); }}
+                          style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: font, fontSize: 12.5, fontWeight: 600, color: T.text, borderRadius: 7 }}>Move to another job…</button>}
                       </div>
                     </>
                   )}
                 </div>
-                <button onClick={() => removeProduct(it)} title="Remove product from job" style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 999, color: T.muted, fontSize: 11, fontWeight: 700, padding: "6px 12px", cursor: "pointer", fontFamily: font }}>Remove</button></>}
+                {!locked && <button onClick={() => removeProduct(it)} title="Remove product from job" style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 999, color: T.muted, fontSize: 11, fontWeight: 700, padding: "6px 12px", cursor: "pointer", fontFamily: font }}>Remove</button>}</>
                 <button onClick={() => setWsIndex(null)} aria-label="Close" style={{ ...navBtn, background: T.surface }}>×</button>
               </div>
             </div>

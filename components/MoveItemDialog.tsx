@@ -9,6 +9,7 @@ type Candidate = {
   phase: string;
   target_ship_date: string | null;
   qb_invoice_number: string | null;
+  locked?: boolean;   // quoted/approved — can't take new items
 };
 
 // MoveItemDialog — picker for moving a single item between jobs of the
@@ -168,18 +169,21 @@ export default function MoveItemDialog({
           )}
           {!loading && filtered.map(c => {
             const selected = selectedId === c.id;
+            // A quoted/approved job can't take new items — say so, don't let it be picked.
+            const closed = !!c.locked;
             return (
               <button key={c.id}
-                onClick={() => setSelectedId(c.id)}
+                onClick={() => { if (!closed) setSelectedId(c.id); }} disabled={closed}
+                title={closed ? "Already quoted or approved. Unlock it to revise before adding items." : undefined}
                 style={{
                   display: "block", width: "100%", textAlign: "left",
                   padding: "12px 18px",
                   background: selected ? T.accentDim : "transparent",
                   border: "none", borderLeft: `3px solid ${selected ? T.accent : "transparent"}`,
-                  cursor: "pointer", fontFamily: font,
+                  cursor: closed ? "default" : "pointer", fontFamily: font, opacity: closed ? 0.45 : 1,
                   transition: "background 0.1s",
                 }}
-                onMouseEnter={e => { if (!selected) e.currentTarget.style.background = T.surface; }}
+                onMouseEnter={e => { if (!selected && !closed) e.currentTarget.style.background = T.surface; }}
                 onMouseLeave={e => { if (!selected) e.currentTarget.style.background = "transparent"; }}
               >
                 <div style={{
@@ -200,6 +204,7 @@ export default function MoveItemDialog({
                       <span>Invoice #{c.qb_invoice_number}</span>
                     </>
                   )}
+                  {closed && <span style={{ color: T.amber, fontFamily: font, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", fontSize: 10 }}>Quoted · locked</span>}
                 </div>
               </button>
             );

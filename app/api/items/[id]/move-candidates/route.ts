@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { isCostingLocked } from "@/lib/costing-lock";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
     const { data: jobs } = await db
       .from("jobs")
-      .select("id, job_number, title, phase, created_at, target_ship_date, type_meta, qb_invoice_number, qb_invoice_id")
+      .select("id, job_number, title, phase, created_at, target_ship_date, type_meta, quote_approved, qb_invoice_number, qb_invoice_id")
       .eq("client_id", clientId)
       .neq("id", item.job_id)
       .not("phase", "in", "(complete,cancelled)")
@@ -51,6 +52,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       phase: j.phase,
       target_ship_date: j.target_ship_date,
       qb_invoice_number: (j as any).qb_invoice_number || null,
+      // Quoted/approved jobs can't take new items (lib/costing-lock) — the
+      // picker shows them as unavailable instead of failing on submit.
+      locked: isCostingLocked(j),
     }));
 
     return NextResponse.json({ jobs: slim });
