@@ -3,6 +3,7 @@ import { createClient as createAdmin } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { logJobActivityServer } from "@/lib/notify-server";
 import { recalcJobPhase } from "@/lib/job-phase-recalc";
+import { isCostingLocked } from "@/lib/costing-lock";
 
 export const dynamic = "force-dynamic";
 
@@ -60,13 +61,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     //    client_id, job_number).
     const { data: jobs, error: jobsErr } = await db
       .from("jobs")
-      .select("id, job_number, title, client_id, costing_data, costing_summary, phase")
+      .select("id, job_number, title, client_id, costing_data, costing_summary, phase, quote_approved, type_meta")
       .in("id", [sourceJobId, to_job_id]);
     if (jobsErr) return NextResponse.json({ error: jobsErr.message }, { status: 500 });
     const sourceJob = (jobs || []).find((j: any) => j.id === sourceJobId);
     const destJob = (jobs || []).find((j: any) => j.id === to_job_id);
     if (!sourceJob) return NextResponse.json({ error: "Source job not found" }, { status: 404 });
     if (!destJob) return NextResponse.json({ error: "Destination job not found" }, { status: 404 });
+    // A move changes BOTH jobs, so neither may be committed (quoted/approved/
+    // complete — lib/costing-lock): it would silently change what a client
+    // signed off. The picker already greys these out; this is the server wall.
+    if (isCostingLocked(sourceJob)) return NextResponse.json({ error: `${sourceJob.job_number || "This job"} is already quoted or approved — copy the item instead, or unlock it to revise.` }, { status: 400 });
+    if (isCostingLocked(destJob)) return NextResponse.json({ error: `${destJob.job_number || "That job"} is already quoted or approved, so it can't take new items. Unlock it to revise first.` }, { status: 400 });
 
     // 3. HARD GUARD: same client. Never move items across clients.
     if (sourceJob.client_id !== destJob.client_id) {
