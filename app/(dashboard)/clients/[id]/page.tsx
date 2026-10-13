@@ -888,7 +888,10 @@ function InfoTaxBlock({ client, secHead }: any) {
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <input value={addCert.state} onChange={e => setAddCert({ ...addCert, state: e.target.value.toUpperCase().slice(0, 5) })} placeholder="State (NV)" style={{ width: 90, padding: "8px 10px", borderRadius: 8, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 12.5, fontFamily: H.font }} />
             <input value={addCert.permit} onChange={e => setAddCert({ ...addCert, permit: e.target.value })} placeholder="Permit number" style={{ flex: "1 1 140px", padding: "8px 10px", borderRadius: 8, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 12.5, fontFamily: H.mono }} />
+            <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: H.faint }}>
+              Expires · blank if it doesn't (not the issue date)
             <input type="date" value={addCert.expiresOn} onChange={e => setAddCert({ ...addCert, expiresOn: e.target.value })} style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 12.5, fontFamily: H.font }} />
+            </label>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={saveCert} disabled={busy === "addcert" || !addCert.state || !addCert.permit} style={{ ...pill, color: H.ink, background: "#fff", borderColor: "#fff", opacity: !addCert.state || !addCert.permit ? 0.5 : 1 }}>{busy === "addcert" ? "Adding…" : "Add for review"}</button>

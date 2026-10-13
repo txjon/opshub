@@ -201,7 +201,7 @@ export default function CompanyInfoPage() {
                     </select>
                   </div>
                   <div><span style={lab}>Permit number</span><input style={inp} value={c.permitNumber} onChange={e => upCert(i, { permitNumber: e.target.value })} /></div>
-                  <div><span style={lab}>Expires (if it does)</span><input style={inp} type="date" value={c.expiresOn} onChange={e => upCert(i, { expiresOn: e.target.value })} /></div>
+                  <div><span style={lab}>Expiration date (leave blank if it doesn't expire)</span><input style={inp} type="date" value={c.expiresOn} onChange={e => upCert(i, { expiresOn: e.target.value })} /></div>
                 </div>
                 <span style={lab}>Certificate</span>
                 {taxDocs.length > 0 && !c.uploadPath && (
