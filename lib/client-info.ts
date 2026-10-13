@@ -37,7 +37,7 @@ const clip = (s: unknown, n: number) => String(s ?? "").trim().slice(0, n);
 export async function loadClientInfo(db: Db, clientId: string) {
   const [{ data: c }, { data: contacts }, { data: locs }, { data: certs }] = await Promise.all([
     db.from("clients").select("id, name, legal_name, ein, website, billing_address, invoice_po_required, tax_exempt, qb_resale_num, qb_customer_id").eq("id", clientId).single(),
-    db.from("contacts").select("id, name, email, phone, role_label, is_primary, doc_routing").eq("client_id", clientId).not("doc_routing", "cs", '{"none"}').order("is_primary", { ascending: false }).order("name"),
+    db.from("contacts").select("id, name, email, phone, role_label, is_primary, doc_routing").eq("client_id", clientId).or("doc_routing.is.null,doc_routing.not.cs.{none}")   // NULL = "receives everything" must stay visible (a bare NOT drops NULL rows).order("is_primary", { ascending: false }).order("name"),
     db.from("client_locations").select("id, label, address, contact_name, contact_phone, delivery_notes, is_default").eq("client_id", clientId).is("job_id", null).eq("active", true).order("is_default", { ascending: false }),
     db.from("client_tax_certificates").select("id, state, permit_number, expires_on, status, created_at").eq("client_id", clientId).order("created_at", { ascending: false }),
   ]);
