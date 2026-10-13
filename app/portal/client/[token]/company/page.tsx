@@ -13,7 +13,7 @@ import { AddressFields } from "@/components/AddressFields";
 import { EMPTY_ADDR, addrProblem, type Addr } from "@/lib/address";
 
 type Contact = { id?: string; name: string; email: string; phone: string; role: string; isPrimary: boolean; getsInvoices: boolean; remove?: boolean };
-type Loc = { id?: string; label: string; addr: Addr; onFile?: string; contactName: string; contactPhone: string; deliveryNotes: string; isDefault: boolean; remove?: boolean };
+type Loc = { id?: string; _k?: string; label: string; addr: Addr; onFile?: string; contactName: string; contactPhone: string; deliveryNotes: string; isDefault: boolean; remove?: boolean };
 type Cert = { state: string; permitNumber: string; expiresOn: string; uploadPath: string; fileName: string; existingFileId?: string; uploading?: boolean; err?: string };
 
 const box: React.CSSProperties = { background: H.card, border: `1px solid ${H.line}`, borderRadius: 16, padding: "18px 18px 20px", marginTop: 16 };
@@ -60,7 +60,7 @@ export default function CompanyInfoPage() {
       if (d.error) { setErr(d.error); return; }
       setClientName(d.clientName); setStates(d.states || []); setCompany(d.company);
       setContacts(d.contacts.length ? d.contacts : [{ name: "", email: "", phone: "", role: "", isPrimary: true, getsInvoices: true }]);
-      setLocs(d.locations.length ? d.locations : [{ label: "Main", addr: EMPTY_ADDR, contactName: "", contactPhone: "", deliveryNotes: "", isDefault: true }]);
+      setLocs(d.locations.length ? d.locations : [{ _k: "n0", label: "Main", addr: EMPTY_ADDR, contactName: "", contactPhone: "", deliveryNotes: "", isDefault: true }]);
       setExemptOnFile(!!d.taxExempt); setOnFile(d.certificates || []); setTaxDocs(d.taxDocs || []);
       setOriginal({ company: d.company, contacts: d.contacts, locations: d.locations, blankOnFile: d.blankOnFile }); setLastSub(d.lastSubmission || null);
       setLoaded(true);
@@ -166,7 +166,7 @@ export default function CompanyInfoPage() {
       <div style={box}>
         <H2 n="3" t="Ship-to addresses" hint="add every place we ship to" />
         {locs.map((l, i) => l.remove ? null : (
-          <div key={i} style={{ borderTop: i ? `1px solid ${H.line}` : "none", marginTop: i ? 16 : 0, paddingTop: i ? 6 : 0 }}>
+          <div key={l.id || (l as any)._k || i} style={{ borderTop: i ? `1px solid ${H.line}` : "none", marginTop: i ? 16 : 0, paddingTop: i ? 6 : 0 }}>
             <span style={lab}>Name for this address</span><input style={inp} value={l.label} onChange={e => upLoc(i, "label", e.target.value)} placeholder="Warehouse, Store, Office…" />
             {l.onFile && !l.addr.line1 && <p style={{ color: H.dim, fontSize: 13.5, lineHeight: 1.5, margin: "12px 0 0", whiteSpace: "pre-line" }}>We have this on file. Please enter it in the boxes below:{"\n"}{l.onFile}</p>}
             <AddressFields idPrefix={`loc-${i}`} value={l.addr} onChange={a => upLoc(i, "addr", a)} inp={inp} lab={lab} warn={H.amber} />
@@ -181,7 +181,7 @@ export default function CompanyInfoPage() {
             </div>
           </div>
         ))}
-        <button onClick={() => setLocs(ls => [...ls, { label: "", addr: EMPTY_ADDR, contactName: "", contactPhone: "", deliveryNotes: "", isDefault: false }])} style={{ ...ghost, marginTop: 16 }}>+ Add an address</button>
+        <button onClick={() => setLocs(ls => [...ls, { _k: `n${Date.now()}`, label: "", addr: EMPTY_ADDR, contactName: "", contactPhone: "", deliveryNotes: "", isDefault: false }])} style={{ ...ghost, marginTop: 16 }}>+ Add an address</button>
       </div>
 
       <div style={box}>

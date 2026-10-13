@@ -11,7 +11,7 @@ export type Addr = { name: string; line1: string; line2: string; city: string; s
 
 export const EMPTY_ADDR: Addr = { name: "", line1: "", line2: "", city: "", state: "", zip: "", country: "US" };
 
-export const US_STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","PR"];
+export const US_STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","PR","AA","AE","AP"];   // + military (APO/FPO)
 
 const t = (s: any) => String(s ?? "").trim();
 
@@ -25,6 +25,7 @@ export function formatAddress(a: Partial<Addr> | null | undefined): string {
 // What's missing for a usable address ("" = complete).
 export function addrProblem(a: Partial<Addr> | null | undefined): string {
   if (!a || !t(a.line1)) return "Street is missing";
+  if (a.country != null && !t(a.country)) return "Country is missing";
   if (!t(a.city)) return "City is missing";
   const us = (t(a.country) || "US") === "US";
   if (us && !US_STATES.includes(t(a.state).toUpperCase())) return "State is missing";
@@ -36,8 +37,9 @@ export function addrProblem(a: Partial<Addr> | null | undefined): string {
 // trims, drops trailing commas ("15090 Wild Horse Way,"), uppercases US states
 export function cleanAddr(a: Partial<Addr>): Addr {
   const c = (s: any) => t(s).replace(/[\s,]+$/, "");
-  const raw = t(a.country);
-  const country = !raw || /^(us|usa|united states)$/i.test(raw) ? "US" : raw;
+  // undefined/null = US; "" = "Outside the US" ticked, country not typed yet (addrProblem flags it)
+  const raw = a.country == null ? "US" : t(a.country);
+  const country = /^(us|usa|united states)$/i.test(raw) ? "US" : raw;
   return { name: c(a.name), line1: c(a.line1), line2: c(a.line2), city: c(a.city), state: country === "US" ? c(a.state).toUpperCase() : c(a.state), zip: c(a.zip), country };
 }
 

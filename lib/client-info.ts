@@ -72,7 +72,8 @@ export async function loadClientInfo(db: Db, clientId: string) {
       legalName: c.legal_name || qb?.CompanyName || "",
       ein: c.ein || "",
       website: c.website || qb?.WebAddr?.URI || "",
-      billing: c.bill_line1 ? billAddr(c) : (qbBill && !addrProblem(qbBill) ? qbBill : EMPTY_ADDR),
+      // QB fills billing only when OpsHub has none; OpsHub's own unsplit text wins (shown as "on file")
+      billing: c.bill_line1 ? billAddr(c) : (!c.billing_address && qbBill && !addrProblem(qbBill) ? qbBill : EMPTY_ADDR),
       ...(c.billing_address && !c.bill_line1 ? { billingOnFile: c.billing_address } : {}),
       invoicePoRequired: !!c.invoice_po_required,
     },
@@ -93,6 +94,9 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   if (!p?.signer?.certified) throw new Error("Please confirm the information is accurate.");
   const signerName = clip(p.signer.name, 120);
   if (!signerName) throw new Error("Please enter your name.");
+  // a form opened before addresses were split sends text, which would be dropped silently
+  if ((p.locations || []).some((l: any) => !l.addr && typeof l.address === "string") || (p.company && !(p.company as any).billing && typeof (p.company as any).billingAddress === "string"))
+    throw new Error("Please reload this page and try again. The form was updated while you had it open.");
   const before = await loadClientInfo(db, clientId);
   // addresses must be complete — checked before ANY write (and before certificate files are filed) so a bad one never leaves a half-applied form
   for (const l of p.locations || []) {

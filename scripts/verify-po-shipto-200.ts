@@ -12,7 +12,14 @@ import { vendorPaperShipTo } from "../lib/destinations";
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 const [mode, file] = process.argv.slice(2);
 const HPD = "<<HPD DOCK>>";
-const norm = (s: string) => String(s || "").toLowerCase().replace(/\b(usa|united states)\b/g, "").replace(/[^a-z0-9]/g, "");
+// state names → codes ("Utah" → "UT") so a re-formatted address compares equal
+const STATES: Record<string, string> = { alabama:"al",alaska:"ak",arizona:"az",arkansas:"ar",california:"ca",colorado:"co",connecticut:"ct",delaware:"de",florida:"fl",georgia:"ga",hawaii:"hi",idaho:"id",illinois:"il",indiana:"in",iowa:"ia",kansas:"ks",kentucky:"ky",louisiana:"la",maine:"me",maryland:"md",massachusetts:"ma",michigan:"mi",minnesota:"mn",mississippi:"ms",missouri:"mo",montana:"mt",nebraska:"ne",nevada:"nv","new hampshire":"nh","new jersey":"nj","new mexico":"nm","new york":"ny","north carolina":"nc","north dakota":"nd",ohio:"oh",oklahoma:"ok",oregon:"or",pennsylvania:"pa","rhode island":"ri","south carolina":"sc","south dakota":"sd",tennessee:"tn",texas:"tx",utah:"ut",vermont:"vt",virginia:"va",washington:"wa","west virginia":"wv",wisconsin:"wi",wyoming:"wy" };
+const norm = (s: string) => {
+  let x = String(s || "").toLowerCase().replace(/\b(usa|united states)\b/g, "");
+  // only a state name sitting right before the ZIP (so "Washington Terrace" the city survives)
+  x = x.replace(/([a-z ]+?)[\s,]+(\d{5})/g, (m, pre: string, zip: string) => { for (const [n, c] of Object.entries(STATES).sort((a, b) => b[0].length - a[0].length)) if (pre.endsWith(" " + n) || pre === n) return pre.slice(0, pre.length - n.length) + c + " " + zip; return m; });
+  return x.replace(/[^a-z0-9]/g, "");
+};
 
 (async () => {
   const jobs: any[] = [];

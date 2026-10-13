@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { LOC_ADDR_COLS, locAddr, locAddrCols } from "@/lib/address";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { logJobActivityServer } from "@/lib/notify-server";
@@ -114,10 +115,10 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     // (Was unreachable until Oct 1 2026 — it sat inside the error branch after
     // the return, so a dupe shared the ORIGINAL's project-only address row.)
     if ((srcJob as any).ship_to_location_id) {
-      const { data: loc } = await db.from("client_locations").select("client_id, job_id, label, address, contact_name, contact_phone").eq("id", (srcJob as any).ship_to_location_id).single();
+      const { data: loc } = await db.from("client_locations").select(`client_id, job_id, label, address, contact_name, contact_phone, ${LOC_ADDR_COLS}`).eq("id", (srcJob as any).ship_to_location_id).single();
       const src: any = loc;
       if (src?.job_id) {
-        const { data: clone }: any = await db.from("client_locations").insert({ client_id: src.client_id, job_id: (newJob as any).id, label: src.label, address: src.address, contact_name: src.contact_name, contact_phone: src.contact_phone, is_default: false }).select("id").single();
+        const { data: clone }: any = await db.from("client_locations").insert({ client_id: src.client_id, job_id: (newJob as any).id, label: src.label, address: src.address, ...(src.addr_line1 ? locAddrCols(locAddr(src)) : {}), contact_name: src.contact_name, contact_phone: src.contact_phone, is_default: false }).select("id").single();
         if (clone?.id) await db.from("jobs").update({ ship_to_location_id: clone.id }).eq("id", (newJob as any).id);
       }
     }
