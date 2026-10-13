@@ -197,7 +197,7 @@ ${e.applied.length ? e.applied.map(a => `  - ${a}`).join("\n") : "  - nothing ch
 
 ${e.certsPending ? `DO THIS:
 1. Open the client: ${APP}/clients/${e.clientId}
-2. Tax certificates: open each certificate, check the state, permit number, name and expiration
+2. Tax certificates: open each certificate, check the state, permit number and name
 3. Approve it (QuickBooks stops charging them tax) or reject it with a reason
 
 DONE WHEN: every certificate is approved or rejected. Until then they're still taxed.` : `Nothing to do. This is for the record.`}`,
