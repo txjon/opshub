@@ -79,6 +79,9 @@ export default function CompanyInfoPage() {
   const problems: string[] = [];
   if (!live.some(c => c.email.includes("@"))) problems.push("Add at least one contact with an email.");
   if (taxExempt && certs.some(c => c.state || c.permitNumber || c.uploadPath) && certs.some(c => (c.state || c.permitNumber || c.uploadPath) && !(c.state && c.permitNumber && c.uploadPath))) problems.push("Each certificate needs a state, a permit number and the file.");
+  // Ticking "tax exempt" is a claim that needs paper: at least one complete
+  // certificate, unless an approved one is already on file (Jon, Oct 13).
+  if (taxExempt && !onFile.some(c => c.status === "approved") && !certs.some(c => c.state && c.permitNumber && c.uploadPath)) problems.push("Upload your resale certificate, or untick tax exempt if you're not.");
   if (certs.some(c => c.uploading)) problems.push("Wait for the certificate upload to finish.");
   if (!signer.name.trim()) problems.push("Enter your name to sign.");
   if (!signer.certified) problems.push("Check the box to confirm the information is accurate.");

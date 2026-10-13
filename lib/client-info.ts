@@ -82,6 +82,14 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   const before = await loadClientInfo(db, clientId);
   const applied: string[] = [];
 
+  // A tax-exempt claim needs paper: a certificate with this submission, or an
+  // approved one already on file. Checked before anything is written.
+  if (p.tax?.claimsExempt) {
+    const hasNew = (p.tax.certificates || []).some(c => clip(c.state, 5) && clip(c.permitNumber, 60) && c.uploadPath);
+    const hasApproved = before.certificates.some(c => c.status === "approved");
+    if (!hasNew && !hasApproved) throw new Error("Please upload your resale certificate, or untick tax exempt if you're not.");
+  }
+
   // Certificate FILES first, before a single row changes: a Drive failure must
   // not leave half a save that a retry then duplicates. Temp uploads are only
   // removed once everything has saved.
