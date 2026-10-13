@@ -27,7 +27,8 @@ export type InfoContact = { id?: string; name: string; email: string; phone: str
 export type InfoLocation = { id?: string; label: string; addr: Addr; onFile?: string; contactName: string; contactPhone: string; deliveryNotes: string; isDefault: boolean; remove?: boolean };
 export type InfoCert = { state: string; permitNumber: string; expiresOn: string; uploadPath: string; fileName: string; existingFileId?: string };
 export type InfoPayload = {
-  company: { legalName: string; ein: string; website: string; billing: Addr; billingOnFile?: string; invoicePoRequired: boolean };
+  // no EIN: clients paying us owe us no tax ID (Jon, Oct 13); clients.ein stays staff-only
+  company: { legalName: string; website: string; billing: Addr; billingOnFile?: string; invoicePoRequired: boolean };
   contacts: InfoContact[];
   locations: InfoLocation[];
   tax: { claimsExempt: boolean; certificates: InfoCert[] };
@@ -42,7 +43,7 @@ export async function loadClientInfo(db: Db, clientId: string) {
   // Contacts: hide removed ones (["none"]) but KEEP null routing — NULL means
   // "receives everything", and a bare NOT(cs) silently drops NULL rows.
   const [{ data: c }, { data: contacts }, { data: locs }, { data: certs }, { data: taxDocs }, { data: lastSub }] = await Promise.all([
-    db.from("clients").select(`id, name, legal_name, ein, website, billing_address, invoice_po_required, tax_exempt, qb_resale_num, qb_customer_id, ${BILL_ADDR_COLS}`).eq("id", clientId).single(),
+    db.from("clients").select(`id, name, legal_name, website, billing_address, invoice_po_required, tax_exempt, qb_resale_num, qb_customer_id, ${BILL_ADDR_COLS}`).eq("id", clientId).single(),
     db.from("contacts").select("id, name, email, phone, role_label, is_primary, doc_routing").eq("client_id", clientId).or("doc_routing.is.null,doc_routing.not.cs.{none}").order("is_primary", { ascending: false }).order("name"),
     db.from("client_locations").select(`id, label, address, contact_name, contact_phone, delivery_notes, is_default, ${LOC_ADDR_COLS}`).eq("client_id", clientId).is("job_id", null).eq("active", true).order("is_default", { ascending: false }),
     db.from("client_tax_certificates").select("id, state, permit_number, expires_on, status, created_at").eq("client_id", clientId).order("created_at", { ascending: false }),
@@ -70,7 +71,6 @@ export async function loadClientInfo(db: Db, clientId: string) {
     clientName: c.name,
     company: {
       legalName: c.legal_name || qb?.CompanyName || "",
-      ein: c.ein || "",
       website: c.website || qb?.WebAddr?.URI || "",
       // QB fills billing only when OpsHub has none; OpsHub's own unsplit text wins (shown as "on file")
       billing: c.bill_line1 ? billAddr(c) : (!c.billing_address && qbBill && !addrProblem(qbBill) ? qbBill : EMPTY_ADDR),
@@ -84,7 +84,7 @@ export async function loadClientInfo(db: Db, clientId: string) {
     taxDocs: ((taxDocs || []) as any[]).map(d => ({ id: d.id, fileName: d.file_name, uploadedOn: String(d.created_at || "").slice(0, 10) })),
     // which company fields were EMPTY in OpsHub when the form was opened (a
     // prefill from QuickBooks only saves into a field that was blank then)
-    blankOnFile: { legalName: !c.legal_name, ein: !c.ein, website: !c.website, billingAddress: !c.bill_line1 },
+    blankOnFile: { legalName: !c.legal_name, website: !c.website, billingAddress: !c.bill_line1 },
     lastSubmission: lastSub ? { signerName: (lastSub as any).signer_name, submittedAt: (lastSub as any).submitted_at } : null,
   };
 }
@@ -155,7 +155,7 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   // company: a field applies if they changed it, or if it fills a blank on file
   // (accepting a QuickBooks prefill must still save; filling a blank clobbers no one)
   const co = p.company || ({} as InfoPayload["company"]);
-  const { data: stored } = await db.from("clients").select(`legal_name, ein, website, billing_address, invoice_po_required, ${BILL_ADDR_COLS}`).eq("id", clientId).single();
+  const { data: stored } = await db.from("clients").select(`legal_name, website, billing_address, invoice_po_required, ${BILL_ADDR_COLS}`).eq("id", clientId).single();
   const patch: any = {};
   // fill-a-blank only if it was blank when THEY opened it — never refill a
   // field someone cleared after they opened the form
@@ -165,7 +165,6 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
     if (next !== was || (!onFile && next && wasBlank(k))) { patch[col] = next || null; applied.push(`${label} updated`); }
   };
   take("legal_name", "legalName", "Legal name", clip(co.legalName, 200), clip(orig.company?.legalName, 200), stored?.legal_name || "");
-  take("ein", "ein", "EIN", clip(co.ein, 20), clip(orig.company?.ein, 20), stored?.ein || "");
   take("website", "website", "Website", clip(co.website, 200), clip(orig.company?.website, 200), stored?.website || "");
   // billing address: compared as a whole (formatted parts), same rules
   {

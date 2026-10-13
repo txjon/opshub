@@ -43,7 +43,7 @@ export default function CompanyInfoPage() {
   const [err, setErr] = useState<string | null>(null);
   const [clientName, setClientName] = useState("");
   const [states, setStates] = useState<string[]>([]);
-  const [company, setCompany] = useState<{ legalName: string; ein: string; website: string; billing: Addr; billingOnFile?: string; invoicePoRequired: boolean }>({ legalName: "", ein: "", website: "", billing: EMPTY_ADDR, invoicePoRequired: false });
+  const [company, setCompany] = useState<{ legalName: string; website: string; billing: Addr; billingOnFile?: string; invoicePoRequired: boolean }>({ legalName: "", website: "", billing: EMPTY_ADDR, invoicePoRequired: false });
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [locs, setLocs] = useState<Loc[]>([]);
   const [taxExempt, setTaxExempt] = useState(false);       // NEVER prefilled — deliberate confirmation (Jon, Oct 13)
@@ -141,7 +141,6 @@ export default function CompanyInfoPage() {
       <div style={box}>
         <H2 n="1" t="Company" />
         <span style={lab}>Legal company name</span><input style={inp} value={company.legalName} onChange={e => setCompany({ ...company, legalName: e.target.value })} placeholder="As it appears on your resale certificate" />
-        <span style={lab}>EIN (federal tax ID)</span><input style={inp} value={company.ein} onChange={e => setCompany({ ...company, ein: e.target.value })} placeholder="12-3456789" inputMode="numeric" />
         <span style={lab}>Website</span><input style={inp} value={company.website} onChange={e => setCompany({ ...company, website: e.target.value })} placeholder="yourbrand.com" />
         <span style={lab}>Billing address</span>
         {company.billingOnFile && !company.billing.line1 && <p style={{ color: H.dim, fontSize: 13.5, lineHeight: 1.5, margin: "0 0 8px", whiteSpace: "pre-line" }}>We have this on file. Please enter it in the boxes below:{"\n"}{company.billingOnFile}</p>}
