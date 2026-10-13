@@ -47,12 +47,18 @@ const OVERRIDES: Record<string, Addr> = {
   if (process.argv.includes("--show")) for (const x of ok) console.log(JSON.stringify(x.old), "=>", JSON.stringify((x.r as any).a));
   if (!APPLY) { console.log("dry run — nothing written"); return; }
 
-  const { error: bErr } = await db.rpc("exec_sql", { sql: `create table if not exists public.address_backup_200 (kind text not null, row_id uuid not null, old_text text, backed_up_at timestamptz not null default now(), primary key (kind, row_id)); alter table public.address_backup_200 enable row level security; grant all on public.address_backup_200 to service_role;` });
+  const { error: bErr } = await db.rpc("exec_sql", { sql: `create table if not exists public.address_backup_200 (kind text not null, row_id uuid not null, old_text text, backed_up_at timestamptz not null default now(), primary key (kind, row_id)); alter table public.address_backup_200 enable row level security; grant all on public.address_backup_200 to service_role; notify pgrst, 'reload schema';` });
   if (bErr) throw bErr;
+  // the API learns about a new table a moment after it's created — retry until it does
   for (let i = 0; i < ok.length; i += 200) {
-    const { error } = await db.from("address_backup_200" as any).upsert(ok.slice(i, i + 200).map(x => ({ kind: x.kind, row_id: x.id, old_text: x.old })), { onConflict: "kind,row_id", ignoreDuplicates: true });
-    if (error) throw error;
+    for (let attempt = 1; ; attempt++) {
+      const { error } = await db.from("address_backup_200" as any).upsert(ok.slice(i, i + 200).map(x => ({ kind: x.kind, row_id: x.id, old_text: x.old })), { onConflict: "kind,row_id", ignoreDuplicates: true });
+      if (!error) break;
+      if (error.code !== "PGRST205" || attempt >= 10) throw error;
+      await new Promise(r => setTimeout(r, 3000));
+    }
   }
+  console.log(`backed up ${ok.length}`);
   let n = 0;
   for (const x of ok) {
     const a = (x.r as any).a as Addr;
