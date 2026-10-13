@@ -10,7 +10,7 @@
 //     OpsHub's tax flag then mirrors QB (lib/client-tax-sync).
 //   - the client never renames themselves: clients.name is HPD's handle.
 
-import { setCustomerTaxExempt } from "./quickbooks";
+import { setCustomerTaxExempt, getCustomerById } from "./quickbooks";
 import { syncClientTaxFromQB } from "./client-tax-sync";
 import { uploadFile } from "./google-drive";
 import { getDriveToken, getPrivateDocFolder } from "./drive-token";
@@ -49,12 +49,27 @@ export async function loadClientInfo(db: Db, clientId: string) {
   // EMAIL is explicitly assigned invoices.
   const invoicesAssigned = ((contacts || []) as any[]).some(x => (x.email || "").includes("@") && Array.isArray(x.doc_routing) && x.doc_routing.includes("invoices"));
   const getsInvoices = (r: any) => (Array.isArray(r) && r.length) ? r.includes("invoices") : !invoicesAssigned;
+
+  // Blanks fill from the QuickBooks customer (OpsHub's own data always wins).
+  // Prefill only: a QB hiccup just means fewer prefilled fields.
+  let qb: any = null;
+  if (c.qb_customer_id) { try { qb = await getCustomerById(c.qb_customer_id); } catch {} }
+  const qbAddr = (a: any) => !a ? "" : [a.Line1, a.Line2, a.Line3, [a.City, a.CountrySubDivisionCode].filter(Boolean).join(", ") + (a.PostalCode ? ` ${a.PostalCode}` : "")].filter(x => x && String(x).trim()).join("\n");
+  const qbShip = qbAddr(qb?.ShipAddr);
+  const locations = ((locs || []) as any[]).map(l => ({ id: l.id, label: l.label || "", address: l.address || "", contactName: l.contact_name || "", contactPhone: l.contact_phone || "", deliveryNotes: l.delivery_notes || "", isDefault: !!l.is_default }));
+  if (!locations.length && qbShip) locations.push({ id: undefined as any, label: "Main", address: qbShip, contactName: "", contactPhone: qb?.PrimaryPhone?.FreeFormNumber || "", deliveryNotes: "", isDefault: true });
   return {
     clientName: c.name,
-    company: { legalName: c.legal_name || "", ein: c.ein || "", website: c.website || "", billingAddress: c.billing_address || "", invoicePoRequired: !!c.invoice_po_required },
+    company: {
+      legalName: c.legal_name || qb?.CompanyName || "",
+      ein: c.ein || "",
+      website: c.website || qb?.WebAddr?.URI || "",
+      billingAddress: c.billing_address || qbAddr(qb?.BillAddr),
+      invoicePoRequired: !!c.invoice_po_required,
+    },
     taxExempt: !!c.tax_exempt, resaleNum: c.qb_resale_num || null,
     contacts: ((contacts || []) as any[]).map(x => ({ id: x.id, name: x.name || "", email: x.email || "", phone: x.phone || "", role: x.role_label || "", isPrimary: !!x.is_primary, getsInvoices: getsInvoices(x.doc_routing) })),
-    locations: ((locs || []) as any[]).map(l => ({ id: l.id, label: l.label || "", address: l.address || "", contactName: l.contact_name || "", contactPhone: l.contact_phone || "", deliveryNotes: l.delivery_notes || "", isDefault: !!l.is_default })),
+    locations,
     certificates: ((certs || []) as any[]).map(r => ({ id: r.id, state: r.state, permitNumber: r.permit_number, expiresOn: r.expires_on, status: r.status })),
   };
 }
@@ -170,6 +185,12 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
       applied.push(`Address "${row.label}" added`);
     }
   }
+
+  // Tax is never pre-ticked: an exempt client must re-confirm deliberately.
+  // Not confirming changes nothing (only an approved certificate grants or
+  // keeps QB exemption) — but staff must know.
+  if (before.taxExempt && !p.tax?.claimsExempt) applied.push("Tax exemption NOT confirmed (QuickBooks still has them exempt; no new certificate)");
+  else if (before.taxExempt && p.tax?.claimsExempt && !filed.length) applied.push("Tax exemption confirmed, but no certificate uploaded");
 
   // the submission record (certificates hang off it)
   const { data: sub, error: sErr } = await db.from("client_info_submissions").insert({

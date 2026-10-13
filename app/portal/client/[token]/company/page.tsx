@@ -40,7 +40,8 @@ export default function CompanyInfoPage() {
   const [company, setCompany] = useState({ legalName: "", ein: "", website: "", billingAddress: "", invoicePoRequired: false });
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [locs, setLocs] = useState<Loc[]>([]);
-  const [taxExempt, setTaxExempt] = useState(false);
+  const [taxExempt, setTaxExempt] = useState(false);       // NEVER prefilled — deliberate confirmation (Jon, Oct 13)
+  const [exemptOnFile, setExemptOnFile] = useState(false);
   const [onFile, setOnFile] = useState<{ state: string; permitNumber: string; expiresOn: string | null; status: string }[]>([]);
   const [certs, setCerts] = useState<Cert[]>([]);
   const [signer, setSigner] = useState({ name: "", title: "", email: "", certified: false });
@@ -53,7 +54,7 @@ export default function CompanyInfoPage() {
       setClientName(d.clientName); setStates(d.states || []); setCompany(d.company);
       setContacts(d.contacts.length ? d.contacts : [{ name: "", email: "", phone: "", role: "", isPrimary: true, getsInvoices: true }]);
       setLocs(d.locations.length ? d.locations : [{ label: "Main", address: "", contactName: "", contactPhone: "", deliveryNotes: "", isDefault: true }]);
-      setTaxExempt(!!d.taxExempt || (d.certificates || []).length > 0); setOnFile(d.certificates || []);
+      setExemptOnFile(!!d.taxExempt); setOnFile(d.certificates || []);
       setLoaded(true);
     }).catch(() => setErr("Couldn't load your info. Please refresh."));
   }, [token]);
@@ -167,6 +168,7 @@ export default function CompanyInfoPage() {
 
       <div style={box}>
         <H2 n="4" t="Sales tax" />
+        {exemptOnFile && <p style={{ color: H.dim, fontSize: 13.5, lineHeight: 1.5, margin: "10px 0 0" }}>Our records show your account as tax exempt. Please confirm it below and upload your current resale certificate so we have it on file.</p>}
         {check(taxExempt, v => { setTaxExempt(v); if (v && !certs.length) setCerts([{ state: "", permitNumber: "", expiresOn: "", uploadPath: "", fileName: "" }]); }, "We buy for resale and are sales tax exempt")}
         {taxExempt && (
           <>
