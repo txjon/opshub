@@ -44,7 +44,11 @@ export async function loadClientInfo(db: Db, clientId: string) {
     db.from("client_tax_certificates").select("id, state, permit_number, expires_on, status, created_at").eq("client_id", clientId).order("created_at", { ascending: false }),
   ]);
   if (!c) throw new Error("Client not found");
-  const getsInvoices = (r: any) => !r || !Array.isArray(r) || r.length === 0 || r.includes("invoices");   // empty = admin = everything
+  // What each contact ACTUALLY receives (lib/recipients): explicit routing as
+  // set; a no-routing contact gets invoices only while no contact WITH AN
+  // EMAIL is explicitly assigned invoices.
+  const invoicesAssigned = ((contacts || []) as any[]).some(x => (x.email || "").includes("@") && Array.isArray(x.doc_routing) && x.doc_routing.includes("invoices"));
+  const getsInvoices = (r: any) => (Array.isArray(r) && r.length) ? r.includes("invoices") : !invoicesAssigned;
   return {
     clientName: c.name,
     company: { legalName: c.legal_name || "", ein: c.ein || "", website: c.website || "", billingAddress: c.billing_address || "", invoicePoRequired: !!c.invoice_po_required },
@@ -104,13 +108,14 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   // but only while nobody is explicitly assigned. So first make every such
   // "everything" contact explicit (who gets what doesn't change), then edits
   // only add/remove "invoices" and never touch routing staff set by hand.
-  const { data: rawContacts } = await db.from("contacts").select("id, doc_routing").eq("client_id", clientId);
+  const { data: rawContacts } = await db.from("contacts").select("id, email, doc_routing").eq("client_id", clientId);
   const routingOf = new Map<string, string[]>();
   // An "everything" contact receives a category only while NOBODY is explicitly
   // assigned it (lib/recipients). Convert each to exactly what it gets TODAY —
   // no one gains or loses a single email.
   const assigned = new Set<string>();
-  for (const rc of (rawContacts || []) as any[]) for (const k of (Array.isArray(rc.doc_routing) ? rc.doc_routing : [])) assigned.add(k);
+  // only contacts WITH an email count as assigned — lib/recipients ignores the rest
+  for (const rc of (rawContacts || []) as any[]) if ((rc.email || "").includes("@")) for (const k of (Array.isArray(rc.doc_routing) ? rc.doc_routing : [])) assigned.add(k);
   for (const rc of (rawContacts || []) as any[]) {
     let r: string[] = Array.isArray(rc.doc_routing) ? rc.doc_routing : [];
     if (!r.length) {
