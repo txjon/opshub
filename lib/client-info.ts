@@ -104,14 +104,16 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
     }
   }
 
-  // company
+  // company — compared with what OpsHub actually STORES (the prefill also
+  // carries QuickBooks values for blanks; a confirmed QB value must save).
   const co = p.company || ({} as InfoPayload["company"]);
+  const { data: stored } = await db.from("clients").select("legal_name, ein, website, billing_address").eq("id", clientId).single();
   const patch: any = {};
   const setIf = (col: string, label: string, next: any, prev: any) => { if ((next ?? "") !== (prev ?? "")) { patch[col] = next === "" ? null : next; applied.push(`${label} updated`); } };
-  setIf("legal_name", "Legal name", clip(co.legalName, 200), before.company.legalName);
-  setIf("ein", "EIN", clip(co.ein, 20), before.company.ein);
-  setIf("website", "Website", clip(co.website, 200), before.company.website);
-  setIf("billing_address", "Billing address", clip(co.billingAddress, 600), before.company.billingAddress);
+  setIf("legal_name", "Legal name", clip(co.legalName, 200), stored?.legal_name || "");
+  setIf("ein", "EIN", clip(co.ein, 20), stored?.ein || "");
+  setIf("website", "Website", clip(co.website, 200), stored?.website || "");
+  setIf("billing_address", "Billing address", clip(co.billingAddress, 600), stored?.billing_address || "");
   if (!!co.invoicePoRequired !== before.company.invoicePoRequired) { patch.invoice_po_required = !!co.invoicePoRequired; applied.push(`Invoices ${co.invoicePoRequired ? "now need" : "no longer need"} a PO number`); }
   if (Object.keys(patch).length) {
     const { error } = await db.from("clients").update(patch).eq("id", clientId);
