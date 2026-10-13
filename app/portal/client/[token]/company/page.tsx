@@ -35,7 +35,7 @@ function AddrConfirm({ value, onChange, state, setState, idPrefix, nameHint }: {
 type Contact = { id?: string; name: string; email: string; phone: string; role: string; isPrimary: boolean; getsInvoices: boolean; remove?: boolean };
 type AddrState = "ask" | "ok" | "edit";   // on file → confirm or edit; nothing on file → the form
 type Loc = { id?: string; _k?: string; sameAsBilling?: boolean; addrState?: AddrState; label: string; addr: Addr; onFile?: string; contactName: string; contactPhone: string; deliveryNotes: string; isDefault: boolean; remove?: boolean };
-type Cert = { state: string; permitNumber: string; expiresOn: string; uploadPath: string; fileName: string; existingFileId?: string; uploading?: boolean; err?: string };
+type Cert = { state: string; permitNumber: string; issuedOn: string; uploadPath: string; fileName: string; existingFileId?: string; uploading?: boolean; err?: string };
 
 const box: React.CSSProperties = { background: H.card, border: `1px solid ${H.line}`, borderRadius: 16, padding: "18px 18px 20px", marginTop: 16 };
 const lab: React.CSSProperties = { display: "block", fontSize: 10, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: H.faint, margin: "12px 0 6px" };
@@ -67,7 +67,7 @@ export default function CompanyInfoPage() {
   const [taxExempt, setTaxExempt] = useState(false);       // NEVER prefilled — deliberate confirmation (Jon, Oct 13)
   const [exemptOnFile, setExemptOnFile] = useState(false);
   const [taxDocs, setTaxDocs] = useState<{ id: string; fileName: string; uploadedOn: string }[]>([]);
-  const [onFile, setOnFile] = useState<{ state: string; permitNumber: string; expiresOn: string | null; status: string }[]>([]);
+  const [onFile, setOnFile] = useState<{ state: string; permitNumber: string; issuedOn: string | null; status: string }[]>([]);
   const [certs, setCerts] = useState<Cert[]>([]);
   const [signer, setSigner] = useState({ name: "", title: "", email: "", certified: false });
   const [busy, setBusy] = useState(false);
@@ -119,8 +119,6 @@ export default function CompanyInfoPage() {
   // certificate, unless an approved one is already on file (Jon, Oct 13).
   if (taxExempt && !onFile.some(c => c.status === "approved") && !certs.some(c => c.state && c.permitNumber && hasFile(c))) problems.push("Upload your resale certificate, or untick tax exempt if you're not.");
   if (certs.some(c => c.uploading)) problems.push("Wait for the certificate upload to finish.");
-  const today = new Date().toISOString().slice(0, 10);
-  if (taxExempt && certs.some(c => c.expiresOn && c.expiresOn < today)) problems.push("A certificate's expiration date has already passed. Leave it blank if it doesn't expire (not the date it was issued).");
   if (!signer.name.trim()) problems.push("Enter your name to sign.");
   if (!signer.certified) problems.push("Check the box to confirm the information is accurate.");
 
@@ -217,7 +215,7 @@ export default function CompanyInfoPage() {
       <div style={box}>
         <H2 n="4" t="Sales tax" />
         {exemptOnFile && <p style={{ color: H.dim, fontSize: 13.5, lineHeight: 1.5, margin: "10px 0 0" }}>Our records show your account as tax exempt. Please confirm it below and upload your current resale certificate so we have it on file.</p>}
-        {check(taxExempt, v => { setTaxExempt(v); if (v && !certs.length) setCerts([{ state: "", permitNumber: "", expiresOn: "", uploadPath: "", fileName: "" }]); }, "We buy for resale and are sales tax exempt")}
+        {check(taxExempt, v => { setTaxExempt(v); if (v && !certs.length) setCerts([{ state: "", permitNumber: "", issuedOn: "", uploadPath: "", fileName: "" }]); }, "We buy for resale and are sales tax exempt")}
         {taxExempt && (
           <>
             <p style={{ color: H.dim, fontSize: 13.5, lineHeight: 1.5, margin: "12px 0 0" }}>Add a resale certificate for each state you hold one in. We'll review it, and sales tax comes off your invoices once it's approved.</p>
@@ -227,7 +225,7 @@ export default function CompanyInfoPage() {
                 {onFile.map((c, i) => (
                   <div key={i} style={{ fontSize: 13.5, padding: "5px 0", display: "flex", gap: 10, flexWrap: "wrap" }}>
                     <b>{c.state}</b><span style={{ fontFamily: H.mono }}>{c.permitNumber}</span>
-                    {c.expiresOn && <span style={{ color: H.faint }}>expires {c.expiresOn}</span>}
+                    {c.issuedOn && <span style={{ color: H.faint }}>issued {c.issuedOn}</span>}
                     <span style={{ color: c.status === "approved" ? H.green : c.status === "rejected" ? H.red : H.amber, fontWeight: 800, fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase" }}>{c.status === "pending" ? "in review" : c.status}</span>
                   </div>
                 ))}
@@ -244,7 +242,7 @@ export default function CompanyInfoPage() {
                     </select>
                   </div>
                   <div><span style={lab}>Permit number</span><input style={inp} value={c.permitNumber} onChange={e => upCert(i, { permitNumber: e.target.value })} /></div>
-                  <div><span style={lab}>Expiration date (not the issue date; leave blank if it doesn't expire)</span><input style={inp} type="date" value={c.expiresOn} onChange={e => upCert(i, { expiresOn: e.target.value })} /></div>
+                  <div><span style={lab}>Issue date (optional)</span><input style={inp} type="date" value={c.issuedOn} onChange={e => upCert(i, { issuedOn: e.target.value })} /></div>
                 </div>
                 <span style={lab}>Certificate</span>
                 {taxDocs.length > 0 && !c.uploadPath && (
@@ -265,7 +263,7 @@ export default function CompanyInfoPage() {
                 {c.existingFileId && <button onClick={() => setCerts(cs => cs.filter((_, j) => j !== i))} style={{ ...ghost, padding: "6px 12px" }}>Remove</button>}
               </div>
             ))}
-            <button onClick={() => setCerts(cs => [...cs, { state: "", permitNumber: "", expiresOn: "", uploadPath: "", fileName: "" }])} style={{ ...ghost, marginTop: 16 }}>+ Add another state</button>
+            <button onClick={() => setCerts(cs => [...cs, { state: "", permitNumber: "", issuedOn: "", uploadPath: "", fileName: "" }])} style={{ ...ghost, marginTop: 16 }}>+ Add another state</button>
             <p style={{ color: H.faint, fontSize: 12, marginTop: 12 }}>Files are private. Only the House Party Distro team can see them.</p>
           </>
         )}

@@ -34,7 +34,7 @@ export type InfoContact = { id?: string; name: string; email: string; phone: str
 // addresses are PARTS (mig 200). onFile = the old one-line text of an address
 // that was never split, shown to the client so they can re-enter it.
 export type InfoLocation = { id?: string; label: string; addr: Addr; onFile?: string; contactName: string; contactPhone: string; deliveryNotes: string; isDefault: boolean; remove?: boolean };
-export type InfoCert = { state: string; permitNumber: string; expiresOn: string; uploadPath: string; fileName: string; existingFileId?: string };
+export type InfoCert = { state: string; permitNumber: string; issuedOn: string; uploadPath: string; fileName: string; existingFileId?: string };
 export type InfoPayload = {
   // no EIN: clients paying us owe us no tax ID (Jon, Oct 13); clients.ein stays staff-only
   company: { legalName: string; website: string; billing: Addr; billingOnFile?: string; invoicePoRequired: boolean };
@@ -55,7 +55,7 @@ export async function loadClientInfo(db: Db, clientId: string) {
     db.from("clients").select(`id, name, legal_name, website, billing_address, invoice_po_required, tax_exempt, qb_resale_num, qb_customer_id, ${BILL_ADDR_COLS}`).eq("id", clientId).single(),
     db.from("contacts").select("id, name, email, phone, role_label, is_primary, doc_routing").eq("client_id", clientId).or("doc_routing.is.null,doc_routing.not.cs.{none}").order("is_primary", { ascending: false }).order("name"),
     db.from("client_locations").select(`id, label, address, contact_name, contact_phone, delivery_notes, is_default, ${LOC_ADDR_COLS}`).eq("client_id", clientId).is("job_id", null).eq("active", true).order("is_default", { ascending: false }),
-    db.from("client_tax_certificates").select("id, state, permit_number, expires_on, status, created_at").eq("client_id", clientId).order("created_at", { ascending: false }),
+    db.from("client_tax_certificates").select("id, state, permit_number, issued_on, status, created_at").eq("client_id", clientId).order("created_at", { ascending: false }),
     // tax documents already on file (uploaded by staff before the form existed)
     db.from("client_files").select("id, file_name, created_at").eq("client_id", clientId).eq("kind", "tax_exempt").order("created_at", { ascending: false }),
     // shown on the form so a second person knows someone already updated it
@@ -91,7 +91,7 @@ export async function loadClientInfo(db: Db, clientId: string) {
     taxExempt: !!c.tax_exempt, resaleNum: c.qb_resale_num || null,
     contacts: ((contacts || []) as any[]).map(x => ({ id: x.id, name: x.name || "", email: x.email || "", phone: x.phone || "", role: x.role_label || "", isPrimary: !!x.is_primary, getsInvoices: getsInvoices(x.doc_routing) })),
     locations,
-    certificates: ((certs || []) as any[]).map(r => ({ id: r.id, state: r.state, permitNumber: r.permit_number, expiresOn: r.expires_on, status: r.status })),
+    certificates: ((certs || []) as any[]).map(r => ({ id: r.id, state: r.state, permitNumber: r.permit_number, issuedOn: r.issued_on, status: r.status })),
     taxDocs: ((taxDocs || []) as any[]).map(d => ({ id: d.id, fileName: d.file_name, uploadedOn: String(d.created_at || "").slice(0, 10) })),
     // which company fields were EMPTY in OpsHub when the form was opened (a
     // prefill from QuickBooks only saves into a field that was blank then)
@@ -129,21 +129,19 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   // not leave half a save that a retry then duplicates. Temp uploads are only
   // removed once everything has saved.
   const certsIn = p.tax?.claimsExempt ? (p.tax.certificates || []).slice(0, 20) : [];
-  const existing: { state: string; permit: string; expiresOn: string | null; fileId: string }[] = [];
-  const filed: { state: string; permit: string; expiresOn: string | null; driveFileId: string; webViewLink: string; name: string; mime: string | null; size: number | null; tmp: string }[] = [];
+  const existing: { state: string; permit: string; issuedOn: string | null; fileId: string }[] = [];
+  const filed: { state: string; permit: string; issuedOn: string | null; driveFileId: string; webViewLink: string; name: string; mime: string | null; size: number | null; tmp: string }[] = [];
   if (certsIn.length) {
     const { data: cl } = await db.from("clients").select("name").eq("id", clientId).single();
     let folderId: string | null = null;
     for (const cert of certsIn) {
       const state = clip(cert.state, 5).toUpperCase(), permit = clip(cert.permitNumber, 60);
       if (!state || !permit) continue;
-      if (/^\d{4}-\d{2}-\d{2}$/.test(cert.expiresOn || "") && cert.expiresOn < new Date().toISOString().slice(0, 10))
-        throw new Error(`Please check the expiration date for ${state}: ${cert.expiresOn} has already passed. Leave it blank if the certificate doesn't expire.`);
       // "Use the certificate we already have" — must be THIS client's tax document.
       if (cert.existingFileId && !cert.uploadPath) {
         const doc = (before.taxDocs || []).find(d => d.id === cert.existingFileId);
         if (!doc) throw new Error(`Please choose or upload the certificate for ${state}.`);
-        existing.push({ state, permit, expiresOn: /^\d{4}-\d{2}-\d{2}$/.test(cert.expiresOn || "") ? cert.expiresOn : null, fileId: doc.id });
+        existing.push({ state, permit, issuedOn: /^\d{4}-\d{2}-\d{2}$/.test(cert.issuedOn || "") ? cert.issuedOn : null, fileId: doc.id });
         continue;
       }
       const path = String(cert.uploadPath || "");
@@ -153,7 +151,7 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
       if (!folderId) folderId = await getPrivateDocFolder(await getDriveToken(), [cl?.name || "Unknown", "Tax Documents"]);
       const name = resaleCertFileName(cl?.name || "Client", cert.fileName, certsIn.length > 1 ? state : undefined);
       const up = await uploadFile(folderId, name, (blob as any).type || "application/octet-stream", Buffer.from(await blob.arrayBuffer()), { public: false });
-      filed.push({ state, permit, expiresOn: /^\d{4}-\d{2}-\d{2}$/.test(cert.expiresOn || "") ? cert.expiresOn : null, driveFileId: up.fileId, webViewLink: up.webViewLink, name, mime: (blob as any).type || null, size: (blob as any).size || null, tmp: path });
+      filed.push({ state, permit, issuedOn: /^\d{4}-\d{2}-\d{2}$/.test(cert.issuedOn || "") ? cert.issuedOn : null, driveFileId: up.fileId, webViewLink: up.webViewLink, name, mime: (blob as any).type || null, size: (blob as any).size || null, tmp: path });
     }
   }
 
@@ -353,14 +351,14 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   for (const f of filed) {
     const { data: cf, error: fErr } = await db.from("client_files").insert({
       client_id: clientId, file_name: f.name, drive_file_id: f.driveFileId, drive_link: f.webViewLink, mime_type: f.mime,
-      file_size: f.size, kind: "tax_exempt", notes: `${f.state} resale permit ${f.permit}${f.expiresOn ? `, expires ${f.expiresOn}` : ""} (client info form)`, uploaded_by: null,
+      file_size: f.size, kind: "tax_exempt", notes: `${f.state} resale permit ${f.permit}${f.issuedOn ? `, issued ${f.issuedOn}` : ""} (client info form)`, uploaded_by: null,
     }).select("id").single();
     if (fErr) throw new Error(`certificate file: ${fErr.message}`);
-    await db.from("client_tax_certificates").insert({ client_id: clientId, submission_id: sub.id, state: f.state, permit_number: f.permit, expires_on: f.expiresOn, client_file_id: cf.id, status: "pending" });
+    await db.from("client_tax_certificates").insert({ client_id: clientId, submission_id: sub.id, state: f.state, permit_number: f.permit, issued_on: f.issuedOn, client_file_id: cf.id, status: "pending" });
     certsPending++;
   }
   for (const e of existing) {
-    await db.from("client_tax_certificates").insert({ client_id: clientId, submission_id: sub.id, state: e.state, permit_number: e.permit, expires_on: e.expiresOn, client_file_id: e.fileId, status: "pending" });
+    await db.from("client_tax_certificates").insert({ client_id: clientId, submission_id: sub.id, state: e.state, permit_number: e.permit, issued_on: e.issuedOn, client_file_id: e.fileId, status: "pending" });
     certsPending++;
   }
   if (certsPending) {
@@ -373,17 +371,13 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
 
 // ── staff review ──
 export async function reviewCertificate(db: Db, certId: string, action: "approve" | "reject", reviewerId: string, note?: string): Promise<{ qb: string }> {
-  const { data: cert } = await db.from("client_tax_certificates").select("id, client_id, state, permit_number, expires_on, status, submission_id, clients(qb_customer_id, name)").eq("id", certId).single();
+  const { data: cert } = await db.from("client_tax_certificates").select("id, client_id, state, permit_number, issued_on, status, submission_id, clients(qb_customer_id, name)").eq("id", certId).single();
   if (!cert) throw new Error("Certificate not found");
   if (cert.status !== "pending") throw new Error(`Already ${cert.status}`);
   let qb = "QuickBooks unchanged";
   if (action === "approve") {
     const qbId = cert.clients?.qb_customer_id;
     if (!qbId) throw new Error("This client isn't linked to QuickBooks yet. Push an invoice or link the customer first.");
-    // An expired certificate can't make anyone exempt.
-    if (cert.expires_on && String(cert.expires_on) < new Date().toISOString().slice(0, 10)) {
-      throw new Error(`This certificate expired on ${cert.expires_on}. If that's the issue date or a typo, click the date to fix it; otherwise ask the client for a current one.`);
-    }
     // QB's ResaleNum holds 16 characters: send it compacted (no dashes or
     // spaces, e.g. SUT-0000-3640-0557 → SUT000036400557). OpsHub keeps the
     // permit exactly as written.

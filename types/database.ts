@@ -7,6 +7,29 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 export type Database = {
   public: {
     Tables: {
+      address_backup_200: {
+        Row: {
+          kind: string;
+          row_id: string;
+          old_text: string | null;
+          backed_up_at: string;
+        };
+        Insert: {
+          kind: string;
+          row_id: string;
+          old_text?: string | null;
+          backed_up_at?: string;
+        };
+        Update: {
+          kind?: string;
+          row_id?: string;
+          old_text?: string | null;
+          backed_up_at?: string;
+        };
+        Relationships: [
+
+        ];
+      };
       alerts: {
         Row: {
           id: string;
@@ -986,6 +1009,7 @@ export type Database = {
           reviewed_by: string | null;
           reviewed_at: string | null;
           created_at: string;
+          issued_on: string | null;
         };
         Insert: {
           id?: string;
@@ -1001,6 +1025,7 @@ export type Database = {
           reviewed_by?: string | null;
           reviewed_at?: string | null;
           created_at?: string;
+          issued_on?: string | null;
         };
         Update: {
           id?: string;
@@ -1016,6 +1041,7 @@ export type Database = {
           reviewed_by?: string | null;
           reviewed_at?: string | null;
           created_at?: string;
+          issued_on?: string | null;
         };
         Relationships: [
           { foreignKeyName: "client_tax_certificates_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] },

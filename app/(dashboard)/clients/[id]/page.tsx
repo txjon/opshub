@@ -840,7 +840,7 @@ function InfoTaxBlock({ client, contacts, secHead }: any) {
   const [reject, setReject] = useState<{ id: string; note: string } | null>(null);
   // Staff path: turn a tax document already on file into a certificate to approve.
   const [docs, setDocs] = useState<any[]>([]);
-  const [addCert, setAddCert] = useState<{ fileId: string; state: string; permit: string; expiresOn: string } | null>(null);
+  const [addCert, setAddCert] = useState<{ fileId: string; state: string; permit: string; issuedOn: string } | null>(null);
   useEffect(() => { fetch(`/api/clients/${client.id}/files`).then(r => r.json()).then(d => setDocs((d.files || []).filter((f: any) => f.kind === "tax_exempt"))).catch(() => {}); }, [client.id]);
   const saveCert = async () => {
     if (!addCert) return;
@@ -870,14 +870,14 @@ function InfoTaxBlock({ client, contacts, secHead }: any) {
       setMsg({ ok: true, t: `Sent to ${(d.results?.[0]?.to || []).join(", ")}` });
     } catch (e: any) { setMsg({ ok: false, t: e.message }); } finally { setBusy(null); }
   };
-  const [expEdit, setExpEdit] = useState<{ id: string; v: string } | null>(null);
-  const setExpiry = async (certId: string, expiresOn: string | null) => {
+  const [issuedEdit, setIssuedEdit] = useState<{ id: string; v: string } | null>(null);
+  const setIssued = async (certId: string, issuedOn: string | null) => {
     setBusy(certId); setMsg(null);
     try {
-      const r = await fetch(`/api/clients/${client.id}/tax-certificates`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ certId, action: "set_expiry", expiresOn }) });
+      const r = await fetch(`/api/clients/${client.id}/tax-certificates`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ certId, action: "set_issued", issuedOn }) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Couldn't change the date");
-      setExpEdit(null); setMsg({ ok: true, t: expiresOn ? `Expiration set to ${expiresOn}.` : "Marked as not expiring." }); load();
+      setIssuedEdit(null); setMsg({ ok: true, t: issuedOn ? `Issue date set to ${issuedOn}.` : "Issue date cleared." }); load();
     } catch (e: any) { setMsg({ ok: false, t: e.message }); } finally { setBusy(null); }
   };
   const review = async (certId: string, action: "approve" | "reject", note?: string) => {
@@ -930,8 +930,8 @@ function InfoTaxBlock({ client, contacts, secHead }: any) {
             <input value={addCert.state} onChange={e => setAddCert({ ...addCert, state: e.target.value.toUpperCase().slice(0, 5) })} placeholder="State (NV)" style={{ width: 90, padding: "8px 10px", borderRadius: 8, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 12.5, fontFamily: H.font }} />
             <input value={addCert.permit} onChange={e => setAddCert({ ...addCert, permit: e.target.value })} placeholder="Permit number" style={{ flex: "1 1 140px", padding: "8px 10px", borderRadius: 8, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 12.5, fontFamily: H.mono }} />
             <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 9.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: H.faint }}>
-              Expires · blank if it doesn't (not the issue date)
-            <input type="date" value={addCert.expiresOn} onChange={e => setAddCert({ ...addCert, expiresOn: e.target.value })} style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 12.5, fontFamily: H.font }} />
+              Issue date (optional)
+            <input type="date" value={addCert.issuedOn} onChange={e => setAddCert({ ...addCert, issuedOn: e.target.value })} style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 12.5, fontFamily: H.font }} />
             </label>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
@@ -940,7 +940,7 @@ function InfoTaxBlock({ client, contacts, secHead }: any) {
           </div>
         </div>
       ) : (
-        <button onClick={() => setAddCert({ fileId: docs[0].id, state: "", permit: "", expiresOn: "" })} style={{ ...pill, marginTop: 10 }}>Confirm a certificate on file</button>
+        <button onClick={() => setAddCert({ fileId: docs[0].id, state: "", permit: "", issuedOn: "" })} style={{ ...pill, marginTop: 10 }}>Confirm a certificate on file</button>
       ))}
       {subs.length > 0 && (
         <div style={{ marginTop: 16 }}>
@@ -964,19 +964,19 @@ function InfoTaxBlock({ client, contacts, secHead }: any) {
               <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
                 <b style={{ fontSize: 13 }}>{c.state === "MULTI" ? "Multistate" : c.state}</b>
                 <span style={{ fontFamily: H.mono, fontSize: 12.5 }}>{c.permit_number}</span>
-                {expEdit?.id === c.id ? (
+                {issuedEdit?.id === c.id ? (
                   <span style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                    <input type="date" value={expEdit?.v || ""} onChange={e => setExpEdit({ id: c.id, v: e.target.value })} style={{ padding: "5px 8px", borderRadius: 8, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 12, fontFamily: H.font }} />
-                    <button onClick={() => setExpiry(c.id, expEdit?.v || null)} style={{ ...pill, padding: "5px 10px" }}>Save</button>
-                    <button onClick={() => setExpiry(c.id, null)} style={{ ...pill, padding: "5px 10px" }}>Doesn't expire</button>
-                    <button onClick={() => setExpEdit(null)} style={{ ...pill, border: "none", padding: "5px 6px" }}>Cancel</button>
+                    <input type="date" value={issuedEdit?.v || ""} onChange={e => setIssuedEdit({ id: c.id, v: e.target.value })} style={{ padding: "5px 8px", borderRadius: 8, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 12, fontFamily: H.font }} />
+                    <button onClick={() => setIssued(c.id, issuedEdit?.v || null)} style={{ ...pill, padding: "5px 10px" }}>Save</button>
+                    <button onClick={() => setIssued(c.id, null)} style={{ ...pill, padding: "5px 10px" }}>Clear</button>
+                    <button onClick={() => setIssuedEdit(null)} style={{ ...pill, border: "none", padding: "5px 6px" }}>Cancel</button>
                   </span>
                 ) : c.status === "pending" ? (
-                  <span onClick={() => setExpEdit({ id: c.id, v: c.expires_on || "" })} title="Click to fix the date"
-                    style={{ fontSize: 11.5, color: c.expires_on && c.expires_on < todayPacific() ? H.red : H.faint, cursor: "pointer", borderBottom: "1px dotted currentColor" }}>
-                    {c.expires_on ? `expires ${c.expires_on}` : "no expiration"}
+                  <span onClick={() => setIssuedEdit({ id: c.id, v: c.issued_on || "" })} title="Click to change the issue date"
+                    style={{ fontSize: 11.5, color: H.faint, cursor: "pointer", borderBottom: "1px dotted currentColor" }}>
+                    {c.issued_on ? `issued ${c.issued_on}` : "add issue date"}
                   </span>
-                ) : c.expires_on && <span style={{ fontSize: 11.5, color: H.faint }}>expires {c.expires_on}</span>}
+                ) : c.issued_on && <span style={{ fontSize: 11.5, color: H.faint }}>issued {c.issued_on}</span>}
                 <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: c.status === "approved" ? H.green : c.status === "rejected" ? H.red : H.amber }}>{c.status === "pending" ? "To review" : c.status}</span>
               </div>
               <div style={{ fontSize: 11, color: H.faint, marginTop: 3 }}>

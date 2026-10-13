@@ -13,7 +13,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { data, error } = await sb.from("client_tax_certificates")
-    .select("id, state, permit_number, expires_on, status, review_note, reviewed_at, created_at, client_files(file_name, drive_file_id), client_info_submissions(signer_name, signer_title, submitted_at)")
+    .select("id, state, permit_number, issued_on, status, review_note, reviewed_at, created_at, client_files(file_name, drive_file_id), client_info_submissions(signer_name, signer_title, submitted_at)")
     .eq("client_id", params.id).order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   const { data: subs } = await sb.from("client_info_submissions")
@@ -35,16 +35,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       if (!state || !permit) return NextResponse.json({ error: "State and permit number are required" }, { status: 400 });
       const { data: doc } = await db.from("client_files").select("id").eq("id", body.fileId).eq("client_id", params.id).eq("kind", "tax_exempt").maybeSingle();
       if (!doc) return NextResponse.json({ error: "That document isn't one of this client's tax documents" }, { status: 400 });
-      const expiresOn = /^\d{4}-\d{2}-\d{2}$/.test(String(body.expiresOn || "")) ? body.expiresOn : null;
-      const { error } = await db.from("client_tax_certificates").insert({ client_id: params.id, state, permit_number: permit, expires_on: expiresOn, client_file_id: (doc as any).id, status: "pending" });
+      const issuedOn = /^\d{4}-\d{2}-\d{2}$/.test(String(body.issuedOn || "")) ? body.issuedOn : null;
+      const { error } = await db.from("client_tax_certificates").insert({ client_id: params.id, state, permit_number: permit, issued_on: issuedOn, client_file_id: (doc as any).id, status: "pending" });
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ ok: true });
     }
-    // Staff: fix a mistyped expiration (often the ISSUE date) on a cert still to review
-    if (action === "set_expiry") {
+    // Staff: fix a cert's issue date while it's still to review
+    if (action === "set_issued") {
       const db = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-      const expiresOn = /^\d{4}-\d{2}-\d{2}$/.test(String(body.expiresOn || "")) ? body.expiresOn : null;
-      const { data, error } = await db.from("client_tax_certificates").update({ expires_on: expiresOn }).eq("id", certId).eq("client_id", params.id).eq("status", "pending").select("id");
+      const issuedOn = /^\d{4}-\d{2}-\d{2}$/.test(String(body.issuedOn || "")) ? body.issuedOn : null;
+      const { data, error } = await db.from("client_tax_certificates").update({ issued_on: issuedOn }).eq("id", certId).eq("client_id", params.id).eq("status", "pending").select("id");
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       if (!data?.length) return NextResponse.json({ error: "Only a certificate still to review can be changed" }, { status: 400 });
       return NextResponse.json({ ok: true });
