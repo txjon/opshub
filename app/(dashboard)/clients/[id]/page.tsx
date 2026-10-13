@@ -319,6 +319,7 @@ function Overview({ client, contacts, wire, model, briefs, secHead, onEdit }: an
             </>
           )}
           <DocsBlock clientId={client.id} secHead={secHead} />
+          <InfoTaxBlock client={client} secHead={secHead} />
         </div>
         <div>
           {secHead("The wire.", "every move in this room, newest first")}
@@ -795,6 +796,89 @@ function ActionFeed({ jobs, phaseViews, proofStatus, thumbs, router, secHead }: 
 // classic: /api/clients/[id]/files → OpsHub Files / Clients / {name} /
 // {Tax Documents|W9|MSAs|Other} in Drive + client_files rows, so everything
 // uploaded on either page shows on both. ──
+// ── Company info & tax (Oct 13 2026) — the client info form's staff side:
+// email them their prefilled form (lib/client-info sendInfoRequest), preview
+// it, and review resale certificates. Approving one marks the QuickBooks
+// customer tax exempt; QB is the tax switch, OpsHub mirrors it.
+function InfoTaxBlock({ client, secHead }: any) {
+  const [certs, setCerts] = useState<any[]>([]);
+  const [arm, setArm] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [reject, setReject] = useState<{ id: string; note: string } | null>(null);
+  const load = () => fetch(`/api/clients/${client.id}/tax-certificates`).then(r => r.json()).then(d => setCerts(d.certificates || [])).catch(() => {});
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [client.id]);
+  const send = async () => {
+    if (!arm) { setArm(true); setMsg(null); return; }
+    setArm(false); setBusy("send");
+    try {
+      const r = await fetch("/api/clients/info-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientIds: [client.id] }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Send failed");
+      if (d.failed?.length) throw new Error(d.failed[0].error);
+      setMsg({ ok: true, t: `Sent to ${(d.results?.[0]?.to || []).join(", ")}` });
+    } catch (e: any) { setMsg({ ok: false, t: e.message }); } finally { setBusy(null); }
+  };
+  const review = async (certId: string, action: "approve" | "reject", note?: string) => {
+    setBusy(certId); setMsg(null);
+    try {
+      const r = await fetch(`/api/clients/${client.id}/tax-certificates`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ certId, action, note }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Review failed");
+      setMsg({ ok: true, t: action === "approve" ? d.qb : "Certificate rejected. QuickBooks unchanged." });
+      setReject(null); load();
+    } catch (e: any) { setMsg({ ok: false, t: e.message }); } finally { setBusy(null); }
+  };
+  const pill = { borderRadius: 999, border: `1px solid ${H.line}`, background: "transparent", color: H.dim, fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" as const, padding: "7px 12px", cursor: "pointer", fontFamily: H.font, textDecoration: "none" };
+  const pending = certs.filter(c => c.status === "pending").length;
+  return (
+    <div style={{ maxWidth: 560, marginTop: 28 }}>
+      {secHead("Company info & tax.", pending ? `${pending} certificate${pending === 1 ? "" : "s"} to review` : "their form, and resale certificates")}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <button onClick={send} disabled={busy === "send"} style={{ ...pill, color: arm ? H.ink : H.dim, background: arm ? "#fff" : "transparent", borderColor: arm ? "#fff" : H.line }}>
+          {busy === "send" ? "Sending…" : arm ? "Tap again to email them" : "Email them the info form"}
+        </button>
+        {client.portal_token && <a href={`/portal/client/${client.portal_token}/company`} target="_blank" rel="noreferrer" style={pill}>Preview their form ↗</a>}
+        {arm && <button onClick={() => setArm(false)} style={{ ...pill, border: "none" }}>Cancel</button>}
+      </div>
+      {msg && <div style={{ fontSize: 12, marginTop: 10, color: msg.ok ? H.green : H.red }}>{msg.t}</div>}
+      {certs.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          {certs.map(c => (
+            <div key={c.id} style={{ padding: "11px 0", borderBottom: `1px solid ${H.line}` }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+                <b style={{ fontSize: 13 }}>{c.state === "MULTI" ? "Multistate" : c.state}</b>
+                <span style={{ fontFamily: H.mono, fontSize: 12.5 }}>{c.permit_number}</span>
+                {c.expires_on && <span style={{ fontSize: 11.5, color: H.faint }}>expires {c.expires_on}</span>}
+                <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: c.status === "approved" ? H.green : c.status === "rejected" ? H.red : H.amber }}>{c.status === "pending" ? "To review" : c.status}</span>
+              </div>
+              <div style={{ fontSize: 11, color: H.faint, marginTop: 3 }}>
+                {c.client_info_submissions?.signer_name ? `Signed by ${c.client_info_submissions.signer_name}${c.client_info_submissions.signer_title ? `, ${c.client_info_submissions.signer_title}` : ""}` : ""}
+                {c.review_note ? ` · ${c.review_note}` : ""}
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                {c.client_files?.drive_file_id && <a href={`/api/files/view/${encodeURIComponent(c.client_files.file_name || "certificate")}?id=${c.client_files.drive_file_id}`} target="_blank" rel="noreferrer" style={pill}>View certificate ↗</a>}
+                {c.status === "pending" && (reject?.id === c.id ? (
+                  <>
+                    <input autoFocus value={reject?.note || ""} onChange={e => setReject({ id: c.id, note: e.target.value })} placeholder="Why? (they won't see this)" style={{ flex: "1 1 180px", padding: "7px 10px", borderRadius: 8, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 12, fontFamily: H.font, outline: "none" }} />
+                    <button onClick={() => review(c.id, "reject", reject?.note)} disabled={busy === c.id} style={{ ...pill, color: H.red, borderColor: H.red }}>Reject</button>
+                    <button onClick={() => setReject(null)} style={{ ...pill, border: "none" }}>Cancel</button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => review(c.id, "approve")} disabled={busy === c.id} style={{ ...pill, color: H.ink, background: "#fff", borderColor: "#fff" }}>{busy === c.id ? "Updating QuickBooks…" : "Approve · stop charging tax"}</button>
+                    <button onClick={() => setReject({ id: c.id, note: "" })} style={pill}>Reject</button>
+                  </>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DocsBlock({ clientId, secHead }: any) {
   const [files, setFiles] = useState<any[]>([]);
   const [uploading, setUploading] = useState(false);

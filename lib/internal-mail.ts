@@ -26,6 +26,9 @@ export type InternalEvent =
   | { kind: "new_idea"; client: string; title: string; notes?: string | null; ready?: boolean }
   | { kind: "client_approved"; client: string; jobNumber: string; jobId: string }
   | { kind: "client_changes"; client: string; jobNumber: string; jobId: string; note?: string | null }
+  // A client updated their company info / contacts / addresses / resale
+  // certificates from their hub (lib/client-info).
+  | { kind: "client_info_updated"; client: string; clientId: string; signer: string; applied: string[]; certsPending: number }
   // A client payment landed (QB webhook / manual sync — lib/payment-notify).
   // `stage` is where the job stood, so the DO THIS fits what's actually next.
   | { kind: "client_paid"; client: string; jobNumber: string; jobId: string; invoiceNumber: string | null;
@@ -179,6 +182,24 @@ ${itemLines}
 ${next}`,
       };
     }
+    case "client_info_updated":
+      return {
+        to: [DEPT.labs],
+        subject: e.certsPending
+          ? `TAX CERT TO REVIEW — ${e.client} updated their info`
+          : `${e.client} updated their company info`,
+        text: `${e.client} updated their company info in their hub${e.signer ? ` (signed by ${e.signer})` : ""}.
+
+WHAT CHANGED (already applied):
+${e.applied.length ? e.applied.map(a => `  - ${a}`).join("\n") : "  - nothing changed, they confirmed everything is current"}
+
+${e.certsPending ? `DO THIS:
+1. Open the client: ${APP}/clients/${e.clientId}
+2. Tax certificates: open each certificate, check the state, permit number, name and expiration
+3. Approve it (QuickBooks stops charging them tax) or reject it with a reason
+
+DONE WHEN: every certificate is approved or rejected. Until then they're still taxed.` : `Nothing to do. This is for the record.`}`,
+      };
     case "client_changes":
       return {
         to: [DEPT.labs],

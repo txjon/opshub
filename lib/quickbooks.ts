@@ -333,6 +333,25 @@ export async function getCustomersTaxStatus(ids: string[]): Promise<Map<string, 
   return out;
 }
 
+// Mark a QB customer sales-tax EXEMPT for resale — the ONLY write OpsHub makes
+// to a customer's tax status, and only when staff approve a resale
+// certificate a client submitted (lib/client-info approveCertificate). Sparse
+// update: Taxable=false + ResaleNum + reason 9 (Resale). QB's ResaleNum holds
+// one number (16 chars max), so it carries the approved permit; every
+// certificate stays on file in OpsHub.
+export async function setCustomerTaxExempt(id: string, resaleNum: string): Promise<{ taxable: boolean; resaleNum: string | null }> {
+  const cur = await qbFetch(`/customer/${encodeURIComponent(id)}`);
+  const c = cur?.Customer;
+  if (!c) throw new Error("QuickBooks customer not found");
+  const res = await qbFetch("/customer", {
+    method: "POST",
+    body: { Id: c.Id, SyncToken: c.SyncToken, sparse: true, Taxable: false, ResaleNum: String(resaleNum || "").slice(0, 16), TaxExemptionReasonId: "9" },
+  });
+  const u = res?.Customer;
+  if (!u) throw new Error("QuickBooks did not confirm the tax update");
+  return { taxable: u.Taxable !== false, resaleNum: u.ResaleNum || null };
+}
+
 export async function getCustomerById(id: string): Promise<any | null> {
   try {
     const data = await qbFetch(`/customer/${id}`);

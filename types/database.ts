@@ -768,6 +768,48 @@ export type Database = {
           { foreignKeyName: "client_files_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] }
         ];
       };
+      client_info_submissions: {
+        Row: {
+          id: string;
+          company_id: string | null;
+          client_id: string;
+          signer_name: string;
+          signer_title: string | null;
+          signer_email: string | null;
+          payload: Json;
+          applied: Json;
+          tax_review: string;
+          submitted_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id?: string | null;
+          client_id: string;
+          signer_name: string;
+          signer_title?: string | null;
+          signer_email?: string | null;
+          payload: Json;
+          applied: Json;
+          tax_review?: string;
+          submitted_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string | null;
+          client_id?: string;
+          signer_name?: string;
+          signer_title?: string | null;
+          signer_email?: string | null;
+          payload?: Json;
+          applied?: Json;
+          tax_review?: string;
+          submitted_at?: string;
+        };
+        Relationships: [
+          { foreignKeyName: "client_info_submissions_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] },
+          { foreignKeyName: "client_info_submissions_client_id_fkey"; columns: ["client_id"]; isOneToOne: false; referencedRelation: "clients"; referencedColumns: ["id"] }
+        ];
+      };
       client_locations: {
         Row: {
           id: string;
@@ -782,6 +824,7 @@ export type Database = {
           active: boolean;
           created_at: string;
           updated_at: string;
+          delivery_notes: string | null;
         };
         Insert: {
           id?: string;
@@ -796,6 +839,7 @@ export type Database = {
           active?: boolean;
           created_at?: string;
           updated_at?: string;
+          delivery_notes?: string | null;
         };
         Update: {
           id?: string;
@@ -810,6 +854,7 @@ export type Database = {
           active?: boolean;
           created_at?: string;
           updated_at?: string;
+          delivery_notes?: string | null;
         };
         Relationships: [
           { foreignKeyName: "client_locations_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] },
@@ -905,6 +950,59 @@ export type Database = {
           { foreignKeyName: "client_releases_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] }
         ];
       };
+      client_tax_certificates: {
+        Row: {
+          id: string;
+          company_id: string | null;
+          client_id: string;
+          submission_id: string | null;
+          state: string;
+          permit_number: string;
+          expires_on: string | null;
+          client_file_id: string | null;
+          status: string;
+          review_note: string | null;
+          reviewed_by: string | null;
+          reviewed_at: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id?: string | null;
+          client_id: string;
+          submission_id?: string | null;
+          state: string;
+          permit_number: string;
+          expires_on?: string | null;
+          client_file_id?: string | null;
+          status?: string;
+          review_note?: string | null;
+          reviewed_by?: string | null;
+          reviewed_at?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string | null;
+          client_id?: string;
+          submission_id?: string | null;
+          state?: string;
+          permit_number?: string;
+          expires_on?: string | null;
+          client_file_id?: string | null;
+          status?: string;
+          review_note?: string | null;
+          reviewed_by?: string | null;
+          reviewed_at?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          { foreignKeyName: "client_tax_certificates_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] },
+          { foreignKeyName: "client_tax_certificates_client_id_fkey"; columns: ["client_id"]; isOneToOne: false; referencedRelation: "clients"; referencedColumns: ["id"] },
+          { foreignKeyName: "client_tax_certificates_submission_id_fkey"; columns: ["submission_id"]; isOneToOne: false; referencedRelation: "client_info_submissions"; referencedColumns: ["id"] },
+          { foreignKeyName: "client_tax_certificates_client_file_id_fkey"; columns: ["client_file_id"]; isOneToOne: false; referencedRelation: "client_files"; referencedColumns: ["id"] }
+        ];
+      };
       clients: {
         Row: {
           id: string;
@@ -933,6 +1031,9 @@ export type Database = {
           is_internal: boolean;
           qb_resale_num: string | null;
           tax_synced_at: string | null;
+          legal_name: string | null;
+          ein: string | null;
+          invoice_po_required: boolean;
         };
         Insert: {
           id?: string;
@@ -961,6 +1062,9 @@ export type Database = {
           is_internal?: boolean;
           qb_resale_num?: string | null;
           tax_synced_at?: string | null;
+          legal_name?: string | null;
+          ein?: string | null;
+          invoice_po_required?: boolean;
         };
         Update: {
           id?: string;
@@ -989,6 +1093,9 @@ export type Database = {
           is_internal?: boolean;
           qb_resale_num?: string | null;
           tax_synced_at?: string | null;
+          legal_name?: string | null;
+          ein?: string | null;
+          invoice_po_required?: boolean;
         };
         Relationships: [
           { foreignKeyName: "clients_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] }

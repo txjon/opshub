@@ -80,6 +80,10 @@ export default function ClientsPage() {
         )}
       </div>
 
+      {/* Company info form — email every active hub client their prefilled
+          form (lib/client-info). Two taps; owner/manager only (server-enforced). */}
+      <InfoBlast clients={clients} />
+
       {/* Inline new-client row */}
       {adding && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px" }}>
@@ -154,3 +158,42 @@ export default function ClientsPage() {
     </div>
   );
 }
+
+function InfoBlast({ clients }: { clients: any[] }) {
+  const targets = clients.filter((c: any) => c.client_hub_enabled && !c.is_internal && !c.is_lead && (c.contacts || []).length > 0);
+  const [arm, setArm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<{ sent: number; failed: { clientId: string; error: string }[] } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const go = async () => {
+    if (!arm) { setArm(true); setRes(null); setErr(null); return; }
+    setArm(false); setBusy(true);
+    try {
+      const r = await fetch("/api/clients/info-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientIds: targets.map((c: any) => c.id) }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Send failed");
+      setRes({ sent: d.sent, failed: d.failed || [] });
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  };
+  const nameOf = (id: string) => clients.find((c: any) => c.id === id)?.name || id;
+  if (!targets.length) return null;
+  return (
+    <div style={{ fontSize: 12.5, color: T.muted, display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <button onClick={go} disabled={busy}
+          style={{ background: arm ? T.accent : "transparent", color: arm ? "#0a0a0a" : T.muted, border: `1px solid ${arm ? T.accent : T.border}`, borderRadius: 999, padding: "6px 13px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: busy ? "default" : "pointer" }}>
+          {busy ? `Emailing ${targets.length} clients…` : arm ? `Tap again: email ${targets.length} clients now` : `Email the company info form to all clients (${targets.length})`}
+        </button>
+        {arm && <button onClick={() => setArm(false)} style={{ background: "none", border: "none", color: T.faint, fontSize: 12, cursor: "pointer", fontFamily: font }}>Cancel</button>}
+      </div>
+      {err && <div style={{ color: T.red }}>{err}</div>}
+      {res && (
+        <div>
+          <span style={{ color: T.green }}>Sent to {res.sent} client{res.sent === 1 ? "" : "s"}.</span>
+          {res.failed.length > 0 && <span> Couldn&apos;t reach {res.failed.length}: {res.failed.map(f => `${nameOf(f.clientId)} (${f.error.replace(/^.*?(has no|Email failed)/, "$1")})`).join("; ")}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
