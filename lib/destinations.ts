@@ -31,6 +31,7 @@ export type LocationRow = {
   address: string;
   contact_name?: string | null;
   contact_phone?: string | null;
+  delivery_notes?: string | null;   // dock hours / gate code (mig 199, client info form)
   is_default: boolean;
   active: boolean;
 };

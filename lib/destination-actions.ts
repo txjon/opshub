@@ -6,11 +6,11 @@ import { sumQ, type LocationRow, type SizeQtys } from "./destinations";
 
 type Sb = any;
 
-const LOC_COLS = "id, client_id, job_id, label, address, contact_name, contact_phone, is_default, active";
+const LOC_COLS = "id, client_id, job_id, label, address, contact_name, contact_phone, is_default, active, delivery_notes";
 
 export async function createLocation(sb: Sb, args: {
   clientId: string; jobId?: string | null; label: string; address: string;
-  contactName?: string | null; contactPhone?: string | null; makeDefault?: boolean;
+  contactName?: string | null; contactPhone?: string | null; deliveryNotes?: string | null; makeDefault?: boolean;
 }): Promise<LocationRow> {
   const label = args.label.trim() || (args.jobId ? "Project address" : "Main");
   const address = args.address.trim();
@@ -24,20 +24,21 @@ export async function createLocation(sb: Sb, args: {
   }
   const { data, error } = await sb.from("client_locations").insert({
     client_id: args.clientId, job_id: args.jobId || null, label, address,
-    contact_name: args.contactName?.trim() || null, contact_phone: args.contactPhone?.trim() || null, is_default: isDefault,
+    contact_name: args.contactName?.trim() || null, contact_phone: args.contactPhone?.trim() || null, delivery_notes: args.deliveryNotes?.trim() || null, is_default: isDefault,
   }).select(LOC_COLS).single();
   if (error) throw new Error(error.message);
   return data as LocationRow;
 }
 
 export async function updateLocation(sb: Sb, id: string, patch: {
-  label?: string; address?: string; contactName?: string | null; contactPhone?: string | null;
+  label?: string; address?: string; contactName?: string | null; contactPhone?: string | null; deliveryNotes?: string | null;
 }): Promise<LocationRow> {
   const row: any = { updated_at: new Date().toISOString() };
   if (patch.label !== undefined) row.label = patch.label.trim() || "Main";
   if (patch.address !== undefined) { row.address = patch.address.trim(); if (!row.address) throw new Error("Address is required."); }
   if (patch.contactName !== undefined) row.contact_name = patch.contactName?.trim() || null;
   if (patch.contactPhone !== undefined) row.contact_phone = patch.contactPhone?.trim() || null;
+  if (patch.deliveryNotes !== undefined) row.delivery_notes = patch.deliveryNotes?.trim() || null;
   const { data, error } = await sb.from("client_locations").update(row).eq("id", id).select(LOC_COLS).single();
   if (error) throw new Error(error.message);
   return data as LocationRow;

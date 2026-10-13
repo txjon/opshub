@@ -310,6 +310,22 @@ function Overview({ client, contacts, wire, model, briefs, secHead, onEdit }: an
               </div>
             </div>
           ))}
+          {/* Company — what the client info form keeps current (Oct 2026). Always
+              shown so a blank is visible; edit via Edit client. */}
+          {secHead("Company.", "legal entity, billing, tax")}
+          {([
+            ["Legal name", client.legal_name],
+            ["EIN", client.ein],
+            ["Billing address", client.billing_address],
+            ["Website", client.website],
+            ["Invoices", client.invoice_po_required ? "Must carry their PO number" : "No PO required"],
+            ["Sales tax", `${client.tax_exempt ? "Exempt" : "Taxable"}${client.qb_customer_id ? " · from QuickBooks" : " · not in QuickBooks yet"}${client.qb_resale_num ? ` · resale ${client.qb_resale_num}` : ""}`],
+          ] as [string, any][]).map(([k, v]) => (
+            <div key={k} style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 12, padding: "7px 0", borderBottom: `1px solid ${H.line}`, fontSize: 12.5 }}>
+              <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: H.faint, paddingTop: 2 }}>{k}</span>
+              <span style={{ color: v ? H.text : H.faint, whiteSpace: "pre-line" }}>{v || "—"}</span>
+            </div>
+          ))}
           {/* Locations: the address book — left column, below People (Jon, Sep 15). */}
           <div style={{ marginTop: 28 }}><ClientLocations clientId={client.id} secHead={secHead} /></div>
           {client.notes && (
@@ -494,6 +510,7 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
     name: client.name || "", client_type: client.client_type || "",
     default_terms: client.default_terms || "", website: client.website || "",
     billing_address: client.billing_address || "",
+    legal_name: client.legal_name || "", ein: client.ein || "", invoice_po_required: !!client.invoice_po_required,
     notes: client.notes || "",
     allow_cc: client.allow_cc !== false, allow_ach: client.allow_ach !== false,
   });
@@ -596,6 +613,7 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
         name: form.name.trim(), client_type: form.client_type || null,
         default_terms: form.default_terms || null, website: form.website.trim() || null,
         billing_address: form.billing_address.trim() || null,   // shipping address lives in Locations (client_locations)
+        legal_name: form.legal_name.trim() || null, ein: form.ein.trim() || null, invoice_po_required: !!form.invoice_po_required,
         notes: form.notes.trim() || null,
         allow_cc: !!form.allow_cc, allow_ach: !!form.allow_ach,
       };
@@ -644,6 +662,8 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
                 {["net_15", "net_30", "deposit_balance", "prepaid"].map(t => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}
               </select></div>
             <div><span style={lab}>Website</span><input style={inp} value={form.website} onChange={e => setForm((f: any) => ({ ...f, website: e.target.value }))} /></div>
+            <div><span style={lab}>Legal name</span><input style={inp} value={form.legal_name} onChange={e => setForm((f: any) => ({ ...f, legal_name: e.target.value }))} /></div>
+            <div><span style={lab}>EIN</span><input style={inp} value={form.ein} onChange={e => setForm((f: any) => ({ ...f, ein: e.target.value }))} /></div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <div><span style={lab}>Billing address</span><textarea style={{ ...inp, minHeight: 76, resize: "vertical", lineHeight: 1.5 }} value={form.billing_address} onChange={e => setForm((f: any) => ({ ...f, billing_address: e.target.value }))} /></div>
@@ -665,7 +685,7 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
                     : " · not in QuickBooks yet"}
                 </span>
               </span>
-              {([["allow_cc", "Card payments"], ["allow_ach", "ACH payments"]] as [string, string][]).map(([k, l]) => (
+              {([["allow_cc", "Card payments"], ["allow_ach", "ACH payments"], ["invoice_po_required", "Invoices need their PO #"]] as [string, string][]).map(([k, l]) => (
                 <label key={k} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: H.text, cursor: "pointer" }}>
                   <input type="checkbox" checked={!!form[k]} onChange={e => setForm((f: any) => ({ ...f, [k]: e.target.checked }))} style={{ accentColor: "#fff", width: 15, height: 15 }} />
                   {l}
@@ -807,6 +827,20 @@ function InfoTaxBlock({ client, secHead }: any) {
   const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [reject, setReject] = useState<{ id: string; note: string } | null>(null);
+  // Staff path: turn a tax document already on file into a certificate to approve.
+  const [docs, setDocs] = useState<any[]>([]);
+  const [addCert, setAddCert] = useState<{ fileId: string; state: string; permit: string; expiresOn: string } | null>(null);
+  useEffect(() => { fetch(`/api/clients/${client.id}/files`).then(r => r.json()).then(d => setDocs((d.files || []).filter((f: any) => f.kind === "tax_exempt"))).catch(() => {}); }, [client.id]);
+  const saveCert = async () => {
+    if (!addCert) return;
+    setBusy("addcert"); setMsg(null);
+    try {
+      const r = await fetch(`/api/clients/${client.id}/tax-certificates`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "add_from_file", ...addCert }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Couldn't add it");
+      setAddCert(null); setMsg({ ok: true, t: "Added. Review it below, then Approve." }); load();
+    } catch (e: any) { setMsg({ ok: false, t: e.message }); } finally { setBusy(null); }
+  };
   const load = () => fetch(`/api/clients/${client.id}/tax-certificates`).then(r => r.json()).then(d => { setCerts(d.certificates || []); setSubs(d.submissions || []); }).catch(() => {});
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [client.id]);
   const send = async () => {
@@ -843,6 +877,27 @@ function InfoTaxBlock({ client, secHead }: any) {
         {arm && <button onClick={() => setArm(false)} style={{ ...pill, border: "none" }}>Cancel</button>}
       </div>
       {msg && <div style={{ fontSize: 12, marginTop: 10, color: msg.ok ? H.green : H.red }}>{msg.t}</div>}
+      <div style={{ fontSize: 12, color: pending ? H.amber : H.faint, marginTop: 12 }}>
+        {pending ? `${pending} certificate${pending === 1 ? "" : "s"} waiting for you below.` : "No certificates waiting. Company, contact and address updates apply on their own."}
+      </div>
+      {docs.length > 0 && (addCert ? (
+        <div style={{ marginTop: 10, padding: 12, border: `1px solid ${H.line}`, borderRadius: 10, display: "grid", gap: 8 }}>
+          <select value={addCert.fileId} onChange={e => setAddCert({ ...addCert, fileId: e.target.value })} style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 12.5, fontFamily: H.font }}>
+            {docs.map((d: any) => <option key={d.id} value={d.id}>{d.file_name}</option>)}
+          </select>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input value={addCert.state} onChange={e => setAddCert({ ...addCert, state: e.target.value.toUpperCase().slice(0, 5) })} placeholder="State (NV)" style={{ width: 90, padding: "8px 10px", borderRadius: 8, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 12.5, fontFamily: H.font }} />
+            <input value={addCert.permit} onChange={e => setAddCert({ ...addCert, permit: e.target.value })} placeholder="Permit number" style={{ flex: "1 1 140px", padding: "8px 10px", borderRadius: 8, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 12.5, fontFamily: H.mono }} />
+            <input type="date" value={addCert.expiresOn} onChange={e => setAddCert({ ...addCert, expiresOn: e.target.value })} style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 12.5, fontFamily: H.font }} />
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={saveCert} disabled={busy === "addcert" || !addCert.state || !addCert.permit} style={{ ...pill, color: H.ink, background: "#fff", borderColor: "#fff", opacity: !addCert.state || !addCert.permit ? 0.5 : 1 }}>{busy === "addcert" ? "Adding…" : "Add for review"}</button>
+            <button onClick={() => setAddCert(null)} style={{ ...pill, border: "none" }}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setAddCert({ fileId: docs[0].id, state: "", permit: "", expiresOn: "" })} style={{ ...pill, marginTop: 10 }}>Confirm a certificate on file</button>
+      ))}
       {subs.length > 0 && (
         <div style={{ marginTop: 16 }}>
           <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, marginBottom: 4 }}>Their updates (applied automatically)</div>
