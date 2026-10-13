@@ -18,6 +18,8 @@ const DEPT = {
   labs: process.env.EMAIL_LABS || FALLBACK,
   distro: process.env.EMAIL_DISTRO || FALLBACK,
   ecomm: process.env.EMAIL_ECOMM || FALLBACK,
+  // billing — client company info / tax certificates (Jon, Oct 13)
+  billing: process.env.EMAIL_BILLING || "billing@housepartydistro.com",
 };
 
 export type InternalEvent =
@@ -184,7 +186,7 @@ ${next}`,
     }
     case "client_info_updated":
       return {
-        to: [DEPT.labs],
+        to: [DEPT.billing],
         subject: e.certsPending
           ? `TAX CERT TO REVIEW — ${e.client} updated their info`
           : `${e.client} updated their company info`,

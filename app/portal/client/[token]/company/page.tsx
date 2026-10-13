@@ -12,7 +12,7 @@ import { createClient } from "@/lib/supabase/client";
 
 type Contact = { id?: string; name: string; email: string; phone: string; role: string; isPrimary: boolean; getsInvoices: boolean; remove?: boolean };
 type Loc = { id?: string; label: string; address: string; contactName: string; contactPhone: string; deliveryNotes: string; isDefault: boolean; remove?: boolean };
-type Cert = { state: string; permitNumber: string; expiresOn: string; uploadPath: string; fileName: string; uploading?: boolean; err?: string };
+type Cert = { state: string; permitNumber: string; expiresOn: string; uploadPath: string; fileName: string; existingFileId?: string; uploading?: boolean; err?: string };
 
 const box: React.CSSProperties = { background: H.card, border: `1px solid ${H.line}`, borderRadius: 16, padding: "18px 18px 20px", marginTop: 16 };
 const lab: React.CSSProperties = { display: "block", fontSize: 10, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: H.faint, margin: "12px 0 6px" };
@@ -42,6 +42,7 @@ export default function CompanyInfoPage() {
   const [locs, setLocs] = useState<Loc[]>([]);
   const [taxExempt, setTaxExempt] = useState(false);       // NEVER prefilled — deliberate confirmation (Jon, Oct 13)
   const [exemptOnFile, setExemptOnFile] = useState(false);
+  const [taxDocs, setTaxDocs] = useState<{ id: string; fileName: string; uploadedOn: string }[]>([]);
   const [onFile, setOnFile] = useState<{ state: string; permitNumber: string; expiresOn: string | null; status: string }[]>([]);
   const [certs, setCerts] = useState<Cert[]>([]);
   const [signer, setSigner] = useState({ name: "", title: "", email: "", certified: false });
@@ -54,7 +55,7 @@ export default function CompanyInfoPage() {
       setClientName(d.clientName); setStates(d.states || []); setCompany(d.company);
       setContacts(d.contacts.length ? d.contacts : [{ name: "", email: "", phone: "", role: "", isPrimary: true, getsInvoices: true }]);
       setLocs(d.locations.length ? d.locations : [{ label: "Main", address: "", contactName: "", contactPhone: "", deliveryNotes: "", isDefault: true }]);
-      setExemptOnFile(!!d.taxExempt); setOnFile(d.certificates || []);
+      setExemptOnFile(!!d.taxExempt); setOnFile(d.certificates || []); setTaxDocs(d.taxDocs || []);
       setLoaded(true);
     }).catch(() => setErr("Couldn't load your info. Please refresh."));
   }, [token]);
@@ -78,10 +79,11 @@ export default function CompanyInfoPage() {
   const live = contacts.filter(c => !c.remove);
   const problems: string[] = [];
   if (!live.some(c => c.email.includes("@"))) problems.push("Add at least one contact with an email.");
-  if (taxExempt && certs.some(c => c.state || c.permitNumber || c.uploadPath) && certs.some(c => (c.state || c.permitNumber || c.uploadPath) && !(c.state && c.permitNumber && c.uploadPath))) problems.push("Each certificate needs a state, a permit number and the file.");
+  const hasFile = (c: Cert) => !!(c.uploadPath || c.existingFileId);
+  if (taxExempt && certs.some(c => c.state || c.permitNumber || hasFile(c)) && certs.some(c => (c.state || c.permitNumber || hasFile(c)) && !(c.state && c.permitNumber && hasFile(c)))) problems.push("Each certificate needs a state, a permit number and the file.");
   // Ticking "tax exempt" is a claim that needs paper: at least one complete
   // certificate, unless an approved one is already on file (Jon, Oct 13).
-  if (taxExempt && !onFile.some(c => c.status === "approved") && !certs.some(c => c.state && c.permitNumber && c.uploadPath)) problems.push("Upload your resale certificate, or untick tax exempt if you're not.");
+  if (taxExempt && !onFile.some(c => c.status === "approved") && !certs.some(c => c.state && c.permitNumber && hasFile(c))) problems.push("Upload your resale certificate, or untick tax exempt if you're not.");
   if (certs.some(c => c.uploading)) problems.push("Wait for the certificate upload to finish.");
   if (!signer.name.trim()) problems.push("Enter your name to sign.");
   if (!signer.certified) problems.push("Check the box to confirm the information is accurate.");
@@ -90,7 +92,7 @@ export default function CompanyInfoPage() {
     if (problems.length) return;
     setBusy(true); setErr(null);
     try {
-      const body = { company, contacts, locations: locs, tax: { claimsExempt: taxExempt, certificates: certs.filter(c => c.state && c.permitNumber && c.uploadPath).map(({ uploading, err, ...c }) => c) }, signer };
+      const body = { company, contacts, locations: locs, tax: { claimsExempt: taxExempt, certificates: certs.filter(c => c.state && c.permitNumber && hasFile(c)).map(({ uploading, err, ...c }) => c) }, signer };
       const r = await fetch(`/api/portal/client/${token}/company`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Couldn't save");
@@ -202,7 +204,13 @@ export default function CompanyInfoPage() {
                   <div><span style={lab}>Expires (if it does)</span><input style={inp} type="date" value={c.expiresOn} onChange={e => upCert(i, { expiresOn: e.target.value })} /></div>
                 </div>
                 <span style={lab}>Certificate</span>
-                <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                {taxDocs.length > 0 && !c.uploadPath && (
+                  <select style={{ ...inp, marginBottom: 10 }} value={c.existingFileId || ""} onChange={e => upCert(i, { existingFileId: e.target.value || undefined })}>
+                    <option value="">Upload a new certificate</option>
+                    {taxDocs.map(d => <option key={d.id} value={d.id}>Use the one we already have: {d.fileName}{d.uploadedOn ? ` (on file since ${d.uploadedOn})` : ""}</option>)}
+                  </select>
+                )}
+                {!c.existingFileId && <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
                   <label style={{ ...ghost, display: "inline-flex", alignItems: "center" }}>
                     {c.uploading ? "Uploading…" : c.uploadPath ? "Replace file" : "Upload PDF or photo"}
                     <input type="file" accept="application/pdf,image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) attach(i, f); e.target.value = ""; }} />
@@ -210,7 +218,8 @@ export default function CompanyInfoPage() {
                   {c.uploadPath && <span style={{ fontSize: 13, color: H.green }}>✓ {c.fileName}</span>}
                   {c.err && <span style={{ fontSize: 13, color: H.red }}>{c.err}</span>}
                   <button onClick={() => setCerts(cs => cs.filter((_, j) => j !== i))} style={{ ...ghost, marginLeft: "auto", padding: "6px 12px" }}>Remove</button>
-                </div>
+                </div>}
+                {c.existingFileId && <button onClick={() => setCerts(cs => cs.filter((_, j) => j !== i))} style={{ ...ghost, padding: "6px 12px" }}>Remove</button>}
               </div>
             ))}
             <button onClick={() => setCerts(cs => [...cs, { state: "", permitNumber: "", expiresOn: "", uploadPath: "", fileName: "" }])} style={{ ...ghost, marginTop: 16 }}>+ Add another state</button>

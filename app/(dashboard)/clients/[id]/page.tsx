@@ -802,11 +802,12 @@ function ActionFeed({ jobs, phaseViews, proofStatus, thumbs, router, secHead }: 
 // customer tax exempt; QB is the tax switch, OpsHub mirrors it.
 function InfoTaxBlock({ client, secHead }: any) {
   const [certs, setCerts] = useState<any[]>([]);
+  const [subs, setSubs] = useState<any[]>([]);
   const [arm, setArm] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [reject, setReject] = useState<{ id: string; note: string } | null>(null);
-  const load = () => fetch(`/api/clients/${client.id}/tax-certificates`).then(r => r.json()).then(d => setCerts(d.certificates || [])).catch(() => {});
+  const load = () => fetch(`/api/clients/${client.id}/tax-certificates`).then(r => r.json()).then(d => { setCerts(d.certificates || []); setSubs(d.submissions || []); }).catch(() => {});
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [client.id]);
   const send = async () => {
     if (!arm) { setArm(true); setMsg(null); return; }
@@ -842,6 +843,21 @@ function InfoTaxBlock({ client, secHead }: any) {
         {arm && <button onClick={() => setArm(false)} style={{ ...pill, border: "none" }}>Cancel</button>}
       </div>
       {msg && <div style={{ fontSize: 12, marginTop: 10, color: msg.ok ? H.green : H.red }}>{msg.t}</div>}
+      {subs.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, marginBottom: 4 }}>Their updates (applied automatically)</div>
+          {subs.map((s: any) => (
+            <details key={s.id} style={{ padding: "8px 0", borderBottom: `1px solid ${H.line}` }}>
+              <summary style={{ cursor: "pointer", fontSize: 12.5, color: H.text }}>
+                {new Date(s.submitted_at).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Los_Angeles" })} · {s.signer_name}{s.signer_title ? `, ${s.signer_title}` : ""}
+                <span style={{ color: H.faint }}> · {(s.applied || []).length} change{(s.applied || []).length === 1 ? "" : "s"}</span>
+                {(s.applied || []).some((a: string) => /NOT confirmed|no certificate/.test(a)) && <span style={{ color: H.amber, fontWeight: 800, fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: 8 }}>Tax not confirmed</span>}
+              </summary>
+              <div style={{ fontSize: 12, color: H.dim, lineHeight: 1.6, margin: "6px 0 0 12px" }}>{(s.applied || []).map((a: string) => <div key={a}>· {a}</div>)}{!(s.applied || []).length && <div>· Confirmed everything as current</div>}</div>
+            </details>
+          ))}
+        </div>
+      )}
       {certs.length > 0 && (
         <div style={{ marginTop: 14 }}>
           {certs.map(c => (

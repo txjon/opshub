@@ -16,7 +16,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     .select("id, state, permit_number, expires_on, status, review_note, reviewed_at, created_at, client_files(file_name, drive_file_id), client_info_submissions(signer_name, signer_title, submitted_at)")
     .eq("client_id", params.id).order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ certificates: data || [] });
+  const { data: subs } = await sb.from("client_info_submissions")
+    .select("id, signer_name, signer_title, applied, tax_review, submitted_at").eq("client_id", params.id).order("submitted_at", { ascending: false }).limit(5);
+  return NextResponse.json({ certificates: data || [], submissions: subs || [] });
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {

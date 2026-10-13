@@ -22,7 +22,7 @@ export const US_STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA"
 
 export type InfoContact = { id?: string; name: string; email: string; phone: string; role: string; isPrimary: boolean; getsInvoices: boolean; remove?: boolean };
 export type InfoLocation = { id?: string; label: string; address: string; contactName: string; contactPhone: string; deliveryNotes: string; isDefault: boolean; remove?: boolean };
-export type InfoCert = { state: string; permitNumber: string; expiresOn: string; uploadPath: string; fileName: string };
+export type InfoCert = { state: string; permitNumber: string; expiresOn: string; uploadPath: string; fileName: string; existingFileId?: string };
 export type InfoPayload = {
   company: { legalName: string; ein: string; website: string; billingAddress: string; invoicePoRequired: boolean };
   contacts: InfoContact[];
@@ -37,11 +37,13 @@ const clip = (s: unknown, n: number) => String(s ?? "").trim().slice(0, n);
 export async function loadClientInfo(db: Db, clientId: string) {
   // Contacts: hide removed ones (["none"]) but KEEP null routing — NULL means
   // "receives everything", and a bare NOT(cs) silently drops NULL rows.
-  const [{ data: c }, { data: contacts }, { data: locs }, { data: certs }] = await Promise.all([
+  const [{ data: c }, { data: contacts }, { data: locs }, { data: certs }, { data: taxDocs }] = await Promise.all([
     db.from("clients").select("id, name, legal_name, ein, website, billing_address, invoice_po_required, tax_exempt, qb_resale_num, qb_customer_id").eq("id", clientId).single(),
     db.from("contacts").select("id, name, email, phone, role_label, is_primary, doc_routing").eq("client_id", clientId).or("doc_routing.is.null,doc_routing.not.cs.{none}").order("is_primary", { ascending: false }).order("name"),
     db.from("client_locations").select("id, label, address, contact_name, contact_phone, delivery_notes, is_default").eq("client_id", clientId).is("job_id", null).eq("active", true).order("is_default", { ascending: false }),
     db.from("client_tax_certificates").select("id, state, permit_number, expires_on, status, created_at").eq("client_id", clientId).order("created_at", { ascending: false }),
+    // tax documents already on file (uploaded by staff before the form existed)
+    db.from("client_files").select("id, file_name, created_at").eq("client_id", clientId).eq("kind", "tax_exempt").order("created_at", { ascending: false }),
   ]);
   if (!c) throw new Error("Client not found");
   // What each contact ACTUALLY receives (lib/recipients): explicit routing as
@@ -71,6 +73,7 @@ export async function loadClientInfo(db: Db, clientId: string) {
     contacts: ((contacts || []) as any[]).map(x => ({ id: x.id, name: x.name || "", email: x.email || "", phone: x.phone || "", role: x.role_label || "", isPrimary: !!x.is_primary, getsInvoices: getsInvoices(x.doc_routing) })),
     locations,
     certificates: ((certs || []) as any[]).map(r => ({ id: r.id, state: r.state, permitNumber: r.permit_number, expiresOn: r.expires_on, status: r.status })),
+    taxDocs: ((taxDocs || []) as any[]).map(d => ({ id: d.id, fileName: d.file_name, uploadedOn: String(d.created_at || "").slice(0, 10) })),
   };
 }
 
@@ -85,7 +88,7 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   // A tax-exempt claim needs paper: a certificate with this submission, or an
   // approved one already on file. Checked before anything is written.
   if (p.tax?.claimsExempt) {
-    const hasNew = (p.tax.certificates || []).some(c => clip(c.state, 5) && clip(c.permitNumber, 60) && c.uploadPath);
+    const hasNew = (p.tax.certificates || []).some(c => clip(c.state, 5) && clip(c.permitNumber, 60) && (c.uploadPath || c.existingFileId));
     const hasApproved = before.certificates.some(c => c.status === "approved");
     if (!hasNew && !hasApproved) throw new Error("Please upload your resale certificate, or untick tax exempt if you're not.");
   }
@@ -94,6 +97,7 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   // not leave half a save that a retry then duplicates. Temp uploads are only
   // removed once everything has saved.
   const certsIn = p.tax?.claimsExempt ? (p.tax.certificates || []).slice(0, 20) : [];
+  const existing: { state: string; permit: string; expiresOn: string | null; fileId: string }[] = [];
   const filed: { state: string; permit: string; expiresOn: string | null; driveFileId: string; webViewLink: string; name: string; mime: string | null; size: number | null; tmp: string }[] = [];
   if (certsIn.length) {
     const { data: cl } = await db.from("clients").select("name").eq("id", clientId).single();
@@ -101,6 +105,13 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
     for (const cert of certsIn) {
       const state = clip(cert.state, 5).toUpperCase(), permit = clip(cert.permitNumber, 60);
       if (!state || !permit) continue;
+      // "Use the certificate we already have" — must be THIS client's tax document.
+      if (cert.existingFileId && !cert.uploadPath) {
+        const doc = (before.taxDocs || []).find(d => d.id === cert.existingFileId);
+        if (!doc) throw new Error(`Please choose or upload the certificate for ${state}.`);
+        existing.push({ state, permit, expiresOn: /^\d{4}-\d{2}-\d{2}$/.test(cert.expiresOn || "") ? cert.expiresOn : null, fileId: doc.id });
+        continue;
+      }
       const path = String(cert.uploadPath || "");
       if (!path.startsWith(`${clientId}/`) || path.includes("..")) throw new Error(`Please upload the certificate for ${state}.`);
       const { data: blob, error: dErr } = await db.storage.from(CERT_BUCKET).download(path);
@@ -200,7 +211,7 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   // Not confirming changes nothing (only an approved certificate grants or
   // keeps QB exemption) — but staff must know.
   if (before.taxExempt && !p.tax?.claimsExempt) applied.push("Tax exemption NOT confirmed (QuickBooks still has them exempt; no new certificate)");
-  else if (before.taxExempt && p.tax?.claimsExempt && !filed.length) applied.push("Tax exemption confirmed, but no certificate uploaded");
+  else if (before.taxExempt && p.tax?.claimsExempt && !filed.length && !existing.length) applied.push("Tax exemption confirmed, but no certificate uploaded");
 
   // the submission record (certificates hang off it)
   const { data: sub, error: sErr } = await db.from("client_info_submissions").insert({
@@ -218,6 +229,10 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
     }).select("id").single();
     if (fErr) throw new Error(`certificate file: ${fErr.message}`);
     await db.from("client_tax_certificates").insert({ client_id: clientId, submission_id: sub.id, state: f.state, permit_number: f.permit, expires_on: f.expiresOn, client_file_id: cf.id, status: "pending" });
+    certsPending++;
+  }
+  for (const e of existing) {
+    await db.from("client_tax_certificates").insert({ client_id: clientId, submission_id: sub.id, state: e.state, permit_number: e.permit, expires_on: e.expiresOn, client_file_id: e.fileId, status: "pending" });
     certsPending++;
   }
   if (certsPending) {
@@ -282,8 +297,11 @@ House Party Distro`;
 <p>It's filled in with what we have on file, so you only need to change what's different.</p>
 <p>Thanks,<br/>House Party Distro</p></div>`;
   const resend = resendForSlug("hpd");
-  const from = `House Party Distro <${process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com"}>`;
-  const r: any = await resend.emails.send({ from, to, subject, text, html });
+  // From billing@ — the same sender account statements use (companies
+  // .from_email_billing); replies land in billing too.
+  const { data: co } = await db.from("companies").select("from_email_billing, from_email_quotes").eq("slug", "hpd").single();
+  const fromAddr = co?.from_email_billing || co?.from_email_quotes || process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
+  const r: any = await resend.emails.send({ from: `House Party Distro <${fromAddr}>`, replyTo: fromAddr, to, subject, text, html });
   if (r?.error) throw new Error(`Email failed for ${c.name}: ${r.error.message || r.error}`);
   try { await db.from("mail_log").insert({ kind: "client_info_request", to_addrs: to, subject, job_id: null, meta: { client: c.name, client_id: c.id } }); } catch {}
   return { to };
