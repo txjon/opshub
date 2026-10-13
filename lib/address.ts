@@ -99,3 +99,55 @@ export function fromQbAddr(q: any): Addr | null {
   const c = t(q.Country);
   return cleanAddr({ name, line1: street[0] || "", line2: street.slice(1).join(", "), city: t(q.City), state: t(q.CountrySubDivisionCode), zip: t(q.PostalCode), country: !c || /^(us|usa|united states)/i.test(c) ? "US" : c });
 }
+
+// ── reading old one-line text (mig 200 backfill + the hub form for rows not
+// split yet). Confident or nothing: returns ok:false rather than guess. ──
+const ST = new Set(US_STATES);
+const FULL: Record<string, string> = { alabama:"AL",alaska:"AK",arizona:"AZ",arkansas:"AR",california:"CA",colorado:"CO",connecticut:"CT",delaware:"DE",florida:"FL",georgia:"GA",hawaii:"HI",idaho:"ID",illinois:"IL",indiana:"IN",iowa:"IA",kansas:"KS",kentucky:"KY",louisiana:"LA",maine:"ME",maryland:"MD",massachusetts:"MA",michigan:"MI",minnesota:"MN",mississippi:"MS",missouri:"MO",montana:"MT",nebraska:"NE",nevada:"NV","new hampshire":"NH","new jersey":"NJ","new mexico":"NM","new york":"NY","north carolina":"NC","north dakota":"ND",ohio:"OH",oklahoma:"OK",oregon:"OR",pennsylvania:"PA","rhode island":"RI","south carolina":"SC","south dakota":"SD",tennessee:"TN",texas:"TX",utah:"UT",vermont:"VT",virginia:"VA",washington:"WA","west virginia":"WV",wisconsin:"WI",wyoming:"WY" };
+const isStreet = (l: string) => /^\s*\d/.test(l) || /\b(p\.?\s?o\.?\s*box|suite|ste\.?|unit|apt\.?|bldg|building|floor)\b/i.test(l) || /#\s*\d/.test(l);
+
+function cityLine(l: string): { city: string; state: string; zip: string } | null {
+  const s = l.trim().replace(/\s+/g, " ").replace(/[.,]+$/, "").replace(/,?\s*(usa|us|united states)$/i, "");
+  const z = s.match(/[\s,]+(\d{5})(-\d{4})?$/); if (!z) return null;
+  const rest = s.slice(0, z.index).replace(/[,.]+$/, "").trim();
+  let st = "", city = "";
+  for (const [name, code] of Object.entries(FULL)) { const re = new RegExp(`[\\s,]+${name}$`, "i"); if (re.test(rest)) { st = code; city = rest.replace(re, ""); break; } }
+  if (!st) { const m = rest.match(/[\s,]+([A-Za-z]{2})\.?$/); if (m && ST.has(m[1].toUpperCase())) { st = m[1].toUpperCase(); city = rest.slice(0, m.index); } }
+  if (!st || !city.replace(/,+$/, "").trim()) return null;
+  return { city: city.replace(/,+$/, "").trim(), state: st, zip: z[1] + (z[2] || "") };
+}
+
+export function parseAddressText(raw: string): { ok: true; a: Addr } | { ok: false; why: string } {
+  const txt = String(raw || "").trim();
+  if (!txt) return { ok: false, why: "empty" };
+  let lines = txt.split(/\n+/).map(s => s.trim()).filter(Boolean);
+  if (/^(usa|us|united states( of america)?)$/i.test(lines[lines.length - 1])) lines.pop();
+  // ZIP alone on the last line → join it to the line above
+  if (lines.length > 1 && /^\d{5}(-\d{4})?\.?$/.test(lines[lines.length - 1])) { const z = lines.pop()!; lines[lines.length - 1] += " " + z; }
+  // last line holds several comma parts ("139 N Dobson Rd, Apt #403, Phoenix, AZ, 85201")
+  let c = cityLine(lines[lines.length - 1] || "");
+  // "5920 W Cougar Ave, Las Vegas, NV 89139": street parts rode along in the city
+  if (c && c.city.includes(",")) {
+    const parts = c.city.split(",").map(s => s.trim()).filter(Boolean);
+    c = { ...c, city: parts.pop()! };
+    lines = [...lines.slice(0, -1), ...parts, "__CITY__"];
+  }
+  if (!c) {
+    const segs = (lines[lines.length - 1] || "").split(",").map(s => s.trim()).filter(Boolean);
+    for (const k of [3, 2]) {
+      if (segs.length <= k) continue;
+      const cc = cityLine(segs.slice(-k).join(", "));
+      if (cc) { c = cc; lines = [...lines.slice(0, -1), ...segs.slice(0, -k), "__CITY__"]; break; }
+    }
+  }
+  if (!c) return { ok: false, why: /\b[A-Z]\d[A-Z]\s?\d[A-Z]\d\b/i.test(txt) ? "Outside the US — enter it by hand" : "No city / state / ZIP line" };
+  const above = lines.slice(0, -1);
+  const first = above.findIndex(isStreet);
+  if (first < 0) return { ok: false, why: "Can't tell the street from the name" };
+  const names = above.slice(0, first), street = above.slice(first);
+  if (street.length > 2) return { ok: false, why: "More than two street lines" };
+  if (names.length > 2) return { ok: false, why: "More than two name lines" };
+  const a = cleanAddr({ name: names.join(" / "), line1: street[0], line2: street[1] || "", ...c, country: "US" });
+  if (addrProblem(a)) return { ok: false, why: addrProblem(a) };
+  return { ok: true, a };
+}

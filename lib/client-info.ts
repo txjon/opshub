@@ -11,7 +11,7 @@
 //   - the client never renames themselves: clients.name is HPD's handle.
 
 import { setCustomerTaxExempt, getCustomerById } from "./quickbooks";
-import { BILL_ADDR_COLS, EMPTY_ADDR, LOC_ADDR_COLS, addrProblem, billAddr, billAddrCols, cleanAddr, formatAddress, fromQbAddr, locAddr, locAddrCols, type Addr } from "./address";
+import { BILL_ADDR_COLS, EMPTY_ADDR, LOC_ADDR_COLS, addrProblem, billAddr, billAddrCols, cleanAddr, formatAddress, fromQbAddr, locAddr, locAddrCols, parseAddressText, type Addr } from "./address";
 import { syncClientTaxFromQB } from "./client-tax-sync";
 import { uploadFile } from "./google-drive";
 import { getDriveToken, getPrivateDocFolder } from "./drive-token";
@@ -64,7 +64,9 @@ export async function loadClientInfo(db: Db, clientId: string) {
   let qb: any = null;
   if (c.qb_customer_id) { try { qb = await getCustomerById(c.qb_customer_id); } catch {} }
   const qbShip = fromQbAddr(qb?.ShipAddr);
-  const locations: InfoLocation[] = ((locs || []) as any[]).map(l => ({ id: l.id, label: l.label || "", addr: l.addr_line1 ? locAddr(l) : EMPTY_ADDR, ...(l.addr_line1 ? {} : { onFile: l.address || "" }), contactName: l.contact_name || "", contactPhone: l.contact_phone || "", deliveryNotes: l.delivery_notes || "", isDefault: !!l.is_default }));
+  // not split yet (mig 200): read the old text so the client can just confirm it
+  const readOld = (txt: string | null) => { const r = parseAddressText(txt || ""); return r.ok ? r.a : EMPTY_ADDR; };
+  const locations: InfoLocation[] = ((locs || []) as any[]).map(l => ({ id: l.id, label: l.label || "", addr: l.addr_line1 ? locAddr(l) : readOld(l.address), ...(l.addr_line1 ? {} : { onFile: l.address || "" }), contactName: l.contact_name || "", contactPhone: l.contact_phone || "", deliveryNotes: l.delivery_notes || "", isDefault: !!l.is_default }));
   if (!locations.length && qbShip && !addrProblem(qbShip)) locations.push({ label: "Main", addr: qbShip, contactName: "", contactPhone: qb?.PrimaryPhone?.FreeFormNumber || "", deliveryNotes: "", isDefault: true });
   const qbBill = fromQbAddr(qb?.BillAddr);
   return {
@@ -73,7 +75,7 @@ export async function loadClientInfo(db: Db, clientId: string) {
       legalName: c.legal_name || qb?.CompanyName || "",
       website: c.website || qb?.WebAddr?.URI || "",
       // QB fills billing only when OpsHub has none; OpsHub's own unsplit text wins (shown as "on file")
-      billing: c.bill_line1 ? billAddr(c) : (!c.billing_address && qbBill && !addrProblem(qbBill) ? qbBill : EMPTY_ADDR),
+      billing: c.bill_line1 ? billAddr(c) : c.billing_address ? readOld(c.billing_address) : (qbBill && !addrProblem(qbBill) ? qbBill : EMPTY_ADDR),
       ...(c.billing_address && !c.bill_line1 ? { billingOnFile: c.billing_address } : {}),
       invoicePoRequired: !!c.invoice_po_required,
     },
@@ -291,7 +293,8 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
       const wasV = { label: clip(was.label, 80) || "Ship-to", contactName: clip(was.contactName, 120), contactPhone: clip(was.contactPhone, 40), deliveryNotes: clip(was.deliveryNotes, 500) };
       const pick = (k: "label" | "contactName" | "contactPhone" | "deliveryNotes") => v[k] !== wasV[k] ? v[k] : (cur as any)[k];
       const m = { label: pick("label"), contactName: pick("contactName"), contactPhone: pick("contactPhone"), deliveryNotes: pick("deliveryNotes") };
-      const addrChanged = formatAddress(vA) !== formatAddress(cleanAddr(was.addr || EMPTY_ADDR)) && formatAddress(vA) !== formatAddress(cur.addr);
+      // a row still stored as old text (onFile) is saved as parts once they confirm or edit it
+      const addrChanged = (cur.onFile !== undefined && !!vA.line1) || (formatAddress(vA) !== formatAddress(cleanAddr(was.addr || EMPTY_ADDR)) && formatAddress(vA) !== formatAddress(cur.addr));
       const upd: any = {};
       if (m.label !== cur.label && m.label !== wasV.label) upd.label = m.label;
       if (addrChanged && vA.line1) {
