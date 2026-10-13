@@ -29,7 +29,7 @@ export type InfoPayload = {
   locations: InfoLocation[];
   tax: { claimsExempt: boolean; certificates: InfoCert[] };
   signer: { name: string; title: string; email: string; certified: boolean };
-  original?: { company: InfoPayload["company"]; contacts: InfoContact[]; locations: InfoLocation[] };   // the version they opened
+  original?: { company: InfoPayload["company"]; contacts: InfoContact[]; locations: InfoLocation[]; blankOnFile?: Record<string, boolean> };   // the version they opened
 };
 
 const clip = (s: unknown, n: number) => String(s ?? "").trim().slice(0, n);
@@ -77,6 +77,9 @@ export async function loadClientInfo(db: Db, clientId: string) {
     locations,
     certificates: ((certs || []) as any[]).map(r => ({ id: r.id, state: r.state, permitNumber: r.permit_number, expiresOn: r.expires_on, status: r.status })),
     taxDocs: ((taxDocs || []) as any[]).map(d => ({ id: d.id, fileName: d.file_name, uploadedOn: String(d.created_at || "").slice(0, 10) })),
+    // which company fields were EMPTY in OpsHub when the form was opened (a
+    // prefill from QuickBooks only saves into a field that was blank then)
+    blankOnFile: { legalName: !c.legal_name, ein: !c.ein, website: !c.website, billingAddress: !c.billing_address },
     lastSubmission: lastSub ? { signerName: (lastSub as any).signer_name, submittedAt: (lastSub as any).submitted_at } : null,
   };
 }
@@ -140,14 +143,17 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   const co = p.company || ({} as InfoPayload["company"]);
   const { data: stored } = await db.from("clients").select("legal_name, ein, website, billing_address, invoice_po_required").eq("id", clientId).single();
   const patch: any = {};
-  const take = (col: string, label: string, next: string, was: string, onFile: string) => {
+  // fill-a-blank only if it was blank when THEY opened it — never refill a
+  // field someone cleared after they opened the form
+  const wasBlank = (k: string) => p.original ? !!p.original.blankOnFile?.[k] : true;
+  const take = (col: string, k: string, label: string, next: string, was: string, onFile: string) => {
     if (next === onFile) return;
-    if (next !== was || (!onFile && next)) { patch[col] = next || null; applied.push(`${label} updated`); }
+    if (next !== was || (!onFile && next && wasBlank(k))) { patch[col] = next || null; applied.push(`${label} updated`); }
   };
-  take("legal_name", "Legal name", clip(co.legalName, 200), clip(orig.company?.legalName, 200), stored?.legal_name || "");
-  take("ein", "EIN", clip(co.ein, 20), clip(orig.company?.ein, 20), stored?.ein || "");
-  take("website", "Website", clip(co.website, 200), clip(orig.company?.website, 200), stored?.website || "");
-  take("billing_address", "Billing address", clip(co.billingAddress, 600), clip(orig.company?.billingAddress, 600), stored?.billing_address || "");
+  take("legal_name", "legalName", "Legal name", clip(co.legalName, 200), clip(orig.company?.legalName, 200), stored?.legal_name || "");
+  take("ein", "ein", "EIN", clip(co.ein, 20), clip(orig.company?.ein, 20), stored?.ein || "");
+  take("website", "website", "Website", clip(co.website, 200), clip(orig.company?.website, 200), stored?.website || "");
+  take("billing_address", "billingAddress", "Billing address", clip(co.billingAddress, 600), clip(orig.company?.billingAddress, 600), stored?.billing_address || "");
   if (!!co.invoicePoRequired !== !!orig.company?.invoicePoRequired && !!co.invoicePoRequired !== !!stored?.invoice_po_required) {
     patch.invoice_po_required = !!co.invoicePoRequired; applied.push(`Invoices ${co.invoicePoRequired ? "now need" : "no longer need"} a PO number`);
   }
@@ -174,7 +180,12 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   }
   const current = new Map(before.contacts.map(c => [c.id as string, c]));
   const opened = new Map((orig.contacts || []).filter(c => c.id).map(c => [c.id as string, c]));
-  const emailsOnFile = new Set(before.contacts.map(c => (c.email || "").toLowerCase()).filter(Boolean));
+  const idByEmail = new Map(before.contacts.filter(c => c.email).map(c => [c.email.toLowerCase(), c.id as string]));
+  // removed contacts (["none"], kept for past orders): re-adding one revives that row
+  const removedByEmail = new Map(((rawContacts || []) as any[]).filter(rc => (rc.email || "").includes("@") && Array.isArray(rc.doc_routing) && rc.doc_routing.includes("none")).map(rc => [String(rc.email).toLowerCase(), rc.id as string]));
+  // a new row can take "main contact" only if nobody is main, or this person
+  // moved it off the old one (a pre-ticked blank row isn't a choice)
+  const primaryFree = !before.contacts.some(c => c.isPrimary) || (p.contacts || []).some(ct => ct.id && opened.get(ct.id)?.isPrimary && (!ct.isPrimary || ct.remove));
   let primaryId: string | null = null;
   let clearPrimaryOf: string | null = null;
   for (const ct of (p.contacts || []).slice(0, 30)) {
@@ -210,11 +221,24 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
         applied.push(`Contact ${merged.name || cur.name} updated`);
       }
     } else if (!ct.remove && (v.name || v.email)) {
-      if (v.email && emailsOnFile.has(v.email)) continue;   // already on file (someone else added them)
       const routing = ct.getsInvoices ? ["approvals", "invoices", "shipping"] : ["approvals", "shipping"];
-      const { data: nc } = await db.from("contacts").insert({ client_id: clientId, name: v.name || v.email, email: v.email || null, phone: v.phone || null, role_label: v.role || null, is_primary: !!ct.isPrimary, doc_routing: routing }).select("id").single();
-      if (v.email) emailsOnFile.add(v.email);
-      if (ct.isPrimary && nc?.id) primaryId = nc.id;
+      const existing = v.email ? idByEmail.get(v.email) : undefined;
+      if (existing) {   // already on file (someone else added them) — no duplicate
+        if (ct.isPrimary && primaryFree) primaryId = existing;
+        applied.push(`Contact ${v.name || v.email} was already on file`);
+        continue;
+      }
+      const revive = v.email ? removedByEmail.get(v.email) : undefined;
+      let newId: string | undefined;
+      if (revive) {
+        await db.from("contacts").update({ name: v.name || v.email, phone: v.phone || null, role_label: v.role || null, doc_routing: routing }).eq("id", revive).eq("client_id", clientId);
+        newId = revive; removedByEmail.delete(v.email);
+      } else {
+        const { data: nc } = await db.from("contacts").insert({ client_id: clientId, name: v.name || v.email, email: v.email || null, phone: v.phone || null, role_label: v.role || null, is_primary: false, doc_routing: routing }).select("id").single();
+        newId = nc?.id;
+      }
+      if (v.email && newId) idByEmail.set(v.email, newId);
+      if (ct.isPrimary && primaryFree && newId) primaryId = newId;
       applied.push(`Contact ${v.name || v.email} added`);
     }
   }
@@ -228,6 +252,7 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   const norm = (a: string) => String(a || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const addrOnFile = new Set(before.locations.filter(l => l.id).map(l => norm(l.address)));
   let defaultTo: string | null = null;
+  const defaultFree = !before.locations.some(l => l.id && l.isDefault) || (p.locations || []).some(l => l.id && openedLoc.get(l.id)?.isDefault && (!l.isDefault || l.remove));
   for (const l of (p.locations || []).slice(0, 40)) {
     const v = { label: clip(l.label, 80) || "Ship-to", address: clip(l.address, 600), contactName: clip(l.contactName, 120), contactPhone: clip(l.contactPhone, 40), deliveryNotes: clip(l.deliveryNotes, 500) };
     if (l.id) {
@@ -235,10 +260,11 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
       if (!cur) continue;   // removed since they opened the form — stays removed
       const was = openedLoc.get(l.id) || cur;
       if (l.remove) { await db.from("client_locations").update({ active: false, is_default: false }).eq("id", l.id).eq("client_id", clientId); applied.push(`Address "${cur.label}" removed`); continue; }
-      const pick = (k: "label" | "address" | "contactName" | "contactPhone" | "deliveryNotes") => v[k] !== clip((was as any)[k], 600) ? v[k] : (cur as any)[k];
+      const wasV = { label: clip(was.label, 80) || "Ship-to", address: clip(was.address, 600), contactName: clip(was.contactName, 120), contactPhone: clip(was.contactPhone, 40), deliveryNotes: clip(was.deliveryNotes, 500) };
+      const pick = (k: "label" | "address" | "contactName" | "contactPhone" | "deliveryNotes") => v[k] !== wasV[k] ? v[k] : (cur as any)[k];
       const m = { label: pick("label"), address: pick("address"), contactName: pick("contactName"), contactPhone: pick("contactPhone"), deliveryNotes: pick("deliveryNotes") };
       const upd: any = {};
-      if (m.label !== cur.label) upd.label = m.label;
+      if (m.label !== cur.label && m.label !== wasV.label) upd.label = m.label;
       if (m.address !== cur.address && m.address) upd.address = m.address;
       if (m.contactName !== cur.contactName) upd.contact_name = m.contactName || null;
       if (m.contactPhone !== cur.contactPhone) upd.contact_phone = m.contactPhone || null;
@@ -246,10 +272,10 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
       if (!!l.isDefault !== !!was.isDefault && l.isDefault) defaultTo = l.id;
       if (Object.keys(upd).length) { await db.from("client_locations").update(upd).eq("id", l.id).eq("client_id", clientId); applied.push(`Address "${m.label}" updated`); }
     } else if (!l.remove && v.address) {
-      if (addrOnFile.has(norm(v.address))) continue;   // already on file
+      if (addrOnFile.has(norm(v.address))) { applied.push(`Address "${v.label}" was already on file`); continue; }
       const { data: nl } = await db.from("client_locations").insert({ client_id: clientId, job_id: null, active: true, label: v.label, address: v.address, contact_name: v.contactName || null, contact_phone: v.contactPhone || null, delivery_notes: v.deliveryNotes || null, is_default: false }).select("id").single();
       addrOnFile.add(norm(v.address));
-      if (l.isDefault && nl?.id) defaultTo = nl.id;
+      if (l.isDefault && defaultFree && nl?.id) defaultTo = nl.id;
       applied.push(`Address "${v.label}" added`);
     }
   }
@@ -341,7 +367,7 @@ export async function sendInfoRequest(db: Db, clientId: string, baseUrl: string,
   const { data: contacts } = await db.from("contacts").select("name, email, is_primary, doc_routing").eq("client_id", clientId);
   let to = resolveRecipientEmails("invoices", (contacts || []) as any[]);
   if (toOverride) {
-    const mine = new Set(((contacts || []) as any[]).map(x => String(x.email || "").trim().toLowerCase()).filter(e => e.includes("@")));
+    const mine = new Set(((contacts || []) as any[]).filter(x => !(Array.isArray(x.doc_routing) && x.doc_routing.includes("none"))).map(x => String(x.email || "").trim().toLowerCase()).filter(e => e.includes("@")));
     const picked = Array.from(new Set(toOverride.map(e => String(e || "").trim().toLowerCase())));
     const stray = picked.filter(e => !mine.has(e));
     if (stray.length) throw new Error(`Not a contact of ${c.name}: ${stray.join(", ")}`);

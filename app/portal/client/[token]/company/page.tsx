@@ -60,7 +60,7 @@ export default function CompanyInfoPage() {
       setContacts(d.contacts.length ? d.contacts : [{ name: "", email: "", phone: "", role: "", isPrimary: true, getsInvoices: true }]);
       setLocs(d.locations.length ? d.locations : [{ label: "Main", address: "", contactName: "", contactPhone: "", deliveryNotes: "", isDefault: true }]);
       setExemptOnFile(!!d.taxExempt); setOnFile(d.certificates || []); setTaxDocs(d.taxDocs || []);
-      setOriginal({ company: d.company, contacts: d.contacts, locations: d.locations }); setLastSub(d.lastSubmission || null);
+      setOriginal({ company: d.company, contacts: d.contacts, locations: d.locations, blankOnFile: d.blankOnFile }); setLastSub(d.lastSubmission || null);
       setLoaded(true);
     }).catch(() => setErr("Couldn't load your info. Please refresh."));
   }, [token]);
