@@ -4,6 +4,7 @@ import { resendForSlug } from "@/lib/resend-client";
 import { recalcJobPhase } from "@/lib/job-phase-recalc";
 import { refreshJobFinancials } from "@/lib/costing-summary";
 import { scanFileHealth, missingFiles } from "@/lib/file-health";
+import { syncClientTaxFromQB } from "@/lib/client-tax-sync";
 
 // The report is read in Las Vegas, so its dates are Pacific — every other
 // OpsHub document already formats this way. Slicing the ISO string printed the
@@ -328,6 +329,12 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // ── Sales-tax mirror: clients copy QuickBooks' customer tax status ──
+    //    (lib/client-tax-sync). QB's record is what invoices are taxed from;
+    //    OpsHub only displays it. A QB failure changes nothing.
+    let taxSync: { checked: number; changed: { name: string; from: boolean; to: boolean }[]; missing: string[] } | { error: string } = { checked: 0, changed: [], missing: [] };
+    try { taxSync = await syncClientTaxFromQB(sb); } catch (e: any) { taxSync = { error: e?.message || String(e) }; }
+
     // ── Missing-file tripwire: does the file we point at still exist? ──
     // A slice of the library each run (oldest-checked first), inside a time
     // budget, so the whole set is covered daily without a long job. 45 files
@@ -379,7 +386,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ consistent, inFlight, fileHealth, drifted: drift.length, healed: healed.length, fleeceGaps: fleeceGaps.length, phaseDrift: phaseDrift.length, qtyHealed: qtyHealed.length, qtyDrift: qtyDrift.length, jobs: drift.map(d => d.job), healedJobs: healed.map(h => h.job), phaseJobs: phaseDrift.map(p => p.job), qtyHealedJobs: qtyHealed.map(h => h.job), qtyDriftJobs: qtyDrift.map(d => d.job), badLinks, forbiddenPushes, poNoInvoice });
+    return NextResponse.json({ taxSync, consistent, inFlight, fileHealth, drifted: drift.length, healed: healed.length, fleeceGaps: fleeceGaps.length, phaseDrift: phaseDrift.length, qtyHealed: qtyHealed.length, qtyDrift: qtyDrift.length, jobs: drift.map(d => d.job), healedJobs: healed.map(h => h.job), phaseJobs: phaseDrift.map(p => p.job), qtyHealedJobs: qtyHealed.map(h => h.job), qtyDriftJobs: qtyDrift.map(d => d.job), badLinks, forbiddenPushes, poNoInvoice });
   } catch (e: any) {
     console.error("Costing-health cron error:", e);
     return NextResponse.json({ error: e.message }, { status: 500 });

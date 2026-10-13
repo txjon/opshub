@@ -494,7 +494,7 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
     default_terms: client.default_terms || "", website: client.website || "",
     billing_address: client.billing_address || "",
     notes: client.notes || "",
-    tax_exempt: !!client.tax_exempt, allow_cc: client.allow_cc !== false, allow_ach: client.allow_ach !== false,
+    allow_cc: client.allow_cc !== false, allow_ach: client.allow_ach !== false,
   });
   // QB customer link — same /api/qb/link-customer API classic uses; acts
   // immediately (its own deliberate dialog), independent of Save.
@@ -596,7 +596,7 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
         default_terms: form.default_terms || null, website: form.website.trim() || null,
         billing_address: form.billing_address.trim() || null,   // shipping address lives in Locations (client_locations)
         notes: form.notes.trim() || null,
-        tax_exempt: !!form.tax_exempt, allow_cc: !!form.allow_cc, allow_ach: !!form.allow_ach,
+        allow_cc: !!form.allow_cc, allow_ach: !!form.allow_ach,
       };
       const { error: ce } = await (supabase.from("clients") as any).update(cPatch).eq("id", client.id);
       if (ce) throw new Error(ce.message);
@@ -652,7 +652,19 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
           <div>
             <span style={lab}>Billing</span>
             <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap", padding: "4px 0 2px" }}>
-              {([["tax_exempt", "Tax exempt"], ["allow_cc", "Card payments"], ["allow_ach", "ACH payments"]] as [string, string][]).map(([k, l]) => (
+              {/* Sales tax is READ-ONLY here: QuickBooks' customer record is the
+                  switch QB taxes from, mirrored by lib/client-tax-sync (Oct 2026 —
+                  the old checkbox did nothing and drifted on 15 clients). A
+                  verified resale certificate is the only way to change it. */}
+              <span style={{ fontSize: 12.5, color: H.text }}>
+                Sales tax: <b style={{ color: client.tax_exempt ? H.green : H.text }}>{client.tax_exempt ? "Exempt" : "Taxable"}</b>
+                <span style={{ color: H.faint, fontSize: 11 }}>
+                  {client.qb_customer_id
+                    ? ` · from QuickBooks${client.qb_resale_num ? ` · resale ${client.qb_resale_num}` : ""}`
+                    : " · not in QuickBooks yet"}
+                </span>
+              </span>
+              {([["allow_cc", "Card payments"], ["allow_ach", "ACH payments"]] as [string, string][]).map(([k, l]) => (
                 <label key={k} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: H.text, cursor: "pointer" }}>
                   <input type="checkbox" checked={!!form[k]} onChange={e => setForm((f: any) => ({ ...f, [k]: e.target.checked }))} style={{ accentColor: "#fff", width: 15, height: 15 }} />
                   {l}

@@ -315,6 +315,24 @@ export async function findCustomerCandidates(name: string, limit = 10): Promise<
   return customers;
 }
 
+// Tax status of many QB customers in one read (batched IN queries). QB's
+// customer record is THE sales-tax switch (Taxable + resale # + exemption
+// reason) — OpsHub mirrors it (lib/client-tax-sync), never the other way
+// round except via a verified certificate. Read-only; throws on any transport
+// error so a QB outage can never read as "everyone is taxable".
+export async function getCustomersTaxStatus(ids: string[]): Promise<Map<string, { taxable: boolean; resaleNum: string | null; exemptionReasonId: string | null; name: string }>> {
+  const out = new Map<string, { taxable: boolean; resaleNum: string | null; exemptionReasonId: string | null; name: string }>();
+  const uniq = Array.from(new Set(ids.filter(Boolean).map(String)));
+  for (let i = 0; i < uniq.length; i += 30) {
+    const list = uniq.slice(i, i + 30).map(id => `'${id.replace(/'/g, "")}'`).join(",");
+    const data = await qbFetch(`/query?query=${encodeURIComponent(`SELECT * FROM Customer WHERE Id IN (${list}) MAXRESULTS 100`)}`);
+    for (const c of (data?.QueryResponse?.Customer || []) as any[]) {
+      out.set(String(c.Id), { taxable: c.Taxable !== false, resaleNum: c.ResaleNum || null, exemptionReasonId: c.TaxExemptionReasonId || null, name: c.DisplayName || "" });
+    }
+  }
+  return out;
+}
+
 export async function getCustomerById(id: string): Promise<any | null> {
   try {
     const data = await qbFetch(`/customer/${id}`);

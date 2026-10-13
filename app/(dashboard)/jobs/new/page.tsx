@@ -46,7 +46,7 @@ export default function NewJobPage() {
   const [nc, setNc] = useState({
     company: "", contactName: "", email: "", phone: "", website: "",
     billingAddress: "", shippingAddress: "", sameAsBilling: true,
-    taxExempt: false, defaultTerms: "prepaid", notes: "",
+    defaultTerms: "prepaid", notes: "",
     extraContacts: [] as { name: string; email: string; phone: string }[],
   });
   const [savingClient, setSavingClient] = useState(false);
@@ -91,7 +91,7 @@ export default function NewJobPage() {
     setNc({
       company: "", contactName: "", email: "", phone: "", website: "",
       billingAddress: "", shippingAddress: "", sameAsBilling: true,
-      taxExempt: false, defaultTerms: "prepaid", notes: "",
+      defaultTerms: "prepaid", notes: "",
       extraContacts: [],
     });
     setShowNewClientModal(true);
@@ -113,7 +113,8 @@ export default function NewJobPage() {
     if (nc.website.trim()) insertData.website = nc.website.trim();
     if (nc.billingAddress.trim()) insertData.billing_address = nc.billingAddress.trim();
     const shipAddr = nc.sameAsBilling ? nc.billingAddress.trim() : nc.shippingAddress.trim();
-    if (nc.taxExempt) insertData.tax_exempt = true;
+    // No tax-exempt checkbox: exemption is QuickBooks' call, set from a
+    // verified resale certificate and mirrored back (lib/client-tax-sync).
 
     let { data, error: err } = await supabase.from("clients").insert(insertData).select("id, name, default_terms").single();
     // Retry without new fields if columns don't exist yet
@@ -405,11 +406,6 @@ rows={3} style={{ ...s.input, resize: "vertical" as const, lineHeight: 1.4 }} />
                     <option value="prepaid">Prepaid</option>
                   </select>
                 </div>
-                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "8px 0", fontFamily: font, fontSize: 12, color: T.text, whiteSpace: "nowrap" }}>
-                  <input type="checkbox" checked={nc.taxExempt} onChange={e => setNc(p => ({ ...p, taxExempt: e.target.checked }))}
-                    style={{ accentColor: T.accent, width: 16, height: 16 }} />
-                  Tax Exempt
-                </label>
               </div>
 
               {/* Notes */}
