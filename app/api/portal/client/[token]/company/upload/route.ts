@@ -25,7 +25,9 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     if (b?.type && !OK_TYPES.test(String(b.type))) return NextResponse.json({ error: "Please upload a PDF or a photo (JPG, PNG, HEIC)." }, { status: 400 });
 
     const { data: buckets } = await db.storage.listBuckets();
-    if (!(buckets || []).some((x: any) => x.name === CERT_BUCKET)) await db.storage.createBucket(CERT_BUCKET, { public: false });
+    // Size + type enforced by STORAGE, not just the browser's word.
+    const limits = { public: false, fileSizeLimit: MAX_BYTES, allowedMimeTypes: ["application/pdf", "image/png", "image/jpeg", "image/heic", "image/heif", "image/webp"] };
+    if (!(buckets || []).some((x: any) => x.name === CERT_BUCKET)) await db.storage.createBucket(CERT_BUCKET, limits);
     const path = `${(client as any).id}/${Date.now()}-${name}`;
     const { data, error } = await db.storage.from(CERT_BUCKET).createSignedUploadUrl(path);
     if (error || !data) return NextResponse.json({ error: error?.message || "Upload link failed" }, { status: 500 });

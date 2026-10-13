@@ -37,7 +37,7 @@ const clip = (s: unknown, n: number) => String(s ?? "").trim().slice(0, n);
 export async function loadClientInfo(db: Db, clientId: string) {
   const [{ data: c }, { data: contacts }, { data: locs }, { data: certs }] = await Promise.all([
     db.from("clients").select("id, name, legal_name, ein, website, billing_address, invoice_po_required, tax_exempt, qb_resale_num, qb_customer_id").eq("id", clientId).single(),
-    db.from("contacts").select("id, name, email, phone, role_label, is_primary, doc_routing").eq("client_id", clientId).order("is_primary", { ascending: false }).order("name"),
+    db.from("contacts").select("id, name, email, phone, role_label, is_primary, doc_routing").eq("client_id", clientId).not("doc_routing", "cs", '{"none"}').order("is_primary", { ascending: false }).order("name"),
     db.from("client_locations").select("id, label, address, contact_name, contact_phone, delivery_notes, is_default").eq("client_id", clientId).is("job_id", null).eq("active", true).order("is_default", { ascending: false }),
     db.from("client_tax_certificates").select("id, state, permit_number, expires_on, status, created_at").eq("client_id", clientId).order("created_at", { ascending: false }),
   ]);
@@ -61,6 +61,28 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   const before = await loadClientInfo(db, clientId);
   const applied: string[] = [];
 
+  // Certificate FILES first, before a single row changes: a Drive failure must
+  // not leave half a save that a retry then duplicates. Temp uploads are only
+  // removed once everything has saved.
+  const certsIn = p.tax?.claimsExempt ? (p.tax.certificates || []).slice(0, 20) : [];
+  const filed: { state: string; permit: string; expiresOn: string | null; driveFileId: string; webViewLink: string; name: string; mime: string | null; size: number | null; tmp: string }[] = [];
+  if (certsIn.length) {
+    const { data: cl } = await db.from("clients").select("name").eq("id", clientId).single();
+    let folderId: string | null = null;
+    for (const cert of certsIn) {
+      const state = clip(cert.state, 5).toUpperCase(), permit = clip(cert.permitNumber, 60);
+      if (!state || !permit) continue;
+      const path = String(cert.uploadPath || "");
+      if (!path.startsWith(`${clientId}/`) || path.includes("..")) throw new Error(`Please upload the certificate for ${state}.`);
+      const { data: blob, error: dErr } = await db.storage.from(CERT_BUCKET).download(path);
+      if (dErr || !blob) throw new Error(`Couldn't read the certificate for ${state}. Please upload it again.`);
+      if (!folderId) folderId = await getPrivateDocFolder(await getDriveToken(), [cl?.name || "Unknown", "Tax Documents"]);
+      const name = clip(cert.fileName, 140) || `${state} resale certificate`;
+      const up = await uploadFile(folderId, `${state} ${permit} - ${name}`, (blob as any).type || "application/octet-stream", Buffer.from(await blob.arrayBuffer()), { public: false });
+      filed.push({ state, permit, expiresOn: /^\d{4}-\d{2}-\d{2}$/.test(cert.expiresOn || "") ? cert.expiresOn : null, driveFileId: up.fileId, webViewLink: up.webViewLink, name, mime: (blob as any).type || null, size: (blob as any).size || null, tmp: path });
+    }
+  }
+
   // company
   const co = p.company || ({} as InfoPayload["company"]);
   const patch: any = {};
@@ -75,15 +97,28 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
     if (error) throw new Error(`company: ${error.message}`);
   }
 
-  // contacts — edit / add / remove (a contact on past jobs is kept, just un-routed)
+  // contacts — edit / add / remove (a contact on past jobs is kept, just un-routed).
+  // ROUTING (lib/recipients): a contact with no routing receives everything,
+  // but only while nobody is explicitly assigned. So first make every such
+  // "everything" contact explicit (who gets what doesn't change), then edits
+  // only add/remove "invoices" and never touch routing staff set by hand.
+  const { data: rawContacts } = await db.from("contacts").select("id, doc_routing").eq("client_id", clientId);
+  const routingOf = new Map<string, string[]>();
+  for (const rc of (rawContacts || []) as any[]) {
+    let r: string[] = Array.isArray(rc.doc_routing) ? rc.doc_routing : [];
+    if (!r.length) { r = ["approvals", "invoices", "shipping"]; await db.from("contacts").update({ doc_routing: r }).eq("id", rc.id); }
+    routingOf.set(rc.id, r);
+  }
   const known = new Map(before.contacts.map(c => [c.id, c]));
+  if ((p.contacts || []).some(c => c.isPrimary && !c.remove)) await db.from("contacts").update({ is_primary: false }).eq("client_id", clientId);
   for (const ct of (p.contacts || []).slice(0, 30)) {
     const name = clip(ct.name, 120), email = clip(ct.email, 200).toLowerCase(), phone = clip(ct.phone, 40), role = clip(ct.role, 60);
-    const routing = ct.getsInvoices ? ["approvals", "invoices", "shipping"] : ["approvals", "shipping"];
     if (ct.id && known.has(ct.id)) {
+      const cur = routingOf.get(ct.id) || [];
+      const routing = ct.getsInvoices ? Array.from(new Set([...cur, "invoices"])) : cur.filter(x => x !== "invoices");
       if (ct.remove) {
         const { count } = await db.from("job_contacts").select("id", { count: "exact", head: true }).eq("contact_id", ct.id);
-        if (count) { await db.from("contacts").update({ doc_routing: ["none"] }).eq("id", ct.id); applied.push(`${name || "Contact"} removed from emails (kept on past orders)`); }
+        if (count) { await db.from("contacts").update({ doc_routing: ["none"], is_primary: false }).eq("id", ct.id); applied.push(`${name || "Contact"} removed from emails (kept on past orders)`); }
         else { await db.from("contacts").delete().eq("id", ct.id).eq("client_id", clientId); applied.push(`${name || "Contact"} removed`); }
         continue;
       }
@@ -93,6 +128,7 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
         applied.push(`Contact ${name} updated`);
       }
     } else if (!ct.remove && (name || email)) {
+      const routing = ct.getsInvoices ? ["approvals", "invoices", "shipping"] : ["approvals", "shipping"];
       await db.from("contacts").insert({ client_id: clientId, name: name || email, email: email || null, phone: phone || null, role_label: role || null, is_primary: !!ct.isPrimary, doc_routing: routing });
       applied.push(`Contact ${name || email} added`);
     }
@@ -101,7 +137,7 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   // ship-to addresses — client address book (job-specific ones untouched)
   const knownLoc = new Map(before.locations.map(l => [l.id, l]));
   const locs = (p.locations || []).slice(0, 40);
-  const wantsDefault = locs.some(l => l.isDefault && !l.remove);
+  const wantsDefault = locs.some(l => l.isDefault && !l.remove && (l.id ? knownLoc.has(l.id) : !!clip(l.address, 600)));
   if (wantsDefault) await db.from("client_locations").update({ is_default: false }).eq("client_id", clientId).is("job_id", null);
   for (const l of locs) {
     const row = { label: clip(l.label, 80) || "Ship-to", address: clip(l.address, 600), contact_name: clip(l.contactName, 120) || null, contact_phone: clip(l.contactPhone, 40) || null, delivery_notes: clip(l.deliveryNotes, 500) || null, is_default: !!l.isDefault };
@@ -123,41 +159,22 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   }).select("id").single();
   if (sErr) throw new Error(`submission: ${sErr.message}`);
 
-  // certificates → Drive (staff-only Tax Documents) + a pending review row each
+  // certificates (files already in Drive, above) → staff-only Tax Documents + a pending review row each
   let certsPending = 0;
-  if (p.tax?.claimsExempt) {
-    const { data: cl } = await db.from("clients").select("name").eq("id", clientId).single();
-    for (const cert of (p.tax.certificates || []).slice(0, 20)) {
-      const state = clip(cert.state, 5).toUpperCase(), permit = clip(cert.permitNumber, 60);
-      if (!state || !permit) continue;
-      let fileId: string | null = null;
-      if (cert.uploadPath && cert.uploadPath.startsWith(`${clientId}/`)) {
-        const { data: blob, error: dErr } = await db.storage.from(CERT_BUCKET).download(cert.uploadPath);
-        if (dErr || !blob) throw new Error(`Couldn't read the certificate for ${state}. Please upload it again.`);
-        const token = await getDriveToken();
-        const folderId = await getPrivateDocFolder(token, [cl?.name || "Unknown", "Tax Documents"]);
-        const name = clip(cert.fileName, 140) || `${state} resale certificate`;
-        const up = await uploadFile(folderId, `${state} ${permit} - ${name}`, (blob as any).type || "application/octet-stream", Buffer.from(await blob.arrayBuffer()), { public: false });
-        const { data: cf, error: fErr } = await db.from("client_files").insert({
-          client_id: clientId, file_name: name, drive_file_id: up.fileId, drive_link: up.webViewLink, mime_type: (blob as any).type || null,
-          file_size: (blob as any).size || null, kind: "tax_exempt", notes: `${state} resale permit ${permit}${cert.expiresOn ? `, expires ${cert.expiresOn}` : ""} (client info form)`, uploaded_by: null,
-        }).select("id").single();
-        if (fErr) throw new Error(`certificate file: ${fErr.message}`);
-        fileId = cf.id;
-        await db.storage.from(CERT_BUCKET).remove([cert.uploadPath]).catch(() => {});
-      }
-      await db.from("client_tax_certificates").insert({
-        client_id: clientId, submission_id: sub.id, state, permit_number: permit,
-        expires_on: /^\d{4}-\d{2}-\d{2}$/.test(cert.expiresOn || "") ? cert.expiresOn : null, client_file_id: fileId, status: "pending",
-      });
-      certsPending++;
-    }
-    if (certsPending) {
-      await db.from("client_info_submissions").update({ tax_review: "pending" }).eq("id", sub.id);
-      applied.push(`${certsPending} resale certificate${certsPending === 1 ? "" : "s"} sent for review`);
-      await db.from("client_info_submissions").update({ applied }).eq("id", sub.id);
-    }
+  for (const f of filed) {
+    const { data: cf, error: fErr } = await db.from("client_files").insert({
+      client_id: clientId, file_name: f.name, drive_file_id: f.driveFileId, drive_link: f.webViewLink, mime_type: f.mime,
+      file_size: f.size, kind: "tax_exempt", notes: `${f.state} resale permit ${f.permit}${f.expiresOn ? `, expires ${f.expiresOn}` : ""} (client info form)`, uploaded_by: null,
+    }).select("id").single();
+    if (fErr) throw new Error(`certificate file: ${fErr.message}`);
+    await db.from("client_tax_certificates").insert({ client_id: clientId, submission_id: sub.id, state: f.state, permit_number: f.permit, expires_on: f.expiresOn, client_file_id: cf.id, status: "pending" });
+    certsPending++;
   }
+  if (certsPending) {
+    applied.push(`${certsPending} resale certificate${certsPending === 1 ? "" : "s"} sent for review`);
+    await db.from("client_info_submissions").update({ tax_review: "pending", applied }).eq("id", sub.id);
+  }
+  if (filed.length) await db.storage.from(CERT_BUCKET).remove(filed.map(f => f.tmp)).catch(() => {});
   return { submissionId: sub.id, applied, certsPending };
 }
 
@@ -170,6 +187,7 @@ export async function reviewCertificate(db: Db, certId: string, action: "approve
   if (action === "approve") {
     const qbId = cert.clients?.qb_customer_id;
     if (!qbId) throw new Error("This client isn't linked to QuickBooks yet. Push an invoice or link the customer first.");
+    if (String(cert.permit_number).length > 16) throw new Error(`QuickBooks only holds 16 characters for a resale number and this one is ${String(cert.permit_number).length}. Mark the customer exempt in QuickBooks by hand, then approve here.`);
     await setCustomerTaxExempt(qbId, cert.permit_number);   // throws → nothing marked approved
     qb = `QuickBooks customer marked tax exempt (resale ${cert.permit_number})`;
   }
@@ -178,7 +196,7 @@ export async function reviewCertificate(db: Db, certId: string, action: "approve
     const { count } = await db.from("client_tax_certificates").select("id", { count: "exact", head: true }).eq("submission_id", cert.submission_id).eq("status", "pending");
     if (!count) await db.from("client_info_submissions").update({ tax_review: "done" }).eq("id", cert.submission_id);
   }
-  if (action === "approve") { try { await syncClientTaxFromQB(db); } catch (e: any) { console.error("[client-info] mirror after approve failed:", e?.message || e); } }
+  if (action === "approve") { try { await syncClientTaxFromQB(db, { clientIds: [cert.client_id] }); } catch (e: any) { console.error("[client-info] mirror after approve failed:", e?.message || e); } }
   return { qb };
 }
 

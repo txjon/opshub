@@ -17,11 +17,12 @@ import { getCustomersTaxStatus } from "./quickbooks";
 
 type Db = any;
 
-export async function syncClientTaxFromQB(db: Db): Promise<{ checked: number; changed: { name: string; from: boolean; to: boolean }[]; missing: string[] }> {
+export async function syncClientTaxFromQB(db: Db, opts?: { clientIds?: string[] }): Promise<{ checked: number; changed: { name: string; from: boolean; to: boolean }[]; missing: string[] }> {
   const clients: any[] = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await db.from("clients").select("id, name, qb_customer_id, tax_exempt, qb_resale_num")
-      .not("qb_customer_id", "is", null).order("id").range(from, from + 999);
+    let q = db.from("clients").select("id, name, qb_customer_id, tax_exempt, qb_resale_num").not("qb_customer_id", "is", null);
+    if (opts?.clientIds?.length) q = q.in("id", opts.clientIds);   // one client (after an approval); else everyone
+    const { data, error } = await q.order("id").range(from, from + 999);
     if (error) throw new Error(`clients: ${error.message}`);
     clients.push(...(data || []));
     if (!data || data.length < 1000) break;
