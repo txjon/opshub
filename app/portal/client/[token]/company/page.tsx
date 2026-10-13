@@ -48,6 +48,10 @@ export default function CompanyInfoPage() {
   const [signer, setSigner] = useState({ name: "", title: "", email: "", certified: false });
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<{ applied: string[]; certsPending: number } | null>(null);
+  // the version this person opened: the server applies only what they change
+  // from it, so two people on one link can't undo each other (Oct 13)
+  const [original, setOriginal] = useState<any>(null);
+  const [lastSub, setLastSub] = useState<{ signerName: string; submittedAt: string } | null>(null);
 
   useEffect(() => {
     fetch(`/api/portal/client/${token}/company`).then(r => r.json()).then(d => {
@@ -56,6 +60,7 @@ export default function CompanyInfoPage() {
       setContacts(d.contacts.length ? d.contacts : [{ name: "", email: "", phone: "", role: "", isPrimary: true, getsInvoices: true }]);
       setLocs(d.locations.length ? d.locations : [{ label: "Main", address: "", contactName: "", contactPhone: "", deliveryNotes: "", isDefault: true }]);
       setExemptOnFile(!!d.taxExempt); setOnFile(d.certificates || []); setTaxDocs(d.taxDocs || []);
+      setOriginal({ company: d.company, contacts: d.contacts, locations: d.locations }); setLastSub(d.lastSubmission || null);
       setLoaded(true);
     }).catch(() => setErr("Couldn't load your info. Please refresh."));
   }, [token]);
@@ -92,7 +97,7 @@ export default function CompanyInfoPage() {
     if (problems.length) return;
     setBusy(true); setErr(null);
     try {
-      const body = { company, contacts, locations: locs, tax: { claimsExempt: taxExempt, certificates: certs.filter(c => c.state && c.permitNumber && hasFile(c)).map(({ uploading, err, ...c }) => c) }, signer };
+      const body = { company, contacts, locations: locs, tax: { claimsExempt: taxExempt, certificates: certs.filter(c => c.state && c.permitNumber && hasFile(c)).map(({ uploading, err, ...c }) => c) }, signer, original };
       const r = await fetch(`/api/portal/client/${token}/company`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Couldn't save");
@@ -121,6 +126,7 @@ export default function CompanyInfoPage() {
       <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint }}>{clientName}</div>
       <h1 style={{ fontSize: "clamp(30px,6vw,52px)", fontWeight: 900, textTransform: "uppercase", lineHeight: 0.98, letterSpacing: "-0.02em", margin: "8px 0 0" }}>Company info</h1>
       <p style={{ color: H.dim, fontSize: 14.5, lineHeight: 1.55, marginTop: 12 }}>This is what we have on file. Change anything that's different, then sign at the bottom.</p>
+      {lastSub && <p style={{ color: H.faint, fontSize: 13, margin: "6px 0 0" }}>Last updated {new Date(lastSub.submittedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} by {lastSub.signerName}. Their changes are already shown here.</p>}
 
       <div style={box}>
         <H2 n="1" t="Company" />

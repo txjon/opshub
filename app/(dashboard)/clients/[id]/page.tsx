@@ -19,6 +19,7 @@ import { deriveProjectStage } from "@/lib/project-stage";
 import { loadJobPhasesBatch } from "@/lib/item-state";
 import { ClientLocations } from "@/components/ClientLocations";
 import { todayPacific } from "@/lib/dates";
+import { resolveRecipientEmails } from "@/lib/recipients";
 import { CatalogRail, ArchiveRail, buildCatalogPieces, CLIENT_CARD_CSS } from "@/components/client/ClientCatalog";
 
 const PURPLE = "#fd3aa3";
@@ -335,7 +336,7 @@ function Overview({ client, contacts, wire, model, briefs, secHead, onEdit }: an
             </>
           )}
           <DocsBlock clientId={client.id} secHead={secHead} />
-          <InfoTaxBlock client={client} secHead={secHead} />
+          <InfoTaxBlock client={client} contacts={contacts} secHead={secHead} />
         </div>
         <div>
           {secHead("The wire.", "every move in this room, newest first")}
@@ -820,7 +821,7 @@ function ActionFeed({ jobs, phaseViews, proofStatus, thumbs, router, secHead }: 
 // email them their prefilled form (lib/client-info sendInfoRequest), preview
 // it, and review resale certificates. Approving one marks the QuickBooks
 // customer tax exempt; QB is the tax switch, OpsHub mirrors it.
-function InfoTaxBlock({ client, secHead }: any) {
+function InfoTaxBlock({ client, contacts, secHead }: any) {
   const [certs, setCerts] = useState<any[]>([]);
   const [subs, setSubs] = useState<any[]>([]);
   const [arm, setArm] = useState(false);
@@ -843,11 +844,16 @@ function InfoTaxBlock({ client, secHead }: any) {
   };
   const load = () => fetch(`/api/clients/${client.id}/tax-certificates`).then(r => r.json()).then(d => { setCerts(d.certificates || []); setSubs(d.submissions || []); }).catch(() => {});
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [client.id]);
+  // Who gets the form: pick from this client's contacts (pre-checked = their
+  // invoice people, the same routing invoices use). Removed contacts hidden.
+  const emailable = ((contacts || []) as any[]).filter(x => (x.email || "").includes("@") && !(Array.isArray(x.doc_routing) && x.doc_routing.includes("none")));
+  const [pick, setPick] = useState<string[]>([]);
   const send = async () => {
-    if (!arm) { setArm(true); setMsg(null); return; }
+    if (!arm) { setPick(resolveRecipientEmails("invoices", emailable)); setArm(true); setMsg(null); return; }
+    if (!pick.length) return;
     setArm(false); setBusy("send");
     try {
-      const r = await fetch("/api/clients/info-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientIds: [client.id] }) });
+      const r = await fetch("/api/clients/info-request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientIds: [client.id], to: pick }) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Send failed");
       if (d.failed?.length) throw new Error(d.failed[0].error);
@@ -871,11 +877,26 @@ function InfoTaxBlock({ client, secHead }: any) {
       {secHead("Company info & tax.", pending ? `${pending} certificate${pending === 1 ? "" : "s"} to review` : "their form, and resale certificates")}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         <button onClick={send} disabled={busy === "send"} style={{ ...pill, color: arm ? H.ink : H.dim, background: arm ? "#fff" : "transparent", borderColor: arm ? "#fff" : H.line }}>
-          {busy === "send" ? "Sending…" : arm ? "Tap again to email them" : "Email them the info form"}
+          {busy === "send" ? "Sending…" : arm ? (pick.length ? `Email ${pick.length === 1 ? "this person" : `these ${pick.length}`}` : "Pick who gets it") : "Email them the info form"}
         </button>
         {client.portal_token && <a href={`/portal/client/${client.portal_token}/company`} target="_blank" rel="noreferrer" style={pill}>Preview their form ↗</a>}
         {arm && <button onClick={() => setArm(false)} style={{ ...pill, border: "none" }}>Cancel</button>}
       </div>
+      {arm && (
+        <div style={{ marginTop: 10, padding: "10px 12px", border: `1px solid ${H.line}`, borderRadius: 10, display: "grid", gap: 6 }}>
+          <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: H.faint }}>Send to</div>
+          {emailable.length === 0 && <div style={{ fontSize: 12, color: H.faint }}>No contact has an email yet. Add one in Edit client.</div>}
+          {emailable.map((x: any) => {
+            const e = String(x.email).trim().toLowerCase(); const on = pick.includes(e);
+            return (
+              <label key={x.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12.5, color: on ? H.text : H.dim, cursor: "pointer" }}>
+                <input type="checkbox" checked={on} onChange={() => setPick(p => on ? p.filter(y => y !== e) : [...p, e])} style={{ accentColor: "#fff" }} />
+                {x.name || e} <span style={{ color: H.faint }}>{e}</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
       {msg && <div style={{ fontSize: 12, marginTop: 10, color: msg.ok ? H.green : H.red }}>{msg.t}</div>}
       <div style={{ fontSize: 12, color: pending ? H.amber : H.faint, marginTop: 12 }}>
         {pending ? `${pending} certificate${pending === 1 ? "" : "s"} waiting for you below.` : "No certificates waiting. Company, contact and address updates apply on their own."}
