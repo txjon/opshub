@@ -35,9 +35,11 @@ const clip = (s: unknown, n: number) => String(s ?? "").trim().slice(0, n);
 
 // ── prefill: what OpsHub already knows, so clients confirm instead of retype ──
 export async function loadClientInfo(db: Db, clientId: string) {
+  // Contacts: hide removed ones (["none"]) but KEEP null routing — NULL means
+  // "receives everything", and a bare NOT(cs) silently drops NULL rows.
   const [{ data: c }, { data: contacts }, { data: locs }, { data: certs }] = await Promise.all([
     db.from("clients").select("id, name, legal_name, ein, website, billing_address, invoice_po_required, tax_exempt, qb_resale_num, qb_customer_id").eq("id", clientId).single(),
-    db.from("contacts").select("id, name, email, phone, role_label, is_primary, doc_routing").eq("client_id", clientId).or("doc_routing.is.null,doc_routing.not.cs.{none}")   // NULL = "receives everything" must stay visible (a bare NOT drops NULL rows).order("is_primary", { ascending: false }).order("name"),
+    db.from("contacts").select("id, name, email, phone, role_label, is_primary, doc_routing").eq("client_id", clientId).or("doc_routing.is.null,doc_routing.not.cs.{none}").order("is_primary", { ascending: false }).order("name"),
     db.from("client_locations").select("id, label, address, contact_name, contact_phone, delivery_notes, is_default").eq("client_id", clientId).is("job_id", null).eq("active", true).order("is_default", { ascending: false }),
     db.from("client_tax_certificates").select("id, state, permit_number, expires_on, status, created_at").eq("client_id", clientId).order("created_at", { ascending: false }),
   ]);
@@ -104,13 +106,21 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   // only add/remove "invoices" and never touch routing staff set by hand.
   const { data: rawContacts } = await db.from("contacts").select("id, doc_routing").eq("client_id", clientId);
   const routingOf = new Map<string, string[]>();
+  // An "everything" contact receives a category only while NOBODY is explicitly
+  // assigned it (lib/recipients). Convert each to exactly what it gets TODAY —
+  // no one gains or loses a single email.
+  const assigned = new Set<string>();
+  for (const rc of (rawContacts || []) as any[]) for (const k of (Array.isArray(rc.doc_routing) ? rc.doc_routing : [])) assigned.add(k);
   for (const rc of (rawContacts || []) as any[]) {
     let r: string[] = Array.isArray(rc.doc_routing) ? rc.doc_routing : [];
-    if (!r.length) { r = ["approvals", "invoices", "shipping"]; await db.from("contacts").update({ doc_routing: r }).eq("id", rc.id); }
+    if (!r.length) {
+      const today = ["approvals", "invoices", "shipping"].filter(k => !assigned.has(k));
+      if (today.length) { r = today; await db.from("contacts").update({ doc_routing: r }).eq("id", rc.id); }
+    }
     routingOf.set(rc.id, r);
   }
   const known = new Map(before.contacts.map(c => [c.id, c]));
-  if ((p.contacts || []).some(c => c.isPrimary && !c.remove)) await db.from("contacts").update({ is_primary: false }).eq("client_id", clientId);
+  let primaryId: string | null = null;   // the ONE main contact, applied after the loop
   for (const ct of (p.contacts || []).slice(0, 30)) {
     const name = clip(ct.name, 120), email = clip(ct.email, 200).toLowerCase(), phone = clip(ct.phone, 40), role = clip(ct.role, 60);
     if (ct.id && known.has(ct.id)) {
@@ -123,16 +133,20 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
         continue;
       }
       const prev = known.get(ct.id)!;
+      if (ct.isPrimary) primaryId = ct.id;
       if (prev.name !== name || prev.email !== email || prev.phone !== phone || prev.role !== role || prev.isPrimary !== !!ct.isPrimary || prev.getsInvoices !== !!ct.getsInvoices) {
         await db.from("contacts").update({ name, email: email || null, phone: phone || null, role_label: role || null, is_primary: !!ct.isPrimary, doc_routing: routing }).eq("id", ct.id).eq("client_id", clientId);
         applied.push(`Contact ${name} updated`);
       }
     } else if (!ct.remove && (name || email)) {
       const routing = ct.getsInvoices ? ["approvals", "invoices", "shipping"] : ["approvals", "shipping"];
-      await db.from("contacts").insert({ client_id: clientId, name: name || email, email: email || null, phone: phone || null, role_label: role || null, is_primary: !!ct.isPrimary, doc_routing: routing });
+      const { data: nc } = await db.from("contacts").insert({ client_id: clientId, name: name || email, email: email || null, phone: phone || null, role_label: role || null, is_primary: !!ct.isPrimary, doc_routing: routing }).select("id").single();
+      if (ct.isPrimary && nc?.id) primaryId = nc.id;
       applied.push(`Contact ${name || email} added`);
     }
   }
+
+  if (primaryId) await db.from("contacts").update({ is_primary: false }).eq("client_id", clientId).neq("id", primaryId);
 
   // ship-to addresses — client address book (job-specific ones untouched)
   const knownLoc = new Map(before.locations.map(l => [l.id, l]));
