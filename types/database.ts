@@ -1002,7 +1002,6 @@ export type Database = {
           submission_id: string | null;
           state: string;
           permit_number: string;
-          expires_on: string | null;
           client_file_id: string | null;
           status: string;
           review_note: string | null;
@@ -1018,7 +1017,6 @@ export type Database = {
           submission_id?: string | null;
           state: string;
           permit_number: string;
-          expires_on?: string | null;
           client_file_id?: string | null;
           status?: string;
           review_note?: string | null;
@@ -1034,7 +1032,6 @@ export type Database = {
           submission_id?: string | null;
           state?: string;
           permit_number?: string;
-          expires_on?: string | null;
           client_file_id?: string | null;
           status?: string;
           review_note?: string | null;
