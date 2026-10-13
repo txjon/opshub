@@ -88,7 +88,7 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   // A tax-exempt claim needs paper: a certificate with this submission, or an
   // approved one already on file. Checked before anything is written.
   if (p.tax?.claimsExempt) {
-    const hasNew = (p.tax.certificates || []).some(c => clip(c.state, 5) && clip(c.permitNumber, 60) && (c.uploadPath || c.existingFileId));
+    const hasNew = (p.tax.certificates || []).slice(0, 20).some(c => clip(c.state, 5) && clip(c.permitNumber, 60) && (c.uploadPath || c.existingFileId));
     const hasApproved = before.certificates.some(c => c.status === "approved");
     if (!hasNew && !hasApproved) throw new Error("Please upload your resale certificate, or untick tax exempt if you're not.");
   }
