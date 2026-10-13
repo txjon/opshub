@@ -16,8 +16,25 @@ import { EMPTY_ADDR, addrProblem, formatAddress, type Addr } from "@/lib/address
 const key = (a: Addr) => [a.line1, a.line2, a.zip].join("|").toLowerCase().replace(/[^a-z0-9|]/g, "");
 const sameStreet = (a: Addr, b: Addr) => !!a.line1 && !!b.line1 && key(a) === key(b);
 
+// An address we already have: show it, the client confirms it or opens the form to change it.
+function AddrConfirm({ value, onChange, state, setState, idPrefix, nameHint }: { value: Addr; onChange: (a: Addr) => void; state: AddrState; setState: (s: AddrState) => void; idPrefix: string; nameHint?: string }) {
+  if (state === "edit") return <AddressFields idPrefix={idPrefix} value={value} onChange={onChange} inp={inp} lab={lab} nameHint={nameHint} warn={H.amber} />;
+  return (
+    <div style={{ border: `1px solid ${state === "ok" ? H.green : H.line}`, borderRadius: 10, padding: "12px 14px", background: H.surface }}>
+      <div style={{ fontSize: 15, lineHeight: 1.5, whiteSpace: "pre-line" }}>{formatAddress(value)}</div>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 10 }}>
+        {state === "ask"
+          ? <button onClick={() => setState("ok")} style={{ ...ghost, color: H.ink, background: "#fff", borderColor: "#fff" }}>Yes, that's right</button>
+          : <span style={{ color: H.green, fontSize: 13, fontWeight: 800 }}>✓ Confirmed</span>}
+        <button onClick={() => setState("edit")} style={ghost}>Edit</button>
+      </div>
+    </div>
+  );
+}
+
 type Contact = { id?: string; name: string; email: string; phone: string; role: string; isPrimary: boolean; getsInvoices: boolean; remove?: boolean };
-type Loc = { id?: string; _k?: string; sameAsBilling?: boolean; label: string; addr: Addr; onFile?: string; contactName: string; contactPhone: string; deliveryNotes: string; isDefault: boolean; remove?: boolean };
+type AddrState = "ask" | "ok" | "edit";   // on file → confirm or edit; nothing on file → the form
+type Loc = { id?: string; _k?: string; sameAsBilling?: boolean; addrState?: AddrState; label: string; addr: Addr; onFile?: string; contactName: string; contactPhone: string; deliveryNotes: string; isDefault: boolean; remove?: boolean };
 type Cert = { state: string; permitNumber: string; expiresOn: string; uploadPath: string; fileName: string; existingFileId?: string; uploading?: boolean; err?: string };
 
 const box: React.CSSProperties = { background: H.card, border: `1px solid ${H.line}`, borderRadius: 16, padding: "18px 18px 20px", marginTop: 16 };
@@ -43,6 +60,7 @@ export default function CompanyInfoPage() {
   const [err, setErr] = useState<string | null>(null);
   const [clientName, setClientName] = useState("");
   const [states, setStates] = useState<string[]>([]);
+  const [billingState, setBillingState] = useState<AddrState>("edit");
   const [company, setCompany] = useState<{ legalName: string; website: string; billing: Addr; billingOnFile?: string; invoicePoRequired: boolean }>({ legalName: "", website: "", billing: EMPTY_ADDR, invoicePoRequired: false });
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [locs, setLocs] = useState<Loc[]>([]);
@@ -62,9 +80,9 @@ export default function CompanyInfoPage() {
   useEffect(() => {
     fetch(`/api/portal/client/${token}/company`).then(r => r.json()).then(d => {
       if (d.error) { setErr(d.error); return; }
-      setClientName(d.clientName); setStates(d.states || []); setCompany(d.company);
+      setClientName(d.clientName); setStates(d.states || []); setCompany(d.company); setBillingState(d.company?.billing?.line1 ? "ask" : "edit");
       setContacts(d.contacts.length ? d.contacts : [{ name: "", email: "", phone: "", role: "", isPrimary: true, getsInvoices: true }]);
-      setLocs(d.locations.length ? d.locations.map((l: Loc) => ({ ...l, sameAsBilling: sameStreet(l.addr, d.company.billing) })) : [{ _k: "n0", label: "Main", addr: EMPTY_ADDR, contactName: "", contactPhone: "", deliveryNotes: "", isDefault: true }]);
+      setLocs(d.locations.length ? d.locations.map((l: Loc) => ({ ...l, sameAsBilling: sameStreet(l.addr, d.company.billing), addrState: (l.addr.line1 ? "ask" : "edit") as AddrState })) : [{ _k: "n0", label: "Main", addr: EMPTY_ADDR, contactName: "", contactPhone: "", deliveryNotes: "", isDefault: true }]);
       setExemptOnFile(!!d.taxExempt); setOnFile(d.certificates || []); setTaxDocs(d.taxDocs || []);
       setOriginal({ company: d.company, contacts: d.contacts, locations: d.locations, blankOnFile: d.blankOnFile }); setLastSub(d.lastSubmission || null);
       setLoaded(true);
@@ -90,7 +108,9 @@ export default function CompanyInfoPage() {
   const live = contacts.filter(c => !c.remove);
   const problems: string[] = [];
   if (!live.some(c => c.email.includes("@"))) problems.push("Add at least one contact with an email.");
-  if (addrProblem(company.billing)) problems.push(`Billing address: ${addrProblem(company.billing)}.`);
+  if (billingState === "ask") problems.push("Confirm or edit your billing address.");
+  else if (addrProblem(company.billing)) problems.push(`Billing address: ${addrProblem(company.billing)}.`);
+  locs.forEach(l => { if (!l.remove && !l.sameAsBilling && l.addrState === "ask") problems.push(`Confirm or edit the ship-to "${l.label || "address"}".`); });
   // "same as billing" ship-tos use the billing address (already checked above)
   locs.forEach(l => { if (!l.remove && !l.sameAsBilling && addrProblem(l.addr)) problems.push(`Ship-to "${l.label || "address"}": ${addrProblem(l.addr)}.`); });
   const hasFile = (c: Cert) => !!(c.uploadPath || c.existingFileId);
@@ -106,7 +126,7 @@ export default function CompanyInfoPage() {
     if (problems.length) return;
     setBusy(true); setErr(null);
     try {
-      const locations = locs.map(({ sameAsBilling, _k, ...l }) => ({ ...l, addr: sameAsBilling ? company.billing : l.addr }));
+      const locations = locs.map(({ sameAsBilling, _k, addrState, ...l }) => ({ ...l, addr: sameAsBilling ? company.billing : l.addr }));
       const body = { company, contacts, locations, tax: { claimsExempt: taxExempt, certificates: certs.filter(c => c.state && c.permitNumber && hasFile(c)).map(({ uploading, err, ...c }) => c) }, signer, original };
       const r = await fetch(`/api/portal/client/${token}/company`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const d = await r.json();
@@ -144,7 +164,7 @@ export default function CompanyInfoPage() {
         <span style={lab}>Website</span><input style={inp} value={company.website} onChange={e => setCompany({ ...company, website: e.target.value })} placeholder="yourbrand.com" />
         <span style={lab}>Billing address</span>
         {company.billingOnFile && !company.billing.line1 && <p style={{ color: H.dim, fontSize: 13.5, lineHeight: 1.5, margin: "0 0 8px", whiteSpace: "pre-line" }}>We have this on file. Please enter it in the boxes below:{"\n"}{company.billingOnFile}</p>}
-        <AddressFields idPrefix="bill" value={company.billing} onChange={a => setCompany({ ...company, billing: a })} inp={inp} lab={lab} nameHint="Company name as it should appear on invoices" warn={H.amber} />
+        <AddrConfirm idPrefix="bill" value={company.billing} onChange={a => setCompany({ ...company, billing: a })} state={billingState} setState={setBillingState} nameHint="Company name as it should appear on invoices" />
         {check(company.invoicePoRequired, v => setCompany({ ...company, invoicePoRequired: v }), "Our invoices need our PO number on them")}
       </div>
 
@@ -174,10 +194,10 @@ export default function CompanyInfoPage() {
           <div key={l.id || (l as any)._k || i} style={{ borderTop: i ? `1px solid ${H.line}` : "none", marginTop: i ? 16 : 0, paddingTop: i ? 6 : 0 }}>
             <span style={lab}>Name for this address</span><input style={inp} value={l.label} onChange={e => upLoc(i, "label", e.target.value)} placeholder="Warehouse, Store, Office…" />
             {l.onFile && !l.addr.line1 && !l.sameAsBilling && <p style={{ color: H.dim, fontSize: 13.5, lineHeight: 1.5, margin: "12px 0 0", whiteSpace: "pre-line" }}>We have this on file. Please enter it in the boxes below:{"\n"}{l.onFile}</p>}
-            {check(!!l.sameAsBilling, v => { upLoc(i, "sameAsBilling", v); if (!v && !l.addr.line1) upLoc(i, "addr", company.billing); }, "Same as our billing address")}
+            {check(!!l.sameAsBilling, v => { upLoc(i, "sameAsBilling", v); if (!v && !l.addr.line1) { upLoc(i, "addr", company.billing); upLoc(i, "addrState", "edit"); } }, "Same as our billing address")}
             {l.sameAsBilling
               ? <p style={{ color: H.dim, fontSize: 13.5, lineHeight: 1.5, margin: "8px 0 0", whiteSpace: "pre-line" }}>{formatAddress(company.billing) || "Fill in your billing address above."}</p>
-              : <AddressFields idPrefix={`loc-${i}`} value={l.addr} onChange={a => upLoc(i, "addr", a)} inp={inp} lab={lab} warn={H.amber} />}
+              : <AddrConfirm idPrefix={`loc-${i}`} value={l.addr} onChange={a => upLoc(i, "addr", a)} state={l.addrState || "edit"} setState={st => upLoc(i, "addrState", st)} />}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0 12px" }}>
               <div><span style={lab}>Attention</span><input style={inp} value={l.contactName} onChange={e => upLoc(i, "contactName", e.target.value)} placeholder="Who receives it" /></div>
               <div><span style={lab}>Phone for the carrier</span><input style={inp} type="tel" value={l.contactPhone} onChange={e => upLoc(i, "contactPhone", e.target.value)} /></div>
