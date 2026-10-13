@@ -10,10 +10,14 @@ import { useClientPortal } from "../_shared/context";
 import { H } from "@/components/hub/theme";
 import { createClient } from "@/lib/supabase/client";
 import { AddressFields } from "@/components/AddressFields";
-import { EMPTY_ADDR, addrProblem, type Addr } from "@/lib/address";
+import { EMPTY_ADDR, addrProblem, formatAddress, type Addr } from "@/lib/address";
+
+// a ship-to that matches billing (street + suite + ZIP; the name line may differ) opens ticked
+const key = (a: Addr) => [a.line1, a.line2, a.zip].join("|").toLowerCase().replace(/[^a-z0-9|]/g, "");
+const sameStreet = (a: Addr, b: Addr) => !!a.line1 && !!b.line1 && key(a) === key(b);
 
 type Contact = { id?: string; name: string; email: string; phone: string; role: string; isPrimary: boolean; getsInvoices: boolean; remove?: boolean };
-type Loc = { id?: string; _k?: string; label: string; addr: Addr; onFile?: string; contactName: string; contactPhone: string; deliveryNotes: string; isDefault: boolean; remove?: boolean };
+type Loc = { id?: string; _k?: string; sameAsBilling?: boolean; label: string; addr: Addr; onFile?: string; contactName: string; contactPhone: string; deliveryNotes: string; isDefault: boolean; remove?: boolean };
 type Cert = { state: string; permitNumber: string; expiresOn: string; uploadPath: string; fileName: string; existingFileId?: string; uploading?: boolean; err?: string };
 
 const box: React.CSSProperties = { background: H.card, border: `1px solid ${H.line}`, borderRadius: 16, padding: "18px 18px 20px", marginTop: 16 };
@@ -60,7 +64,7 @@ export default function CompanyInfoPage() {
       if (d.error) { setErr(d.error); return; }
       setClientName(d.clientName); setStates(d.states || []); setCompany(d.company);
       setContacts(d.contacts.length ? d.contacts : [{ name: "", email: "", phone: "", role: "", isPrimary: true, getsInvoices: true }]);
-      setLocs(d.locations.length ? d.locations : [{ _k: "n0", label: "Main", addr: EMPTY_ADDR, contactName: "", contactPhone: "", deliveryNotes: "", isDefault: true }]);
+      setLocs(d.locations.length ? d.locations.map((l: Loc) => ({ ...l, sameAsBilling: sameStreet(l.addr, d.company.billing) })) : [{ _k: "n0", label: "Main", addr: EMPTY_ADDR, contactName: "", contactPhone: "", deliveryNotes: "", isDefault: true }]);
       setExemptOnFile(!!d.taxExempt); setOnFile(d.certificates || []); setTaxDocs(d.taxDocs || []);
       setOriginal({ company: d.company, contacts: d.contacts, locations: d.locations, blankOnFile: d.blankOnFile }); setLastSub(d.lastSubmission || null);
       setLoaded(true);
@@ -87,7 +91,8 @@ export default function CompanyInfoPage() {
   const problems: string[] = [];
   if (!live.some(c => c.email.includes("@"))) problems.push("Add at least one contact with an email.");
   if (addrProblem(company.billing)) problems.push(`Billing address: ${addrProblem(company.billing)}.`);
-  locs.forEach(l => { if (!l.remove && addrProblem(l.addr)) problems.push(`Ship-to "${l.label || "address"}": ${addrProblem(l.addr)}.`); });
+  // "same as billing" ship-tos use the billing address (already checked above)
+  locs.forEach(l => { if (!l.remove && !l.sameAsBilling && addrProblem(l.addr)) problems.push(`Ship-to "${l.label || "address"}": ${addrProblem(l.addr)}.`); });
   const hasFile = (c: Cert) => !!(c.uploadPath || c.existingFileId);
   if (taxExempt && certs.some(c => c.state || c.permitNumber || hasFile(c)) && certs.some(c => (c.state || c.permitNumber || hasFile(c)) && !(c.state && c.permitNumber && hasFile(c)))) problems.push("Each certificate needs a state, a permit number and the file.");
   // Ticking "tax exempt" is a claim that needs paper: at least one complete
@@ -101,7 +106,8 @@ export default function CompanyInfoPage() {
     if (problems.length) return;
     setBusy(true); setErr(null);
     try {
-      const body = { company, contacts, locations: locs, tax: { claimsExempt: taxExempt, certificates: certs.filter(c => c.state && c.permitNumber && hasFile(c)).map(({ uploading, err, ...c }) => c) }, signer, original };
+      const locations = locs.map(({ sameAsBilling, _k, ...l }) => ({ ...l, addr: sameAsBilling ? company.billing : l.addr }));
+      const body = { company, contacts, locations, tax: { claimsExempt: taxExempt, certificates: certs.filter(c => c.state && c.permitNumber && hasFile(c)).map(({ uploading, err, ...c }) => c) }, signer, original };
       const r = await fetch(`/api/portal/client/${token}/company`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Couldn't save");
@@ -168,8 +174,11 @@ export default function CompanyInfoPage() {
         {locs.map((l, i) => l.remove ? null : (
           <div key={l.id || (l as any)._k || i} style={{ borderTop: i ? `1px solid ${H.line}` : "none", marginTop: i ? 16 : 0, paddingTop: i ? 6 : 0 }}>
             <span style={lab}>Name for this address</span><input style={inp} value={l.label} onChange={e => upLoc(i, "label", e.target.value)} placeholder="Warehouse, Store, Office…" />
-            {l.onFile && !l.addr.line1 && <p style={{ color: H.dim, fontSize: 13.5, lineHeight: 1.5, margin: "12px 0 0", whiteSpace: "pre-line" }}>We have this on file. Please enter it in the boxes below:{"\n"}{l.onFile}</p>}
-            <AddressFields idPrefix={`loc-${i}`} value={l.addr} onChange={a => upLoc(i, "addr", a)} inp={inp} lab={lab} warn={H.amber} />
+            {l.onFile && !l.addr.line1 && !l.sameAsBilling && <p style={{ color: H.dim, fontSize: 13.5, lineHeight: 1.5, margin: "12px 0 0", whiteSpace: "pre-line" }}>We have this on file. Please enter it in the boxes below:{"\n"}{l.onFile}</p>}
+            {check(!!l.sameAsBilling, v => { upLoc(i, "sameAsBilling", v); if (!v && !l.addr.line1) upLoc(i, "addr", company.billing); }, "Same as our billing address")}
+            {l.sameAsBilling
+              ? <p style={{ color: H.dim, fontSize: 13.5, lineHeight: 1.5, margin: "8px 0 0", whiteSpace: "pre-line" }}>{formatAddress(company.billing) || "Fill in your billing address above."}</p>
+              : <AddressFields idPrefix={`loc-${i}`} value={l.addr} onChange={a => upLoc(i, "addr", a)} inp={inp} lab={lab} warn={H.amber} />}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0 12px" }}>
               <div><span style={lab}>Attention</span><input style={inp} value={l.contactName} onChange={e => upLoc(i, "contactName", e.target.value)} placeholder="Who receives it" /></div>
               <div><span style={lab}>Phone for the carrier</span><input style={inp} type="tel" value={l.contactPhone} onChange={e => upLoc(i, "contactPhone", e.target.value)} /></div>
