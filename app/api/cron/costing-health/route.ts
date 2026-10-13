@@ -334,6 +334,14 @@ export async function GET(req: NextRequest) {
     //    OpsHub only displays it. A QB failure changes nothing.
     let taxSync: { checked: number; changed: { name: string; from: boolean; to: boolean }[]; missing: string[] } | { error: string } = { checked: 0, changed: [], missing: [] };
     try { taxSync = await syncClientTaxFromQB(sb); } catch (e: any) { taxSync = { error: e?.message || String(e) }; }
+    // Tell the owner when a client's tax status changed in QB (someone flipped
+    // it, or a certificate was applied) or the mirror couldn't run.
+    const taxLines: string[] = "error" in taxSync
+      ? [`Couldn't read QuickBooks tax status: ${taxSync.error}. Nothing was changed.`]
+      : [
+          ...taxSync.changed.map(c => `${c.name} is now ${c.to ? "TAX EXEMPT" : "TAXABLE"} in QuickBooks (OpsHub had ${c.from ? "exempt" : "taxable"})`),
+          ...(taxSync.missing.length ? [`Not found in QuickBooks (inactive or merged?): ${taxSync.missing.join(", ")}`] : []),
+        ];
 
     // ── Missing-file tripwire: does the file we point at still exist? ──
     // A slice of the library each run (oldest-checked first), inside a time
@@ -347,7 +355,7 @@ export async function GET(req: NextRequest) {
     } catch (e) { console.error("[costing-health] file scan failed", e); }
 
     // Email the owner ONLY when something is wrong. Silent when clean.
-    const sep11Count = badLinks.length + forbiddenPushes.length + poNoInvoice.length + vendorGaps.length + invoiceDrift.length;
+    const sep11Count = badLinks.length + forbiddenPushes.length + poNoInvoice.length + vendorGaps.length + invoiceDrift.length + taxLines.length;
     const missingCount = fileHealth.missing;
     if ((drift.length || healed.length || fleeceGaps.length || phaseDrift.length || qtyHealed.length || qtyDrift.length || sep11Count || missingCount) && process.env.OWNER_EMAIL) {
       try {
@@ -372,6 +380,7 @@ export async function GET(req: NextRequest) {
   ${poNoInvoice.length ? `<h3 style="color:#d97706;margin:16px 0 8px">PO sent, no invoice on the job (${poNoInvoice.length})</h3><ul style="margin:0;padding-left:20px">${poNoInvoice.map(t => `<li style="margin:4px 0;font-size:14px">${t}</li>`).join("")}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">Draft the invoice, or the job lost its QB link — check job_type_meta_history.</p>` : ""}
   ${vendorGaps.length ? `<h3 style="color:#d97706;margin:16px 0 8px">Vendor in costing, no assignment (${vendorGaps.length})</h3><ul style="margin:0;padding-left:20px">${vendorGaps.map(t => `<li style="margin:4px 0;font-size:14px">${t}</li>`).join("")}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">These sit under "Unassigned vendor" on the production board and are missing from that vendor's portal. Re-save the item's decoration on the job page, or ask for a backfill.</p>` : ""}
   ${invoiceDrift.length ? `<h3 style="color:#ef4444;margin:16px 0 8px">QB invoice ≠ approved shipped total (${invoiceDrift.length})</h3><ul style="margin:0;padding-left:20px">${invoiceDrift.map(t => `<li style="margin:4px 0;font-size:14px">${t}</li>`).join("")}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">The client's PDF and their QB pay link disagree. Re-sync QB on the job pushes the approved shipped quantities.</p>` : ""}
+  ${taxLines.length ? `<h3 style="color:#d97706;margin:16px 0 8px">Sales tax status (${taxLines.length})</h3><ul style="margin:0;padding-left:20px">${taxLines.map(t => `<li style="margin:4px 0;font-size:14px">${t}</li>`).join("")}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">QuickBooks' customer record decides what invoices are taxed; OpsHub mirrors it. An exemption should always have a resale certificate on file.</p>` : ""}
   ${missingCount ? `<h3 style="color:#ef4444;margin:16px 0 8px">Files missing from Google Drive (${missingCount}${fileHealth.newlyMissing ? `, ${fileHealth.newlyMissing} new` : ""})</h3><ul style="margin:0;padding-left:20px">${missing.map(m => `<li style="margin:4px 0;font-size:14px"><b>${m.itemName || m.fileName || "—"}</b>${m.jobNumber ? ` · ${m.jobNumber}` : ""}${m.clientName ? ` · ${m.clientName}` : ""} — ${m.stage || "file"} "${m.fileName || ""}" is gone${m.firstMissingAt ? ` (first seen missing ${fmtPacific(m.firstMissingAt)})` : ""}</li>`).join("")}${missingCount > missing.length ? `<li style="margin:4px 0;font-size:14px;color:#666">…and ${missingCount - missing.length} more</li>` : ""}</ul><p style="font-size:12px;color:#666;margin:4px 0 0">The record points at a Drive file that no longer exists. Check Drive trash first (restorable for 30 days), then re-upload. Deletes have gone to the trash with a reference check since Sep 19 2026.</p>` : ""}
   <p style="margin:20px 0 0;font-size:12px;color:#999">Costing: re-save the job's costing tab. Phase: open the job (V2 heals on load). — OpsHub tripwire</p>
 </div>`;
