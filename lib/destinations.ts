@@ -19,6 +19,7 @@
 // Design map: https://claude.ai/artifact/TaR32tPynQBHzpn7BFk2hv
 
 import type { Movement } from "./item-derivation";
+import { LOC_ADDR_COLS, locAddr, type Addr } from "./address";
 
 type Sb = any;
 export type SizeQtys = Record<string, number>;
@@ -32,6 +33,9 @@ export type LocationRow = {
   contact_name?: string | null;
   contact_phone?: string | null;
   delivery_notes?: string | null;   // dock hours / gate code (mig 199, client info form)
+  // address PARTS (mig 200) — the truth; `address` is the trigger-built display copy
+  addr_name?: string | null; addr_line1?: string | null; addr_line2?: string | null;
+  addr_city?: string | null; addr_state?: string | null; addr_zip?: string | null; addr_country?: string | null;
   is_default: boolean;
   active: boolean;
 };
@@ -43,6 +47,7 @@ export type ShipTo = {
   attn: string | null;         // the job's ATTN line on its own (jobs.ship_attn), for editing
   contactName: string | null;
   contactPhone: string | null;
+  parts?: Addr | null;         // structured address (null = not split yet — needs review)
 };
 
 // "ATTN: PO-21724" as the last address line. One place decides the format.
@@ -57,6 +62,7 @@ export const sumQ = (q: SizeQtys | null | undefined) =>
 const toShipTo = (l: LocationRow, attn: string | null | undefined): ShipTo => ({
   locationId: l.id, label: l.label, address: withAttn(l.address, attn), attn: attn?.trim() || null,
   contactName: l.contact_name ?? null, contactPhone: l.contact_phone ?? null,
+  parts: l.addr_line1 ? locAddr(l) : null,
 });
 
 // ── Pure resolvers ─────────────────────────────────────────────────────
@@ -141,7 +147,7 @@ export function addressLines(addr: string | null | undefined): string[] {
 export async function loadLocations(sb: Sb, clientId: string | null, jobId?: string | null): Promise<LocationRow[]> {
   if (!clientId) return [];
   let q = sb.from("client_locations")
-    .select("id, client_id, job_id, label, address, contact_name, contact_phone, is_default, active")
+    .select(`id, client_id, job_id, label, address, contact_name, contact_phone, is_default, active, ${LOC_ADDR_COLS}`)
     .eq("client_id", clientId).eq("active", true);
   q = jobId ? q.or(`job_id.is.null,job_id.eq.${jobId}`) : q.is("job_id", null);
   const { data } = await q.order("is_default", { ascending: false }).order("label");

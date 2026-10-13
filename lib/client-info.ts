@@ -11,6 +11,7 @@
 //   - the client never renames themselves: clients.name is HPD's handle.
 
 import { setCustomerTaxExempt, getCustomerById } from "./quickbooks";
+import { BILL_ADDR_COLS, EMPTY_ADDR, LOC_ADDR_COLS, addrProblem, billAddr, billAddrCols, cleanAddr, formatAddress, fromQbAddr, locAddr, locAddrCols, type Addr } from "./address";
 import { syncClientTaxFromQB } from "./client-tax-sync";
 import { uploadFile } from "./google-drive";
 import { getDriveToken, getPrivateDocFolder } from "./drive-token";
@@ -18,13 +19,15 @@ import { getDriveToken, getPrivateDocFolder } from "./drive-token";
 type Db = any;
 export const CERT_BUCKET = "client-docs";
 
-export const US_STATES = ["AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"];
+export { US_STATES } from "./address";   // one list (lib/address)
 
 export type InfoContact = { id?: string; name: string; email: string; phone: string; role: string; isPrimary: boolean; getsInvoices: boolean; remove?: boolean };
-export type InfoLocation = { id?: string; label: string; address: string; contactName: string; contactPhone: string; deliveryNotes: string; isDefault: boolean; remove?: boolean };
+// addresses are PARTS (mig 200). onFile = the old one-line text of an address
+// that was never split, shown to the client so they can re-enter it.
+export type InfoLocation = { id?: string; label: string; addr: Addr; onFile?: string; contactName: string; contactPhone: string; deliveryNotes: string; isDefault: boolean; remove?: boolean };
 export type InfoCert = { state: string; permitNumber: string; expiresOn: string; uploadPath: string; fileName: string; existingFileId?: string };
 export type InfoPayload = {
-  company: { legalName: string; ein: string; website: string; billingAddress: string; invoicePoRequired: boolean };
+  company: { legalName: string; ein: string; website: string; billing: Addr; billingOnFile?: string; invoicePoRequired: boolean };
   contacts: InfoContact[];
   locations: InfoLocation[];
   tax: { claimsExempt: boolean; certificates: InfoCert[] };
@@ -39,9 +42,9 @@ export async function loadClientInfo(db: Db, clientId: string) {
   // Contacts: hide removed ones (["none"]) but KEEP null routing — NULL means
   // "receives everything", and a bare NOT(cs) silently drops NULL rows.
   const [{ data: c }, { data: contacts }, { data: locs }, { data: certs }, { data: taxDocs }, { data: lastSub }] = await Promise.all([
-    db.from("clients").select("id, name, legal_name, ein, website, billing_address, invoice_po_required, tax_exempt, qb_resale_num, qb_customer_id").eq("id", clientId).single(),
+    db.from("clients").select(`id, name, legal_name, ein, website, billing_address, invoice_po_required, tax_exempt, qb_resale_num, qb_customer_id, ${BILL_ADDR_COLS}`).eq("id", clientId).single(),
     db.from("contacts").select("id, name, email, phone, role_label, is_primary, doc_routing").eq("client_id", clientId).or("doc_routing.is.null,doc_routing.not.cs.{none}").order("is_primary", { ascending: false }).order("name"),
-    db.from("client_locations").select("id, label, address, contact_name, contact_phone, delivery_notes, is_default").eq("client_id", clientId).is("job_id", null).eq("active", true).order("is_default", { ascending: false }),
+    db.from("client_locations").select(`id, label, address, contact_name, contact_phone, delivery_notes, is_default, ${LOC_ADDR_COLS}`).eq("client_id", clientId).is("job_id", null).eq("active", true).order("is_default", { ascending: false }),
     db.from("client_tax_certificates").select("id, state, permit_number, expires_on, status, created_at").eq("client_id", clientId).order("created_at", { ascending: false }),
     // tax documents already on file (uploaded by staff before the form existed)
     db.from("client_files").select("id, file_name, created_at").eq("client_id", clientId).eq("kind", "tax_exempt").order("created_at", { ascending: false }),
@@ -59,17 +62,18 @@ export async function loadClientInfo(db: Db, clientId: string) {
   // Prefill only: a QB hiccup just means fewer prefilled fields.
   let qb: any = null;
   if (c.qb_customer_id) { try { qb = await getCustomerById(c.qb_customer_id); } catch {} }
-  const qbAddr = (a: any) => !a ? "" : [a.Line1, a.Line2, a.Line3, [a.City, a.CountrySubDivisionCode].filter(Boolean).join(", ") + (a.PostalCode ? ` ${a.PostalCode}` : "")].filter(x => x && String(x).trim()).join("\n");
-  const qbShip = qbAddr(qb?.ShipAddr);
-  const locations = ((locs || []) as any[]).map(l => ({ id: l.id, label: l.label || "", address: l.address || "", contactName: l.contact_name || "", contactPhone: l.contact_phone || "", deliveryNotes: l.delivery_notes || "", isDefault: !!l.is_default }));
-  if (!locations.length && qbShip) locations.push({ id: undefined as any, label: "Main", address: qbShip, contactName: "", contactPhone: qb?.PrimaryPhone?.FreeFormNumber || "", deliveryNotes: "", isDefault: true });
+  const qbShip = fromQbAddr(qb?.ShipAddr);
+  const locations: InfoLocation[] = ((locs || []) as any[]).map(l => ({ id: l.id, label: l.label || "", addr: l.addr_line1 ? locAddr(l) : EMPTY_ADDR, ...(l.addr_line1 ? {} : { onFile: l.address || "" }), contactName: l.contact_name || "", contactPhone: l.contact_phone || "", deliveryNotes: l.delivery_notes || "", isDefault: !!l.is_default }));
+  if (!locations.length && qbShip && !addrProblem(qbShip)) locations.push({ label: "Main", addr: qbShip, contactName: "", contactPhone: qb?.PrimaryPhone?.FreeFormNumber || "", deliveryNotes: "", isDefault: true });
+  const qbBill = fromQbAddr(qb?.BillAddr);
   return {
     clientName: c.name,
     company: {
       legalName: c.legal_name || qb?.CompanyName || "",
       ein: c.ein || "",
       website: c.website || qb?.WebAddr?.URI || "",
-      billingAddress: c.billing_address || qbAddr(qb?.BillAddr),
+      billing: c.bill_line1 ? billAddr(c) : (qbBill && !addrProblem(qbBill) ? qbBill : EMPTY_ADDR),
+      ...(c.billing_address && !c.bill_line1 ? { billingOnFile: c.billing_address } : {}),
       invoicePoRequired: !!c.invoice_po_required,
     },
     taxExempt: !!c.tax_exempt, resaleNum: c.qb_resale_num || null,
@@ -79,7 +83,7 @@ export async function loadClientInfo(db: Db, clientId: string) {
     taxDocs: ((taxDocs || []) as any[]).map(d => ({ id: d.id, fileName: d.file_name, uploadedOn: String(d.created_at || "").slice(0, 10) })),
     // which company fields were EMPTY in OpsHub when the form was opened (a
     // prefill from QuickBooks only saves into a field that was blank then)
-    blankOnFile: { legalName: !c.legal_name, ein: !c.ein, website: !c.website, billingAddress: !c.billing_address },
+    blankOnFile: { legalName: !c.legal_name, ein: !c.ein, website: !c.website, billingAddress: !c.bill_line1 },
     lastSubmission: lastSub ? { signerName: (lastSub as any).signer_name, submittedAt: (lastSub as any).submitted_at } : null,
   };
 }
@@ -90,6 +94,12 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   const signerName = clip(p.signer.name, 120);
   if (!signerName) throw new Error("Please enter your name.");
   const before = await loadClientInfo(db, clientId);
+  // addresses must be complete — checked before ANY write (and before certificate files are filed) so a bad one never leaves a half-applied form
+  for (const l of p.locations || []) {
+    const a = cleanAddr(l.addr || EMPTY_ADDR);
+    if (!l.remove && a.line1 && addrProblem(a)) throw new Error(`Please finish the address "${clip(l.label, 80) || "Ship-to"}": ${addrProblem(a)}.`);
+  }
+  { const b = cleanAddr(p.company?.billing || EMPTY_ADDR); if (b.line1 && addrProblem(b)) throw new Error(`Please finish the billing address: ${addrProblem(b)}.`); }
   const applied: string[] = [];
 
   // A tax-exempt claim needs paper: a certificate with this submission, or an
@@ -141,7 +151,7 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   // company: a field applies if they changed it, or if it fills a blank on file
   // (accepting a QuickBooks prefill must still save; filling a blank clobbers no one)
   const co = p.company || ({} as InfoPayload["company"]);
-  const { data: stored } = await db.from("clients").select("legal_name, ein, website, billing_address, invoice_po_required").eq("id", clientId).single();
+  const { data: stored } = await db.from("clients").select(`legal_name, ein, website, billing_address, invoice_po_required, ${BILL_ADDR_COLS}`).eq("id", clientId).single();
   const patch: any = {};
   // fill-a-blank only if it was blank when THEY opened it — never refill a
   // field someone cleared after they opened the form
@@ -153,7 +163,17 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   take("legal_name", "legalName", "Legal name", clip(co.legalName, 200), clip(orig.company?.legalName, 200), stored?.legal_name || "");
   take("ein", "ein", "EIN", clip(co.ein, 20), clip(orig.company?.ein, 20), stored?.ein || "");
   take("website", "website", "Website", clip(co.website, 200), clip(orig.company?.website, 200), stored?.website || "");
-  take("billing_address", "billingAddress", "Billing address", clip(co.billingAddress, 600), clip(orig.company?.billingAddress, 600), stored?.billing_address || "");
+  // billing address: compared as a whole (formatted parts), same rules
+  {
+    const nextA = cleanAddr(co.billing || EMPTY_ADDR), next = formatAddress(nextA);
+    const was = formatAddress(cleanAddr(orig.company?.billing || EMPTY_ADDR));
+    const onFile = stored?.bill_line1 ? formatAddress(billAddr(stored)) : "";
+    if (next !== onFile && (next !== was || (!onFile && next && wasBlank("billingAddress")))) {
+      if (next && addrProblem(nextA)) throw new Error(`Please finish the billing address: ${addrProblem(nextA)}.`);
+      Object.assign(patch, next ? billAddrCols(nextA) : { ...billAddrCols(EMPTY_ADDR), billing_address: null });
+      applied.push("Billing address updated");
+    }
+  }
   if (!!co.invoicePoRequired !== !!orig.company?.invoicePoRequired && !!co.invoicePoRequired !== !!stored?.invoice_po_required) {
     patch.invoice_po_required = !!co.invoicePoRequired; applied.push(`Invoices ${co.invoicePoRequired ? "now need" : "no longer need"} a PO number`);
   }
@@ -250,31 +270,41 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   const curLoc = new Map(before.locations.filter(l => l.id).map(l => [l.id as string, l]));
   const openedLoc = new Map((orig.locations || []).filter(l => l.id).map(l => [l.id as string, l]));
   const norm = (a: string) => String(a || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-  const addrOnFile = new Set(before.locations.filter(l => l.id).map(l => norm(l.address)));
+  // dedupe new addresses by street + ZIP (split rows) or inside the old text (unsplit rows)
+  const keyOf = (a: Addr) => norm(a.line1) + "|" + norm(a.zip);
+  const addrOnFile = new Set(before.locations.filter(l => l.id && l.addr.line1).map(l => keyOf(l.addr)));
+  const oldTexts = before.locations.filter(l => l.id && !l.addr.line1).map(l => norm(l.onFile || ""));
+  const alreadyOnFile = (a: Addr) => addrOnFile.has(keyOf(a)) || oldTexts.some(tx => tx.includes(norm(a.line1)) && tx.includes(norm(a.zip)));
   let defaultTo: string | null = null;
   const defaultFree = !before.locations.some(l => l.id && l.isDefault) || (p.locations || []).some(l => l.id && openedLoc.get(l.id)?.isDefault && (!l.isDefault || l.remove));
   for (const l of (p.locations || []).slice(0, 40)) {
-    const v = { label: clip(l.label, 80) || "Ship-to", address: clip(l.address, 600), contactName: clip(l.contactName, 120), contactPhone: clip(l.contactPhone, 40), deliveryNotes: clip(l.deliveryNotes, 500) };
+    const v = { label: clip(l.label, 80) || "Ship-to", contactName: clip(l.contactName, 120), contactPhone: clip(l.contactPhone, 40), deliveryNotes: clip(l.deliveryNotes, 500) };
+    const vA = cleanAddr(l.addr || EMPTY_ADDR);
     if (l.id) {
       const cur = curLoc.get(l.id);
       if (!cur) continue;   // removed since they opened the form — stays removed
       const was = openedLoc.get(l.id) || cur;
       if (l.remove) { await db.from("client_locations").update({ active: false, is_default: false }).eq("id", l.id).eq("client_id", clientId); applied.push(`Address "${cur.label}" removed`); continue; }
-      const wasV = { label: clip(was.label, 80) || "Ship-to", address: clip(was.address, 600), contactName: clip(was.contactName, 120), contactPhone: clip(was.contactPhone, 40), deliveryNotes: clip(was.deliveryNotes, 500) };
-      const pick = (k: "label" | "address" | "contactName" | "contactPhone" | "deliveryNotes") => v[k] !== wasV[k] ? v[k] : (cur as any)[k];
-      const m = { label: pick("label"), address: pick("address"), contactName: pick("contactName"), contactPhone: pick("contactPhone"), deliveryNotes: pick("deliveryNotes") };
+      const wasV = { label: clip(was.label, 80) || "Ship-to", contactName: clip(was.contactName, 120), contactPhone: clip(was.contactPhone, 40), deliveryNotes: clip(was.deliveryNotes, 500) };
+      const pick = (k: "label" | "contactName" | "contactPhone" | "deliveryNotes") => v[k] !== wasV[k] ? v[k] : (cur as any)[k];
+      const m = { label: pick("label"), contactName: pick("contactName"), contactPhone: pick("contactPhone"), deliveryNotes: pick("deliveryNotes") };
+      const addrChanged = formatAddress(vA) !== formatAddress(cleanAddr(was.addr || EMPTY_ADDR)) && formatAddress(vA) !== formatAddress(cur.addr);
       const upd: any = {};
       if (m.label !== cur.label && m.label !== wasV.label) upd.label = m.label;
-      if (m.address !== cur.address && m.address) upd.address = m.address;
+      if (addrChanged && vA.line1) {
+        if (addrProblem(vA)) throw new Error(`Please finish the address "${m.label}": ${addrProblem(vA)}.`);
+        Object.assign(upd, locAddrCols(vA));   // the text copy is built by the DB trigger
+      }
       if (m.contactName !== cur.contactName) upd.contact_name = m.contactName || null;
       if (m.contactPhone !== cur.contactPhone) upd.contact_phone = m.contactPhone || null;
       if (m.deliveryNotes !== cur.deliveryNotes) upd.delivery_notes = m.deliveryNotes || null;
       if (!!l.isDefault !== !!was.isDefault && l.isDefault) defaultTo = l.id;
       if (Object.keys(upd).length) { await db.from("client_locations").update(upd).eq("id", l.id).eq("client_id", clientId); applied.push(`Address "${m.label}" updated`); }
-    } else if (!l.remove && v.address) {
-      if (addrOnFile.has(norm(v.address))) { applied.push(`Address "${v.label}" was already on file`); continue; }
-      const { data: nl } = await db.from("client_locations").insert({ client_id: clientId, job_id: null, active: true, label: v.label, address: v.address, contact_name: v.contactName || null, contact_phone: v.contactPhone || null, delivery_notes: v.deliveryNotes || null, is_default: false }).select("id").single();
-      addrOnFile.add(norm(v.address));
+    } else if (!l.remove && vA.line1) {
+      if (addrProblem(vA)) throw new Error(`Please finish the address "${v.label}": ${addrProblem(vA)}.`);
+      if (alreadyOnFile(vA)) { applied.push(`Address "${v.label}" was already on file`); continue; }
+      const { data: nl } = await db.from("client_locations").insert({ client_id: clientId, job_id: null, active: true, label: v.label, ...locAddrCols(vA), contact_name: v.contactName || null, contact_phone: v.contactPhone || null, delivery_notes: v.deliveryNotes || null, is_default: false }).select("id").single();
+      addrOnFile.add(keyOf(vA));
       if (l.isDefault && defaultFree && nl?.id) defaultTo = nl.id;
       applied.push(`Address "${v.label}" added`);
     }

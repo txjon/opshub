@@ -3,6 +3,8 @@ import { useState, useEffect, useRef } from "react";
 import { similarClients } from "@/lib/client-match";
 import { createClient } from "@/lib/supabase/client";
 import { createLocation } from "@/lib/destination-actions";
+import { AddressFields } from "@/components/AddressFields";
+import { EMPTY_ADDR, addrProblem, billAddrCols, formatAddress, type Addr } from "@/lib/address";
 import { useRouter, useSearchParams } from "next/navigation";
 import { T, font, mono } from "@/lib/theme";
 import { useIsMobile } from "@/lib/useIsMobile";
@@ -45,7 +47,7 @@ export default function NewJobPage() {
   const [showNewClientModal, setShowNewClientModal] = useState(false);
   const [nc, setNc] = useState({
     company: "", contactName: "", email: "", phone: "", website: "",
-    billingAddress: "", shippingAddress: "", sameAsBilling: true,
+    billing: EMPTY_ADDR as Addr, shipping: EMPTY_ADDR as Addr, sameAsBilling: true,
     defaultTerms: "prepaid", notes: "",
     extraContacts: [] as { name: string; email: string; phone: string }[],
   });
@@ -90,7 +92,7 @@ export default function NewJobPage() {
   const openNewClientModal = () => {
     setNc({
       company: "", contactName: "", email: "", phone: "", website: "",
-      billingAddress: "", shippingAddress: "", sameAsBilling: true,
+      billing: EMPTY_ADDR as Addr, shipping: EMPTY_ADDR as Addr, sameAsBilling: true,
       defaultTerms: "prepaid", notes: "",
       extraContacts: [],
     });
@@ -111,8 +113,12 @@ export default function NewJobPage() {
     };
     // New profile fields — only include if non-empty (graceful if columns don't exist yet)
     if (nc.website.trim()) insertData.website = nc.website.trim();
-    if (nc.billingAddress.trim()) insertData.billing_address = nc.billingAddress.trim();
-    const shipAddr = nc.sameAsBilling ? nc.billingAddress.trim() : nc.shippingAddress.trim();
+    // addresses are optional here, but a started one must be complete (parts, mig 200)
+    const shipAddr = nc.sameAsBilling ? nc.billing : nc.shipping;
+    for (const [what, a] of [["Billing", nc.billing], ["Shipping", shipAddr]] as const) {
+      if (a.line1.trim() && addrProblem(a)) { setSavingClient(false); setError(`${what} address: ${addrProblem(a)}`); return; }
+    }
+    if (nc.billing.line1.trim()) Object.assign(insertData, billAddrCols(nc.billing));   // billing_address text is built by the DB trigger
     // No tax-exempt checkbox: exemption is QuickBooks' call, set from a
     // verified resale certificate and mirrored back (lib/client-tax-sync).
 
@@ -125,7 +131,7 @@ export default function NewJobPage() {
     }
     if (err || !data) { setSavingClient(false); setError(err?.message || "Failed to create client"); return; }
     // Address book (mig 180): the shipping address is the client's Main location.
-    if (shipAddr) { try { await createLocation(supabase, { clientId: data.id, label: "Main", address: shipAddr }); } catch {} }
+    if (shipAddr.line1.trim()) { try { await createLocation(supabase, { clientId: data.id, label: "Main", addr: shipAddr }); } catch {} }
 
     // Create primary contact
     if (nc.contactName.trim() || nc.email.trim()) {
@@ -371,8 +377,7 @@ export default function NewJobPage() {
               <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 12 }}>
                 <div>
                   <label style={s.label}>Billing Address</label>
-                  <textarea value={nc.billingAddress} onChange={e => setNc(p => ({ ...p, billingAddress: e.target.value }))}
-rows={3} style={{ ...s.input, resize: "vertical" as const, lineHeight: 1.4 }} />
+                  <AddressFields idPrefix="nc-bill" value={nc.billing} onChange={a => setNc(p => ({ ...p, billing: a }))} inp={s.input} warn={T.amber} />
                 </div>
                 <div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
@@ -385,11 +390,10 @@ rows={3} style={{ ...s.input, resize: "vertical" as const, lineHeight: 1.4 }} />
                   </div>
                   {nc.sameAsBilling ? (
                     <div style={{ padding: "10px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, fontSize: 12, color: T.faint, fontFamily: font, minHeight: 72, display: "flex", alignItems: "center" }}>
-                      {nc.billingAddress.trim() || "Will use billing address"}
+                      <span style={{ whiteSpace: "pre-line" }}>{formatAddress(nc.billing) || "Will use billing address"}</span>
                     </div>
                   ) : (
-                    <textarea value={nc.shippingAddress} onChange={e => setNc(p => ({ ...p, shippingAddress: e.target.value }))}
-  rows={3} style={{ ...s.input, resize: "vertical" as const, lineHeight: 1.4 }} />
+                    <AddressFields idPrefix="nc-ship" value={nc.shipping} onChange={a => setNc(p => ({ ...p, shipping: a }))} inp={s.input} warn={T.amber} />
                   )}
                 </div>
               </div>

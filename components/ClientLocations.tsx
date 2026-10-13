@@ -12,6 +12,8 @@ import { H } from "@/components/hub/theme";
 import { createClient } from "@/lib/supabase/client";
 import { addressLines, type LocationRow } from "@/lib/destinations";
 import { createLocation, retireLocation, setDefaultLocation, updateLocation } from "@/lib/destination-actions";
+import { AddressFields } from "@/components/AddressFields";
+import { EMPTY_ADDR, LOC_ADDR_COLS, addrProblem, locAddr, type Addr } from "@/lib/address";
 
 const PURPLE = "#fd3aa3";
 const LAB: React.CSSProperties = { fontSize: 9.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, display: "block", marginBottom: 5 };
@@ -25,7 +27,7 @@ export function ClientLocations({ clientId, secHead }: { clientId: string; secHe
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const load = async () => {
-    const { data } = await sb.from("client_locations").select("id, client_id, job_id, label, address, contact_name, contact_phone, delivery_notes, is_default, active")
+    const { data } = await sb.from("client_locations").select(`id, client_id, job_id, label, address, contact_name, contact_phone, delivery_notes, is_default, active, ${LOC_ADDR_COLS}`)
       .eq("client_id", clientId).is("job_id", null).eq("active", true).order("is_default", { ascending: false }).order("label");
     setRows((data || []) as LocationRow[]);
   };
@@ -51,6 +53,8 @@ export function ClientLocations({ clientId, secHead }: { clientId: string; secHe
               </div>
               <div style={{ fontSize: 12.5, color: H.text, lineHeight: 1.45 }}>
                 {addressLines(r.address).map((l, i) => <div key={i}>{l}</div>)}
+                {/* not split into street / city / state / ZIP yet (mig 200) — Edit fixes it */}
+                {!r.addr_line1 && <div style={{ color: H.amber, fontWeight: 700, marginTop: 2 }}>Needs fixing: enter street, city, state and ZIP</div>}
                 {(r.contact_name || r.contact_phone) && <div style={{ color: H.faint, marginTop: 2 }}>{[r.contact_name, r.contact_phone].filter(Boolean).join(" · ")}</div>}
                 {r.delivery_notes && <div style={{ color: H.faint, marginTop: 2, fontStyle: "italic" }}>{r.delivery_notes}</div>}
               </div>
@@ -66,7 +70,7 @@ export function ClientLocations({ clientId, secHead }: { clientId: string; secHe
         {rows.length === 0 && editing !== "new" && <div style={{ fontSize: 12.5, color: H.amber, fontWeight: 600 }}>No shipping address on file.</div>}
         {editing === "new"
           ? <LocationForm onCancel={() => setEditing(null)}
-              onSave={p => run(async () => { await createLocation(sb, { clientId, label: p.label || "", address: p.address || "", contactName: p.contactName, contactPhone: p.contactPhone, deliveryNotes: p.deliveryNotes }); setEditing(null); }, "Address added")} />
+              onSave={p => run(async () => { await createLocation(sb, { clientId, label: p.label || "", addr: p.addr!, contactName: p.contactName, contactPhone: p.contactPhone, deliveryNotes: p.deliveryNotes }); setEditing(null); }, "Address added")} />
           : <div><button style={LINK} onClick={() => setEditing("new")}>+ Add location</button></div>}
       </div>
       {msg && <div style={{ fontSize: 11, color: msg.ok ? H.green : H.red, marginTop: 6 }}>{msg.text}</div>}
@@ -76,10 +80,11 @@ export function ClientLocations({ clientId, secHead }: { clientId: string; secHe
 
 function LocationForm({ row, onSave, onCancel }: {
   row?: LocationRow; onCancel: () => void;
-  onSave: (p: { label?: string; address?: string; contactName?: string | null; contactPhone?: string | null; deliveryNotes?: string | null }) => void;
+  onSave: (p: { label?: string; addr?: Addr; contactName?: string | null; contactPhone?: string | null; deliveryNotes?: string | null }) => void;
 }) {
   const [label, setLabel] = useState(row?.label || "");
-  const [address, setAddress] = useState(row?.address || "");
+  const [addr, setAddr] = useState<Addr>(row?.addr_line1 ? locAddr(row) : EMPTY_ADDR);
+  const problem = addrProblem(addr);
   const [contact, setContact] = useState(row?.contact_name || "");
   const [phone, setPhone] = useState(row?.contact_phone || "");
   const [notes, setNotes] = useState(row?.delivery_notes || "");
@@ -91,11 +96,13 @@ function LocationForm({ row, onSave, onCancel }: {
         <input id={`loc-${id}-contact`} style={INP} placeholder="Contact (optional)" value={contact} onChange={e => setContact(e.target.value)} />
         <input id={`loc-${id}-phone`} style={INP} placeholder="Phone (optional)" value={phone} onChange={e => setPhone(e.target.value)} />
       </div>
-      <textarea id={`loc-${id}-address`} style={{ ...INP, minHeight: 72, resize: "vertical", lineHeight: 1.45 }} placeholder={"Company\nStreet\nCity, ST ZIP"} value={address} onChange={e => setAddress(e.target.value)} />
+      {/* an address that was never split shows its old text to copy from */}
+      {row && !row.addr_line1 && <div style={{ fontSize: 12, color: H.dim, whiteSpace: "pre-line", borderLeft: `2px solid ${H.amber}`, paddingLeft: 8 }}>On file: {row.address}</div>}
+      <AddressFields idPrefix={`loc-${id}`} value={addr} onChange={setAddr} inp={INP} problem={problem} warn={H.amber} />
       <input id={`loc-${id}-notes`} style={INP} placeholder="Delivery notes (dock hours, gate code…)" value={notes} onChange={e => setNotes(e.target.value)} />
       <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
         <button style={{ ...LINK, color: H.faint }} onClick={onCancel}>Cancel</button>
-        <button style={LINK} disabled={!address.trim()} onClick={() => onSave({ label, address, contactName: contact, contactPhone: phone, deliveryNotes: notes })}>Save</button>
+        <button style={{ ...LINK, opacity: problem ? 0.4 : 1 }} disabled={!!problem} onClick={() => onSave({ label, addr, contactName: contact, contactPhone: phone, deliveryNotes: notes })}>Save</button>
       </div>
     </div>
   );

@@ -20,6 +20,8 @@ import { loadJobPhasesBatch } from "@/lib/item-state";
 import { ClientLocations } from "@/components/ClientLocations";
 import { todayPacific } from "@/lib/dates";
 import { resolveRecipientEmails } from "@/lib/recipients";
+import { AddressFields } from "@/components/AddressFields";
+import { EMPTY_ADDR, addrProblem, billAddr, billAddrCols } from "@/lib/address";
 import { CatalogRail, ArchiveRail, buildCatalogPieces, CLIENT_CARD_CSS } from "@/components/client/ClientCatalog";
 
 const PURPLE = "#fd3aa3";
@@ -317,7 +319,7 @@ function Overview({ client, contacts, wire, model, briefs, secHead, onEdit }: an
           {([
             ["Legal name", client.legal_name],
             ["EIN", client.ein],
-            ["Billing address", client.billing_address],
+            ["Billing address", client.billing_address && !client.bill_line1 ? `${client.billing_address}\nNeeds fixing: open Edit client and enter street, city, state and ZIP` : client.billing_address],
             ["Website", client.website],
             ["Invoices", client.invoice_po_required ? "Must carry their PO number" : "No PO required"],
             ["Sales tax", `${client.tax_exempt ? "Exempt" : "Taxable"}${client.qb_customer_id ? " · from QuickBooks" : " · not in QuickBooks yet"}${client.qb_resale_num ? ` · resale ${client.qb_resale_num}` : ""}`],
@@ -510,7 +512,7 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
   const [form, setForm] = useState<any>({
     name: client.name || "", client_type: client.client_type || "",
     default_terms: client.default_terms || "", website: client.website || "",
-    billing_address: client.billing_address || "",
+    bill: client.bill_line1 ? billAddr(client) : EMPTY_ADDR,   // parts (mig 200); billing_address text is trigger-built
     legal_name: client.legal_name || "", ein: client.ein || "", invoice_po_required: !!client.invoice_po_required,
     notes: client.notes || "",
     allow_cc: client.allow_cc !== false, allow_ach: client.allow_ach !== false,
@@ -608,18 +610,23 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
 
   async function save() {
     if (!form.name.trim()) { setErr("Name can't be empty."); return; }
+    if (form.bill.line1.trim() && addrProblem(form.bill)) { setErr(`Billing address: ${addrProblem(form.bill)}.`); return; }
     setBusy(true); setErr(null);
     try {
       const cPatch = {
         name: form.name.trim(), client_type: form.client_type || null,
         default_terms: form.default_terms || null, website: form.website.trim() || null,
-        billing_address: form.billing_address.trim() || null,   // shipping address lives in Locations (client_locations)
+        // billing address = parts; the text copy is built by the DB trigger. Left
+        // blank on a never-split address = untouched (keeps the old text). Shipping
+        // addresses live in Locations (client_locations).
+        ...(form.bill.line1.trim() ? billAddrCols(form.bill) : client.bill_line1 ? { ...billAddrCols(EMPTY_ADDR), billing_address: null } : {}),
         legal_name: form.legal_name.trim() || null, ein: form.ein.trim() || null, invoice_po_required: !!form.invoice_po_required,
         notes: form.notes.trim() || null,
         allow_cc: !!form.allow_cc, allow_ach: !!form.allow_ach,
       };
-      const { error: ce } = await (supabase.from("clients") as any).update(cPatch).eq("id", client.id);
+      const { data: back, error: ce } = await (supabase.from("clients") as any).update(cPatch).eq("id", client.id).select("billing_address").single();
       if (ce) throw new Error(ce.message);
+      (cPatch as any).billing_address = back?.billing_address ?? null;   // the trigger-built text, so the page shows it
       for (const id of removed) {
         const jc = await supabase.from("job_contacts").delete().eq("contact_id", id);
         if (jc.error) throw new Error(`Couldn't unassign contact from projects: ${jc.error.message}`);
@@ -667,7 +674,10 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
             <div><span style={lab}>EIN</span><input style={inp} value={form.ein} onChange={e => setForm((f: any) => ({ ...f, ein: e.target.value }))} /></div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <div><span style={lab}>Billing address</span><textarea style={{ ...inp, minHeight: 76, resize: "vertical", lineHeight: 1.5 }} value={form.billing_address} onChange={e => setForm((f: any) => ({ ...f, billing_address: e.target.value }))} /></div>
+          </div>
+          <div><span style={lab}>Billing address</span>
+            {client.billing_address && !client.bill_line1 && <div style={{ fontSize: 12, color: H.dim, whiteSpace: "pre-line", borderLeft: `2px solid ${H.amber}`, paddingLeft: 8, marginBottom: 8 }}>On file (needs fixing): {client.billing_address}</div>}
+            <AddressFields idPrefix="bill" value={form.bill} onChange={a => setForm((f: any) => ({ ...f, bill: a }))} inp={inp} problem={form.bill.line1 ? addrProblem(form.bill) : undefined} warn={H.amber} />
           </div>
           <div><span style={lab}>Notes</span><textarea style={{ ...inp, minHeight: 64, resize: "vertical", lineHeight: 1.5 }} value={form.notes} onChange={e => setForm((f: any) => ({ ...f, notes: e.target.value }))} /></div>
 

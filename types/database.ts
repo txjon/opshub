@@ -825,6 +825,13 @@ export type Database = {
           created_at: string;
           updated_at: string;
           delivery_notes: string | null;
+          addr_name: string | null;
+          addr_line1: string | null;
+          addr_line2: string | null;
+          addr_city: string | null;
+          addr_state: string | null;
+          addr_zip: string | null;
+          addr_country: string;
         };
         Insert: {
           id?: string;
@@ -840,6 +847,13 @@ export type Database = {
           created_at?: string;
           updated_at?: string;
           delivery_notes?: string | null;
+          addr_name?: string | null;
+          addr_line1?: string | null;
+          addr_line2?: string | null;
+          addr_city?: string | null;
+          addr_state?: string | null;
+          addr_zip?: string | null;
+          addr_country?: string;
         };
         Update: {
           id?: string;
@@ -855,6 +869,13 @@ export type Database = {
           created_at?: string;
           updated_at?: string;
           delivery_notes?: string | null;
+          addr_name?: string | null;
+          addr_line1?: string | null;
+          addr_line2?: string | null;
+          addr_city?: string | null;
+          addr_state?: string | null;
+          addr_zip?: string | null;
+          addr_country?: string;
         };
         Relationships: [
           { foreignKeyName: "client_locations_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] },
@@ -1034,6 +1055,13 @@ export type Database = {
           legal_name: string | null;
           ein: string | null;
           invoice_po_required: boolean;
+          bill_name: string | null;
+          bill_line1: string | null;
+          bill_line2: string | null;
+          bill_city: string | null;
+          bill_state: string | null;
+          bill_zip: string | null;
+          bill_country: string;
         };
         Insert: {
           id?: string;
@@ -1065,6 +1093,13 @@ export type Database = {
           legal_name?: string | null;
           ein?: string | null;
           invoice_po_required?: boolean;
+          bill_name?: string | null;
+          bill_line1?: string | null;
+          bill_line2?: string | null;
+          bill_city?: string | null;
+          bill_state?: string | null;
+          bill_zip?: string | null;
+          bill_country?: string;
         };
         Update: {
           id?: string;
@@ -1096,6 +1131,13 @@ export type Database = {
           legal_name?: string | null;
           ein?: string | null;
           invoice_po_required?: boolean;
+          bill_name?: string | null;
+          bill_line1?: string | null;
+          bill_line2?: string | null;
+          bill_city?: string | null;
+          bill_state?: string | null;
+          bill_zip?: string | null;
+          bill_country?: string;
         };
         Relationships: [
           { foreignKeyName: "clients_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] }

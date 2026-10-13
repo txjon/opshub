@@ -433,7 +433,7 @@ export async function createInvoice(
   lineItems: QBLineItem[],
   options: {
     terms?: string;
-    shipAddress?: string;
+    shipAddr?: any;          // QB PhysicalAddress (lib/address qbShipAddr)
     memo?: string;            // CustomerMemo — "Note to customer", shows ON the invoice
     statementMemo?: string;   // PrivateNote — "Memo on statement", hidden from the invoice
     email?: string;
@@ -498,16 +498,7 @@ export async function createInvoice(
     }
   }
 
-  if (options.shipAddress) {
-    // Parse address string into QB ShipAddr object
-    const parts = options.shipAddress.split(",").map(s => s.trim());
-    body.ShipAddr = {
-      Line1: parts[0] || "",
-      City: parts[1] || "",
-      CountrySubDivisionCode: parts[2]?.replace(/\s*\d{5}.*/, "").trim() || "",
-      PostalCode: (parts[2] || "").match(/\d{5}/)?.[0] || "",
-    };
-  }
+  if (options.shipAddr) body.ShipAddr = options.shipAddr;   // built by lib/address qbShipAddr
 
   if (options.memo) {
     body.CustomerMemo = { value: options.memo };
@@ -651,7 +642,7 @@ export async function refreshPaymentLink(invoiceId: string, customerEmail?: stri
 export async function updateInvoice(
   invoiceId: string,
   lineItems: QBLineItem[],
-  options: { memo?: string; statementMemo?: string; shipAddress?: string; email?: string; allowCC?: boolean; allowACH?: boolean } = {}
+  options: { memo?: string; statementMemo?: string; shipAddr?: any; email?: string; allowCC?: boolean; allowACH?: boolean } = {}
 ): Promise<{ taxAmount: number; totalWithTax: number; paymentLink: string }> {
   // Fetch existing invoice to get SyncToken (required for updates)
   const existing = await qbFetch(`/invoice/${invoiceId}`);
@@ -704,15 +695,7 @@ export async function updateInvoice(
     // shipstation route passes statementMemo, so job invoices are untouched.
     if (!options.memo) body.CustomerMemo = { value: "" };
   }
-  if (options.shipAddress) {
-    const parts = options.shipAddress.split(",").map(s => s.trim());
-    body.ShipAddr = {
-      Line1: parts[0] || "",
-      City: parts[1] || "",
-      CountrySubDivisionCode: parts[2]?.replace(/\s*\d{5}.*/, "").trim() || "",
-      PostalCode: (parts[2] || "").match(/\d{5}/)?.[0] || "",
-    };
-  }
+  if (options.shipAddr) body.ShipAddr = options.shipAddr;   // built by lib/address qbShipAddr
 
   const data = await qbFetch("/invoice", { method: "POST", body });
   const updated = data.Invoice;

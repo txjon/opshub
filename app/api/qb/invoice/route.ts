@@ -3,6 +3,7 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
 import { loadJobShipTo } from "@/lib/destinations";
+import { qbShipAddr } from "@/lib/address";
 import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
@@ -244,7 +245,9 @@ export async function POST(req: NextRequest) {
 
     const existingInvoiceId = (job as any).qb_invoice_id as string | null;
 
-    const shipAddr = (await loadJobShipTo(admin, jobId))?.address || undefined;   // project destination (client address book)
+    // project destination (client address book) as real QB address fields
+    const shipTo = await loadJobShipTo(admin, jobId);
+    const shipAddr = shipTo ? qbShipAddr(shipTo.parts, shipTo.address, shipTo.parts ? shipTo.attn : null) : undefined;
 
     // Client's own PO # (their reference) → the QB invoice memo, so it shows on
     // the invoice they receive. It has its own field, not the job memo.
@@ -262,7 +265,7 @@ export async function POST(req: NextRequest) {
       // Update existing QB invoice
       const updated = await updateInvoice(existingInvoiceId, lineItems, {
         memo: memoText,
-        shipAddress: shipAddr,
+        shipAddr,
         email: primaryEmail || undefined,
         allowCC,
         allowACH,
@@ -345,7 +348,7 @@ export async function POST(req: NextRequest) {
       terms: job.payment_terms || undefined,
       memo: memoText,
       email: primaryEmail || undefined,
-      shipAddress: shipAddr,
+      shipAddr,
       allowCC,
       allowACH,
       skipPaymentLink: !!quiet,

@@ -13,7 +13,9 @@ import { createClient } from "@/lib/supabase/client";
 import { ModalShell } from "@/components/board-kit";
 import { logJobActivity } from "@/components/JobActivityPanel";
 import { addressLines, resolveJobShipTo, sumQ, type LocationRow, type ShipTo, type SizeQtys } from "@/lib/destinations";
-import { createLocation, saveItemSplit, setJobShipTo, setJobShipAttn, type SplitRow } from "@/lib/destination-actions";
+import { createLocation, saveItemSplit, setJobShipTo, setJobShipAttn, updateLocation, type SplitRow } from "@/lib/destination-actions";
+import { AddressFields } from "@/components/AddressFields";
+import { EMPTY_ADDR, LOC_ADDR_COLS, addrProblem, type Addr } from "@/lib/address";
 
 type Item = { id: string; name: string; qtys?: Record<string, number> | null };
 type SplitByItem = Record<string, { location_id: string; qtys: SizeQtys; sort_order: number }[]>;
@@ -49,12 +51,13 @@ export function DestinationsPanel({ jobId, clientId, route, shipToLocationId, sh
   const [attn, setAttn] = useState<string | null>(shipAttn);
   useEffect(() => setAttn(shipAttn), [shipAttn]);
   const [attnEditing, setAttnEditing] = useState(false);
+  const [fixing, setFixing] = useState(false);
   const [attnDraft, setAttnDraft] = useState("");
 
   const reload = async () => {
     if (!clientId) { setLocations([]); setSplits({}); setLoaded(true); return; }
     const [{ data: locs }, { data: sp }] = await Promise.all([
-      sb.from("client_locations").select("id, client_id, job_id, label, address, contact_name, contact_phone, is_default, active")
+      sb.from("client_locations").select(`id, client_id, job_id, label, address, contact_name, contact_phone, is_default, active, ${LOC_ADDR_COLS}`)
         .eq("client_id", clientId).eq("active", true).or(`job_id.is.null,job_id.eq.${jobId}`).order("is_default", { ascending: false }).order("label"),
       items.length ? sb.from("item_destinations").select("item_id, location_id, qtys, sort_order").in("item_id", items.map(i => i.id)) : Promise.resolve({ data: [] as any[] }),
     ]);
@@ -113,6 +116,10 @@ export function DestinationsPanel({ jobId, clientId, route, shipToLocationId, sh
               <div style={{ ...LBL, color: T.muted, marginBottom: 3 }}>{shipTo.label}</div>
               {addressLines(shipTo.address).filter(l => !l.startsWith("ATTN:")).map((l, i) => <div key={i} style={{ fontWeight: 700 }}>{l}</div>)}
               {shipTo.contactName && <div style={{ color: T.muted, fontSize: 12, marginTop: 3 }}>{shipTo.contactName}{shipTo.contactPhone ? ` · ${shipTo.contactPhone}` : ""}</div>}
+              {/* never split into street / city / state / ZIP (mig 200) */}
+              {!shipTo.parts && shipTo.locationId && (fixing
+                ? <FixAddress locationId={shipTo.locationId} onCancel={() => setFixing(false)} onSaved={async () => { setFixing(false); await reload(); }} onError={onError} />
+                : <div style={{ marginTop: 4, fontSize: 12, color: T.amber, fontWeight: 700 }}>Needs fixing: street, city, state and ZIP <button style={LINK} onClick={() => setFixing(true)}>Fix</button></div>)}
               {/* ATTN — per project, prints as the last address line on every destination. Dotted underline = click to edit. */}
               {attnEditing ? (
                 <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
@@ -212,16 +219,17 @@ function NewLocationForm({ clientId, jobId, onCancel, onCreated, onError }: {
 }) {
   const sb = useMemo(() => createClient(), []);
   const [label, setLabel] = useState("");
-  const [address, setAddress] = useState("");
+  const [addr, setAddr] = useState<Addr>(EMPTY_ADDR);
+  const problem = addrProblem(addr);
   const [contact, setContact] = useState("");
   const [phone, setPhone] = useState("");
   const [scope, setScope] = useState<"book" | "project">(jobId ? "book" : "book");
   const [busy, setBusy] = useState(false);
   const save = async () => {
-    if (!address.trim()) return;
+    if (problem) return;
     setBusy(true);
     try {
-      const loc = await createLocation(sb, { clientId, jobId: scope === "project" ? jobId : null, label, address, contactName: contact, contactPhone: phone });
+      const loc = await createLocation(sb, { clientId, jobId: scope === "project" ? jobId : null, label, addr, contactName: contact, contactPhone: phone });
       onCreated(loc);
     } catch (e) { onError("Address save failed — not saved", e); }
     finally { setBusy(false); }
@@ -229,7 +237,7 @@ function NewLocationForm({ clientId, jobId, onCancel, onCreated, onError }: {
   return (
     <div style={{ display: "grid", gap: 8, border: `1px solid ${T.border}`, borderRadius: 8, padding: 10, marginTop: 4 }}>
       <input id="newloc-label" style={INPUT} placeholder="Label (Marketing office, Warehouse, …)" value={label} onChange={e => setLabel(e.target.value)} />
-      <textarea id="newloc-address" style={{ ...INPUT, minHeight: 70, resize: "vertical", lineHeight: 1.45 }} placeholder={"Company\nStreet\nCity, ST ZIP"} value={address} onChange={e => setAddress(e.target.value)} />
+      <AddressFields idPrefix="newloc" value={addr} onChange={setAddr} inp={INPUT} problem={addr.line1 ? problem : undefined} warn={T.amber} />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <input id="newloc-contact" style={INPUT} placeholder="Contact (optional)" value={contact} onChange={e => setContact(e.target.value)} />
         <input id="newloc-phone" style={INPUT} placeholder="Phone (optional)" value={phone} onChange={e => setPhone(e.target.value)} />
@@ -242,7 +250,28 @@ function NewLocationForm({ clientId, jobId, onCancel, onCreated, onError }: {
       )}
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
         <button style={BTN} onClick={onCancel} disabled={busy}>Cancel</button>
-        <button style={BTN_PRIMARY} onClick={save} disabled={busy || !address.trim()}>{busy ? "Saving…" : "Save address"}</button>
+        <button style={BTN_PRIMARY} onClick={save} disabled={busy || !!problem}>{busy ? "Saving…" : "Save address"}</button>
+      </div>
+    </div>
+  );
+}
+
+// Split an old free-text address into parts (the ones the mig-200 backfill
+// couldn't read). Same row, so every project pointing at it is fixed at once.
+function FixAddress({ locationId, onCancel, onSaved, onError }: { locationId: string; onCancel: () => void; onSaved: () => void; onError: (m: string, e?: any) => void }) {
+  const sb = useMemo(() => createClient(), []);
+  const [addr, setAddr] = useState<Addr>(EMPTY_ADDR);
+  const [busy, setBusy] = useState(false);
+  const problem = addrProblem(addr);
+  return (
+    <div style={{ display: "grid", gap: 8, border: `1px solid ${T.border}`, borderRadius: 8, padding: 10, marginTop: 6 }}>
+      <AddressFields idPrefix={`fix-${locationId}`} value={addr} onChange={setAddr} inp={INPUT} problem={addr.line1 ? problem : undefined} warn={T.amber} />
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <button style={BTN} onClick={onCancel} disabled={busy}>Cancel</button>
+        <button style={BTN_PRIMARY} disabled={busy || !!problem} onClick={async () => {
+          setBusy(true);
+          try { await updateLocation(sb, locationId, { addr }); onSaved(); } catch (e) { onError("Address save failed — not saved", e); } finally { setBusy(false); }
+        }}>{busy ? "Saving…" : "Save address"}</button>
       </div>
     </div>
   );

@@ -3,18 +3,19 @@
 // over these. Reads live in lib/destinations.ts.
 //
 import { sumQ, type LocationRow, type SizeQtys } from "./destinations";
+import { LOC_ADDR_COLS, addrProblem, cleanAddr, locAddrCols, type Addr } from "./address";
 
 type Sb = any;
 
-const LOC_COLS = "id, client_id, job_id, label, address, contact_name, contact_phone, is_default, active, delivery_notes";
+const LOC_COLS = `id, client_id, job_id, label, address, contact_name, contact_phone, is_default, active, delivery_notes, ${LOC_ADDR_COLS}`;
 
 export async function createLocation(sb: Sb, args: {
-  clientId: string; jobId?: string | null; label: string; address: string;
+  clientId: string; jobId?: string | null; label: string; addr: Addr;
   contactName?: string | null; contactPhone?: string | null; deliveryNotes?: string | null; makeDefault?: boolean;
 }): Promise<LocationRow> {
   const label = args.label.trim() || (args.jobId ? "Project address" : "Main");
-  const address = args.address.trim();
-  if (!address) throw new Error("Address is required.");
+  const addr = cleanAddr(args.addr);
+  const bad = addrProblem(addr); if (bad) throw new Error(`${bad}.`);
   let isDefault = false;
   if (!args.jobId) {
     const { count } = await sb.from("client_locations").select("id", { count: "exact", head: true })
@@ -23,7 +24,7 @@ export async function createLocation(sb: Sb, args: {
     if (isDefault && count) await sb.from("client_locations").update({ is_default: false }).eq("client_id", args.clientId).is("job_id", null).eq("is_default", true);
   }
   const { data, error } = await sb.from("client_locations").insert({
-    client_id: args.clientId, job_id: args.jobId || null, label, address,
+    client_id: args.clientId, job_id: args.jobId || null, label, ...locAddrCols(addr),   // address text is built by the DB trigger
     contact_name: args.contactName?.trim() || null, contact_phone: args.contactPhone?.trim() || null, delivery_notes: args.deliveryNotes?.trim() || null, is_default: isDefault,
   }).select(LOC_COLS).single();
   if (error) throw new Error(error.message);
@@ -31,11 +32,11 @@ export async function createLocation(sb: Sb, args: {
 }
 
 export async function updateLocation(sb: Sb, id: string, patch: {
-  label?: string; address?: string; contactName?: string | null; contactPhone?: string | null; deliveryNotes?: string | null;
+  label?: string; addr?: Addr; contactName?: string | null; contactPhone?: string | null; deliveryNotes?: string | null;
 }): Promise<LocationRow> {
   const row: any = { updated_at: new Date().toISOString() };
   if (patch.label !== undefined) row.label = patch.label.trim() || "Main";
-  if (patch.address !== undefined) { row.address = patch.address.trim(); if (!row.address) throw new Error("Address is required."); }
+  if (patch.addr !== undefined) { const bad = addrProblem(patch.addr); if (bad) throw new Error(`${bad}.`); Object.assign(row, locAddrCols(patch.addr)); }
   if (patch.contactName !== undefined) row.contact_name = patch.contactName?.trim() || null;
   if (patch.contactPhone !== undefined) row.contact_phone = patch.contactPhone?.trim() || null;
   if (patch.deliveryNotes !== undefined) row.delivery_notes = patch.deliveryNotes?.trim() || null;

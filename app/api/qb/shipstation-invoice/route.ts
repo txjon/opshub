@@ -3,6 +3,7 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
 import { loadLocations } from "@/lib/destinations";
+import { locAddr, qbShipAddr } from "@/lib/address";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getOrCreateCustomer, createInvoice, updateInvoice, QBAmbiguousCustomerError, getCustomerById, type QBLineItem } from "@/lib/quickbooks";
@@ -241,14 +242,15 @@ export async function POST(req: NextRequest) {
           ? `Fulfillment Invoice — ${report.period_label}`
           : `Services Invoice — ${report.period_label}`;
 
-    const shipAddr = (await loadLocations(admin, client.id)).find(l => l.is_default)?.address || undefined;   // client address book default (mig 180)
+    const defLoc = (await loadLocations(admin, client.id)).find(l => l.is_default);   // client address book default (mig 180)
+    const shipAddr = defLoc ? qbShipAddr(defLoc.addr_line1 ? locAddr(defLoc) : null, defLoc.address) : undefined;
     const existingInvoiceId = report.qb_invoice_id;
 
     if (existingInvoiceId) {
       // Update path — same self-heal-payment-link behavior the jobs flow has.
       const updated = await updateInvoice(existingInvoiceId, lineItems, {
         statementMemo: memo,
-        shipAddress: shipAddr,
+        shipAddr,
         allowCC,
         allowACH,
       });
@@ -278,7 +280,7 @@ export async function POST(req: NextRequest) {
     const result = await createInvoice(customerId, lineItems, {
       terms: (client.default_terms as string) || undefined,
       statementMemo: memo,
-      shipAddress: shipAddr,
+      shipAddr,
       allowCC,
       allowACH,
     });
