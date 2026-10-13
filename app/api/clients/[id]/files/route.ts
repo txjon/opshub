@@ -4,6 +4,7 @@ export const maxDuration = 60;
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { uploadFile, deleteFile } from "@/lib/google-drive";
+import { resaleCertFileName } from "@/lib/client-info";
 import { getDriveToken, getPrivateDocFolder } from "@/lib/drive-token";
 import { deleteDriveFileIfUnreferenced } from "@/lib/google-drive-refs";
 
@@ -38,11 +39,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const buffer = Buffer.from(await file.arrayBuffer());
     // Client paperwork (tax exemption, W9, MSA) is never public — it is read
     // through OpsHub by staff only (Phase 0, Sep 2026).
-    const result = await uploadFile(folderId, file.name, file.type || "application/octet-stream", buffer, { public: false });
+    const fileName = kind === "tax_exempt" ? resaleCertFileName((client as any).name, file.name) : file.name;
+    const result = await uploadFile(folderId, fileName, file.type || "application/octet-stream", buffer, { public: false });
 
     const { data, error } = await supabase.from("client_files").insert({
       client_id: params.id,
-      file_name: file.name,
+      file_name: fileName,
       drive_file_id: result.fileId,
       drive_link: result.webViewLink,
       mime_type: file.type || null,

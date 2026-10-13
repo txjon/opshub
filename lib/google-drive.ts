@@ -162,6 +162,12 @@ export async function deleteFile(fileId: string): Promise<void> {
   await drive.files.delete({ fileId });
 }
 
+// Rename a file in place (same id/link — e.g. tax docs to "<Client> - Resale Cert").
+export async function renameFile(fileId: string, name: string): Promise<void> {
+  const drive = getDrive();
+  await drive.files.update({ fileId, requestBody: { name }, supportsAllDrives: true } as any);
+}
+
 // Send a file to Drive trash (recoverable ~30 days) instead of permanently
 // deleting it. Used by reference-counted item-file cleanup so that even a
 // last-reference delete can be undone — a permanent delete here once destroyed

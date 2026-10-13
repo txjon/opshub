@@ -40,6 +40,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ ok: true });
     }
+    // Staff: fix a mistyped expiration (often the ISSUE date) on a cert still to review
+    if (action === "set_expiry") {
+      const db = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+      const expiresOn = /^\d{4}-\d{2}-\d{2}$/.test(String(body.expiresOn || "")) ? body.expiresOn : null;
+      const { data, error } = await db.from("client_tax_certificates").update({ expires_on: expiresOn }).eq("id", certId).eq("client_id", params.id).eq("status", "pending").select("id");
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (!data?.length) return NextResponse.json({ error: "Only a certificate still to review can be changed" }, { status: 400 });
+      return NextResponse.json({ ok: true });
+    }
     if (!certId || !["approve", "reject"].includes(action)) return NextResponse.json({ error: "certId + action required" }, { status: 400 });
     const db = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     const { data: own } = await db.from("client_tax_certificates").select("client_id").eq("id", certId).single();

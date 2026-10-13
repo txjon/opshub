@@ -119,6 +119,8 @@ export default function CompanyInfoPage() {
   // certificate, unless an approved one is already on file (Jon, Oct 13).
   if (taxExempt && !onFile.some(c => c.status === "approved") && !certs.some(c => c.state && c.permitNumber && hasFile(c))) problems.push("Upload your resale certificate, or untick tax exempt if you're not.");
   if (certs.some(c => c.uploading)) problems.push("Wait for the certificate upload to finish.");
+  const today = new Date().toISOString().slice(0, 10);
+  if (taxExempt && certs.some(c => c.expiresOn && c.expiresOn < today)) problems.push("A certificate's expiration date has already passed. Leave it blank if it doesn't expire (not the date it was issued).");
   if (!signer.name.trim()) problems.push("Enter your name to sign.");
   if (!signer.certified) problems.push("Check the box to confirm the information is accurate.");
 
@@ -242,7 +244,7 @@ export default function CompanyInfoPage() {
                     </select>
                   </div>
                   <div><span style={lab}>Permit number</span><input style={inp} value={c.permitNumber} onChange={e => upCert(i, { permitNumber: e.target.value })} /></div>
-                  <div><span style={lab}>Expiration date (leave blank if it doesn't expire)</span><input style={inp} type="date" value={c.expiresOn} onChange={e => upCert(i, { expiresOn: e.target.value })} /></div>
+                  <div><span style={lab}>Expiration date (not the issue date; leave blank if it doesn't expire)</span><input style={inp} type="date" value={c.expiresOn} onChange={e => upCert(i, { expiresOn: e.target.value })} /></div>
                 </div>
                 <span style={lab}>Certificate</span>
                 {taxDocs.length > 0 && !c.uploadPath && (

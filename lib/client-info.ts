@@ -21,6 +21,15 @@ export const CERT_BUCKET = "client-docs";
 
 export { US_STATES } from "./address";   // one list (lib/address)
 
+// Resale certificates are filed as "<Client> - Resale Cert" (Jon, Oct 13) —
+// the client's upload name ("scan_0042.pdf") meant nothing in Drive. Keeps the
+// extension; a state suffix only when one submission files several.
+export function resaleCertFileName(client: string, original: string | null | undefined, state?: string): string {
+  const ext = (String(original || "").match(/\.[A-Za-z0-9]{1,5}$/) || [""])[0].toLowerCase();
+  const who = String(client || "Client").replace(/[\/\\:*?"<>|]+/g, " ").trim();
+  return `${who} - Resale Cert${state ? ` ${state}` : ""}${ext}`;
+}
+
 export type InfoContact = { id?: string; name: string; email: string; phone: string; role: string; isPrimary: boolean; getsInvoices: boolean; remove?: boolean };
 // addresses are PARTS (mig 200). onFile = the old one-line text of an address
 // that was never split, shown to the client so they can re-enter it.
@@ -128,6 +137,8 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
     for (const cert of certsIn) {
       const state = clip(cert.state, 5).toUpperCase(), permit = clip(cert.permitNumber, 60);
       if (!state || !permit) continue;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(cert.expiresOn || "") && cert.expiresOn < new Date().toISOString().slice(0, 10))
+        throw new Error(`Please check the expiration date for ${state}: ${cert.expiresOn} has already passed. Leave it blank if the certificate doesn't expire.`);
       // "Use the certificate we already have" — must be THIS client's tax document.
       if (cert.existingFileId && !cert.uploadPath) {
         const doc = (before.taxDocs || []).find(d => d.id === cert.existingFileId);
@@ -140,8 +151,8 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
       const { data: blob, error: dErr } = await db.storage.from(CERT_BUCKET).download(path);
       if (dErr || !blob) throw new Error(`Couldn't read the certificate for ${state}. Please upload it again.`);
       if (!folderId) folderId = await getPrivateDocFolder(await getDriveToken(), [cl?.name || "Unknown", "Tax Documents"]);
-      const name = clip(cert.fileName, 140) || `${state} resale certificate`;
-      const up = await uploadFile(folderId, `${state} ${permit} - ${name}`, (blob as any).type || "application/octet-stream", Buffer.from(await blob.arrayBuffer()), { public: false });
+      const name = resaleCertFileName(cl?.name || "Client", cert.fileName, certsIn.length > 1 ? state : undefined);
+      const up = await uploadFile(folderId, name, (blob as any).type || "application/octet-stream", Buffer.from(await blob.arrayBuffer()), { public: false });
       filed.push({ state, permit, expiresOn: /^\d{4}-\d{2}-\d{2}$/.test(cert.expiresOn || "") ? cert.expiresOn : null, driveFileId: up.fileId, webViewLink: up.webViewLink, name, mime: (blob as any).type || null, size: (blob as any).size || null, tmp: path });
     }
   }
@@ -371,7 +382,7 @@ export async function reviewCertificate(db: Db, certId: string, action: "approve
     if (!qbId) throw new Error("This client isn't linked to QuickBooks yet. Push an invoice or link the customer first.");
     // An expired certificate can't make anyone exempt.
     if (cert.expires_on && String(cert.expires_on) < new Date().toISOString().slice(0, 10)) {
-      throw new Error(`This certificate expired on ${cert.expires_on}. Ask the client for a current one (or reject this and re-add it if the date was mistyped).`);
+      throw new Error(`This certificate expired on ${cert.expires_on}. If that's the issue date or a typo, click the date to fix it; otherwise ask the client for a current one.`);
     }
     // QB's ResaleNum holds 16 characters: send it compacted (no dashes or
     // spaces, e.g. SUT-0000-3640-0557 → SUT000036400557). OpsHub keeps the

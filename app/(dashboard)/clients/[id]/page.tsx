@@ -870,6 +870,16 @@ function InfoTaxBlock({ client, contacts, secHead }: any) {
       setMsg({ ok: true, t: `Sent to ${(d.results?.[0]?.to || []).join(", ")}` });
     } catch (e: any) { setMsg({ ok: false, t: e.message }); } finally { setBusy(null); }
   };
+  const [expEdit, setExpEdit] = useState<{ id: string; v: string } | null>(null);
+  const setExpiry = async (certId: string, expiresOn: string | null) => {
+    setBusy(certId); setMsg(null);
+    try {
+      const r = await fetch(`/api/clients/${client.id}/tax-certificates`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ certId, action: "set_expiry", expiresOn }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Couldn't change the date");
+      setExpEdit(null); setMsg({ ok: true, t: expiresOn ? `Expiration set to ${expiresOn}.` : "Marked as not expiring." }); load();
+    } catch (e: any) { setMsg({ ok: false, t: e.message }); } finally { setBusy(null); }
+  };
   const review = async (certId: string, action: "approve" | "reject", note?: string) => {
     setBusy(certId); setMsg(null);
     try {
@@ -954,7 +964,19 @@ function InfoTaxBlock({ client, contacts, secHead }: any) {
               <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
                 <b style={{ fontSize: 13 }}>{c.state === "MULTI" ? "Multistate" : c.state}</b>
                 <span style={{ fontFamily: H.mono, fontSize: 12.5 }}>{c.permit_number}</span>
-                {c.expires_on && <span style={{ fontSize: 11.5, color: H.faint }}>expires {c.expires_on}</span>}
+                {expEdit?.id === c.id ? (
+                  <span style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                    <input type="date" value={expEdit?.v || ""} onChange={e => setExpEdit({ id: c.id, v: e.target.value })} style={{ padding: "5px 8px", borderRadius: 8, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 12, fontFamily: H.font }} />
+                    <button onClick={() => setExpiry(c.id, expEdit?.v || null)} style={{ ...pill, padding: "5px 10px" }}>Save</button>
+                    <button onClick={() => setExpiry(c.id, null)} style={{ ...pill, padding: "5px 10px" }}>Doesn't expire</button>
+                    <button onClick={() => setExpEdit(null)} style={{ ...pill, border: "none", padding: "5px 6px" }}>Cancel</button>
+                  </span>
+                ) : c.status === "pending" ? (
+                  <span onClick={() => setExpEdit({ id: c.id, v: c.expires_on || "" })} title="Click to fix the date"
+                    style={{ fontSize: 11.5, color: c.expires_on && c.expires_on < todayPacific() ? H.red : H.faint, cursor: "pointer", borderBottom: "1px dotted currentColor" }}>
+                    {c.expires_on ? `expires ${c.expires_on}` : "no expiration"}
+                  </span>
+                ) : c.expires_on && <span style={{ fontSize: 11.5, color: H.faint }}>expires {c.expires_on}</span>}
                 <span style={{ marginLeft: "auto", fontSize: 10, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: c.status === "approved" ? H.green : c.status === "rejected" ? H.red : H.amber }}>{c.status === "pending" ? "To review" : c.status}</span>
               </div>
               <div style={{ fontSize: 11, color: H.faint, marginTop: 3 }}>
