@@ -245,16 +245,24 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
 
 // ── staff review ──
 export async function reviewCertificate(db: Db, certId: string, action: "approve" | "reject", reviewerId: string, note?: string): Promise<{ qb: string }> {
-  const { data: cert } = await db.from("client_tax_certificates").select("id, client_id, state, permit_number, status, submission_id, clients(qb_customer_id, name)").eq("id", certId).single();
+  const { data: cert } = await db.from("client_tax_certificates").select("id, client_id, state, permit_number, expires_on, status, submission_id, clients(qb_customer_id, name)").eq("id", certId).single();
   if (!cert) throw new Error("Certificate not found");
   if (cert.status !== "pending") throw new Error(`Already ${cert.status}`);
   let qb = "QuickBooks unchanged";
   if (action === "approve") {
     const qbId = cert.clients?.qb_customer_id;
     if (!qbId) throw new Error("This client isn't linked to QuickBooks yet. Push an invoice or link the customer first.");
-    if (String(cert.permit_number).length > 16) throw new Error(`QuickBooks only holds 16 characters for a resale number and this one is ${String(cert.permit_number).length}. Mark the customer exempt in QuickBooks by hand, then approve here.`);
-    await setCustomerTaxExempt(qbId, cert.permit_number);   // throws → nothing marked approved
-    qb = `QuickBooks customer marked tax exempt (resale ${cert.permit_number})`;
+    // An expired certificate can't make anyone exempt.
+    if (cert.expires_on && String(cert.expires_on) < new Date().toISOString().slice(0, 10)) {
+      throw new Error(`This certificate expired on ${cert.expires_on}. Ask the client for a current one (or reject this and re-add it if the date was mistyped).`);
+    }
+    // QB's ResaleNum holds 16 characters: send it compacted (no dashes or
+    // spaces, e.g. SUT-0000-3640-0557 → SUT000036400557). OpsHub keeps the
+    // permit exactly as written.
+    const qbResale = String(cert.permit_number).replace(/[\s\-./]/g, "");
+    if (qbResale.length > 16) throw new Error(`QuickBooks only holds 16 characters for a resale number and this one is ${qbResale.length} even without dashes. Mark the customer exempt in QuickBooks by hand, then approve here.`);
+    await setCustomerTaxExempt(qbId, qbResale);   // throws → nothing marked approved
+    qb = `QuickBooks customer marked tax exempt (resale ${qbResale})`;
   }
   await db.from("client_tax_certificates").update({ status: action === "approve" ? "approved" : "rejected", reviewed_by: reviewerId, reviewed_at: new Date().toISOString(), review_note: clip(note, 500) || null }).eq("id", certId);
   if (cert.submission_id) {
