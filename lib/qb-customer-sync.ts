@@ -34,13 +34,24 @@ const fullQbAddr = (a: Addr) => { const q = toQbAddr(a)!; for (let i = 1; i <= 5
 const webNorm = (u: string) => lc(u).replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "");
 const webUri = (u: string) => /^https?:\/\//i.test(u) ? u.trim() : `https://${u.trim()}`;
 const digits = (s: any) => String(s ?? "").replace(/\D/g, "");
+const formatAddressKey = (l: any) => alnum([l.addr_line1, l.addr_line2, l.addr_zip].join(" "));
 
 type Ours = { CompanyName?: string; BillAddr?: Addr; ShipAddr?: Addr; PrimaryPhone?: string; WebAddr?: string };
 
+// The connected QuickBooks company is HPD's (qb_tokens holds one realm) — only
+// HPD's clients may ever be compared or written (a qb_customer_id from another
+// tenant would hit an unrelated HPD customer).
+async function hpdCompanyId(db: Db): Promise<string> {
+  const { data, error } = await db.from("companies").select("id").eq("slug", "hpd").single();
+  if (error || !data) throw new Error("HPD company not found");
+  return data.id;
+}
+
 async function loadOurs(db: Db, clientIds?: string[]) {
+  const companyId = await hpdCompanyId(db);
   const rows: any[] = [];
   for (let from = 0; ; from += 1000) {
-    let q = db.from("clients").select(`id, name, qb_customer_id, legal_name, website, is_internal, ${BILL_ADDR_COLS}`).not("qb_customer_id", "is", null);
+    let q = db.from("clients").select(`id, name, company_id, qb_customer_id, legal_name, website, is_internal, ${BILL_ADDR_COLS}`).not("qb_customer_id", "is", null).eq("company_id", companyId);
     if (clientIds?.length) q = q.in("id", clientIds);
     const { data, error } = await q.order("id").range(from, from + 999);
     if (error) throw new Error(`clients: ${error.message}`);
@@ -54,18 +65,30 @@ async function loadOurs(db: Db, clientIds?: string[]) {
     const chunk = ids.slice(i, i + 200);
     const { data: locs, error: lErr } = await db.from("client_locations").select(`client_id, ${LOC_ADDR_COLS}`).in("client_id", chunk).is("job_id", null).eq("active", true).eq("is_default", true);
     if (lErr) throw new Error(`locations: ${lErr.message}`);
-    for (const l of locs || []) if (l.addr_line1) ship.set(l.client_id, l);
+    const seenShip = new Set<string>();
+    for (const l of locs || []) {
+      if (!l.addr_line1) continue;
+      if (seenShip.has(l.client_id) && ship.get(l.client_id) && formatAddressKey(ship.get(l.client_id)) !== formatAddressKey(l)) ship.set(l.client_id, null);   // two different defaults: skip, don't flip-flop
+      else if (!seenShip.has(l.client_id)) ship.set(l.client_id, l);
+      seenShip.add(l.client_id);
+    }
     const { data: cts, error: cErr } = await db.from("contacts").select("client_id, phone, is_primary").in("client_id", chunk).eq("is_primary", true);
     if (cErr) throw new Error(`contacts: ${cErr.message}`);
-    for (const c of cts || []) if (digits(c.phone).length >= 7) phone.set(c.client_id, String(c.phone).trim());
+    const seenPhone = new Set<string>();
+    for (const c of cts || []) {
+      if (digits(c.phone).length < 7) continue;
+      if (seenPhone.has(c.client_id) && digits(phone.get(c.client_id)) !== digits(c.phone)) phone.set(c.client_id, "");   // two main contacts, different phones: skip
+      else if (!seenPhone.has(c.client_id)) phone.set(c.client_id, String(c.phone).trim());
+      seenPhone.add(c.client_id);
+    }
   }
   return clients.map(c => {
     const o: Ours = {};
-    if ((c.legal_name || "").trim()) o.CompanyName = c.legal_name.trim();
+    if ((c.legal_name || "").trim()) o.CompanyName = c.legal_name.trim().slice(0, 100);   // QB CompanyName limit
     // billing: QB prints the customer's name above it already — drop a name line that's just the company
     if (c.bill_line1) { const b = billAddr(c); if ([c.name, c.legal_name].some(n => n && alnum(n) === alnum(b.name))) b.name = ""; o.BillAddr = b; }
-    if (ship.has(c.id)) o.ShipAddr = locAddr(ship.get(c.id));
-    if (phone.has(c.id)) o.PrimaryPhone = phone.get(c.id);
+    if (ship.get(c.id)) o.ShipAddr = locAddr(ship.get(c.id));
+    if (phone.get(c.id)) o.PrimaryPhone = phone.get(c.id)!.slice(0, 30);   // QB FreeFormNumber limit
     if ((c.website || "").trim()) o.WebAddr = c.website.trim();
     return { client: c, ours: o };
   });
@@ -120,7 +143,9 @@ export async function applyQbSync(db: Db, clientId: string, opts?: { fields?: Sy
   }
   if (!r.sent) return { changed: [], skipped };
   const changed = Object.keys(r.sent) as SyncField[];
-  const before: any = {}; for (const k of changed) before[k] = r.before[k] ?? null;
-  await db.from("qb_customer_sync_log").insert({ client_id: clientId, qb_customer_id: String(x.client.qb_customer_id), fields: changed, before, after: r.sent, source: opts?.source || "manual", synced_by: opts?.by || null });
+  const before: any = {}, after: any = {};
+  for (const k of changed) { before[k] = r.before[k] ?? null; after[k] = r.after[k] ?? r.sent[k]; }
+  const { error: logErr } = await db.from("qb_customer_sync_log").insert({ client_id: clientId, company_id: x.client.company_id || null, qb_customer_id: String(x.client.qb_customer_id), fields: changed, before, after, source: opts?.source || "manual", synced_by: opts?.by || null });
+  if (logErr) console.error("[qb-customer-sync] log insert failed (QB WAS updated)", clientId, changed, logErr.message);
   return { changed, skipped };
 }

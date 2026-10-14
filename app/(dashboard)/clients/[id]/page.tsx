@@ -52,6 +52,7 @@ export default function ClientSpacePage() {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "QuickBooks update failed");
       if (d.changed?.length) setQbNote({ ok: true, t: `QuickBooks customer updated: ${d.changed.join(", ")}` });
+      if (d.skipped?.length) setQbNote({ ok: false, t: "QuickBooks refused the website's format; the rest was updated. Check the website in Edit client." });
     } catch (e: any) { setQbNote({ ok: false, t: `Saved in OpsHub, but QuickBooks wasn't updated: ${e.message}` }); }
   };
   // Action feed inputs — same batch loads the /projects board uses, so the

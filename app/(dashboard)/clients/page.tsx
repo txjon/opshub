@@ -213,6 +213,16 @@ function QbSyncPanel() {
   const [arm, setArm] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  // only owners / managers can change QuickBooks customers (the API enforces it too)
+  const [canSync, setCanSync] = useState(false);
+  useEffect(() => {
+    const sb = createClient();
+    sb.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) return;
+      const { data: me } = await sb.from("profiles").select("role, is_god").eq("id", user.id).single();
+      setCanSync(!!(me as any)?.is_god || ["owner", "manager"].includes((me as any)?.role));
+    });
+  }, []);
   const load = async () => {
     setBusy("load"); setErr(null); setArm(false);
     try {
@@ -233,11 +243,12 @@ function QbSyncPanel() {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Update failed");
       const nameOf = (id: string) => rows?.find(c => c.clientId === id)?.name || id;
-      setDone(`Updated ${d.updated} QuickBooks customer${d.updated === 1 ? "" : "s"}.` + (d.failed?.length ? ` Not updated: ${d.failed.map((f: any) => `${nameOf(f.clientId)} (${f.error})`).join("; ")}` : ""));
+      setDone(`Updated ${d.updated} QuickBooks customer${d.updated === 1 ? "" : "s"}.` + (d.failed?.length ? ` Not updated: ${d.failed.map((f: any) => `${nameOf(f.clientId)} (${f.error})`).join("; ")}.` : "") + (d.websiteRefused?.length ? ` QuickBooks refused the website for ${d.websiteRefused.map(nameOf).join(", ")}; fix it on their client page.` : ""));
       await load();
     } catch (e: any) { setErr(e.message); } finally { setBusy(null); }
   };
   const btn: React.CSSProperties = { background: "transparent", color: T.muted, border: `1px solid ${T.border}`, borderRadius: 999, padding: "6px 13px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: "pointer" };
+  if (!canSync) return null;
   if (!open) return <div><button style={btn} onClick={() => { setOpen(true); load(); }}>Review QuickBooks customer updates</button></div>;
   return (
     <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 10, fontFamily: font }}>
@@ -255,7 +266,7 @@ function QbSyncPanel() {
           {c.diffs.map(d => {
             const on = pick[c.clientId]?.has(d.field) || false;
             return (
-              <label key={d.field} style={{ display: "grid", gridTemplateColumns: "20px minmax(90px, 0.6fr) 1fr 1fr", gap: 8, alignItems: "start", fontSize: 12, padding: "6px 0", cursor: "pointer", opacity: on ? 1 : 0.5 }}>
+              <label key={d.field} style={{ display: "grid", gridTemplateColumns: "20px minmax(70px, 0.6fr) minmax(0, 1fr) minmax(0, 1fr)", gap: 8, overflowWrap: "anywhere", alignItems: "start", fontSize: 12, padding: "6px 0", cursor: "pointer", opacity: on ? 1 : 0.5 }}>
                 <input type="checkbox" checked={on} onChange={() => toggle(c.clientId, d.field)} style={{ accentColor: T.accent, marginTop: 2 }} />
                 <span style={{ color: T.muted }}>{d.label}</span>
                 <span style={{ color: T.faint, whiteSpace: "pre-line", textDecoration: on && d.qb ? "line-through" : "none" }}>{d.qb || "(blank in QuickBooks)"}</span>

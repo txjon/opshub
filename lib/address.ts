@@ -66,7 +66,12 @@ export function billAddrCols(a: Partial<Addr>) {
 export function toQbAddr(a: Partial<Addr> | null | undefined): any | undefined {
   if (!a || !t(a.line1)) return undefined;
   // "Person / Company" name lines go on their own lines (QB has five)
-  const lines = [...t(a.name).split(/\s+\/\s+/), t(a.line1), t(a.line2)].map(t).filter(Boolean).slice(0, 5);
+  const street = [t(a.line1), t(a.line2)].filter(Boolean);
+  const names = t(a.name).split(/\s+\/\s+/).map(t).filter(Boolean);
+  // QB has five lines: street always fits; extra name parts fold into the last name line
+  const room = 5 - street.length;
+  const nameLines = names.length > room ? [...names.slice(0, room - 1), names.slice(room - 1).join(" / ")] : names;
+  const lines = [...nameLines.filter(Boolean), ...street];
   const out: any = { City: t(a.city), CountrySubDivisionCode: t(a.state), PostalCode: t(a.zip), Country: (t(a.country) || "US") === "US" ? "USA" : t(a.country) };
   lines.forEach((l, i) => { out[`Line${i + 1}`] = l; });
   return out;
@@ -78,7 +83,8 @@ export function toQbAddr(a: Partial<Addr> | null | undefined): any | undefined {
 export function qbShipAddr(parts: Partial<Addr> | null | undefined, text: string | null | undefined, attn?: string | null): any | undefined {
   const a = attn && t(attn) ? `ATTN: ${t(attn)}` : "";
   if (parts && t(parts.line1)) {
-    const q = toQbAddr(parts);
+    // keep room for the ATTN line: fold name parts into one line when needed
+    const q = toQbAddr(a && [...t(parts.name).split(/\s+\/\s+/).filter(Boolean), t(parts.line1), t(parts.line2)].filter(Boolean).length >= 5 ? { ...parts, name: t(parts.name).replace(/\s+\/\s+/g, ", ") } : parts);
     const n = Object.keys(q).filter(k => /^Line\d$/.test(k)).length;
     if (a && n < 5) q[`Line${n + 1}`] = a;
     return q;
@@ -93,7 +99,7 @@ export function qbShipAddr(parts: Partial<Addr> | null | undefined, text: string
 // parts ← QuickBooks PhysicalAddress (prefill only)
 export function fromQbAddr(q: any): Addr | null {
   if (!q || !(q.Line1 || q.City)) return null;
-  const ls = [q.Line1, q.Line2, q.Line3, q.Line4].map(t).filter(Boolean);
+  const ls = [q.Line1, q.Line2, q.Line3, q.Line4, q.Line5].map(t).filter(Boolean);
   const streetAt = ls.findIndex(l => /^\d/.test(l));
   const name = streetAt > 0 ? ls.slice(0, streetAt).join(" / ") : "";
   const street = streetAt > 0 ? ls.slice(streetAt) : ls;

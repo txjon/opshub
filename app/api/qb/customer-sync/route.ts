@@ -32,11 +32,11 @@ export async function POST(req: NextRequest) {
   const { items } = await req.json().catch(() => ({}));
   if (!Array.isArray(items) || !items.length) return NextResponse.json({ error: "items required" }, { status: 400 });
   const db = admin();
-  const results: { clientId: string; ok: boolean; changed?: SyncField[]; error?: string }[] = [];
+  const results: { clientId: string; ok: boolean; changed?: SyncField[]; skipped?: SyncField[]; error?: string }[] = [];
   for (const it of items.slice(0, 200)) {
     if (!it?.clientId || !Array.isArray(it.fields) || !it.fields.length) continue;
-    try { const r = await applyQbSync(db, it.clientId, { fields: it.fields, by: g.user!.id, source: "manual" }); results.push({ clientId: it.clientId, ok: true, changed: r.changed }); }
+    try { const r = await applyQbSync(db, it.clientId, { fields: it.fields, by: g.user!.id, source: "manual" }); results.push({ clientId: it.clientId, ok: true, changed: r.changed, skipped: r.skipped }); }
     catch (e: any) { results.push({ clientId: it.clientId, ok: false, error: e?.message || "failed" }); }
   }
-  return NextResponse.json({ updated: results.filter(r => r.ok && r.changed?.length).length, failed: results.filter(r => !r.ok), results });
+  return NextResponse.json({ updated: results.filter(r => r.ok && r.changed?.length).length, failed: results.filter(r => !r.ok), websiteRefused: results.filter(r => r.skipped?.length).map(r => r.clientId), results });
 }

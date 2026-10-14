@@ -36,8 +36,13 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     // QB hiccup never fails the client's submission)
     let qbLine: string | null = null;
     try {
-      const q = await applyQbSync(db, (client as any).id, { source: "info_form" });
+      // capped at 20s so a slow Intuit can never time out the client's submission
+      const q = await Promise.race([
+        applyQbSync(db, (client as any).id, { source: "info_form" }),
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error("QuickBooks was slow to answer")), 20000)),
+      ]);
       if (q.changed.length) qbLine = `QuickBooks customer updated: ${q.changed.join(", ")}`;
+      if (q.skipped?.length) qbLine = `${qbLine ? qbLine + ". " : ""}QuickBooks refused the website, fix it in Edit client`;
     } catch (e: any) { qbLine = `QuickBooks customer NOT updated (${e?.message || "error"}). Run the QuickBooks sync from the Clients page.`; }
     try {
       await sendInternalMail({ kind: "client_info_updated", client: (client as any).name, clientId: (client as any).id, signer: String(body?.signer?.name || ""), applied: qbLine ? [...r.applied, qbLine] : r.applied, certsPending: r.certsPending });
