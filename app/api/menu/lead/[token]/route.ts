@@ -55,7 +55,20 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
 
   // Self-hosted product imagery (scripts/fetch-menu-imagery.ts).
   const { data: imgCache } = await sb.from("api_cache").select("data").eq("key", "menu_imagery").maybeSingle();
-  const imagery = ((imgCache?.data as any)?.styles || {}) as Record<string, { hero: string | null; colors: { name: string; hex: string | null; image: string | null }[]; allColors?: { name: string; hex: string | null }[]; moreCount: number }>;
+  const imagery = ((imgCache?.data as any)?.styles || {}) as Record<string, { hero: string | null; colors: { name: string; hex: string | null; image: string | null }[]; allColors?: { name: string; hex: string | null; image?: string | null }[]; moreCount: number }>;
+
+  // Card photo = the BLACK colorway (Jon, Oct 14 2026: the page is all
+  // black, the product shots should match). Exact "Black" first, then a
+  // single-color black (Faded / Vintage / Carbon Black); two-tone names
+  // ("Black/ White") don't count. A hand-dropped hero (override/ or la/
+  // in the bucket = HPD's own photo) always wins; no black = vendor hero.
+  const cardHero = (img: (typeof imagery)[string] | undefined): string | null => {
+    if (!img) return null;
+    if (img.hero && /\/menu-assets\/(override|la)\//.test(img.hero)) return img.hero;
+    const cs = (img.allColors || []).filter((c) => c.image);
+    const black = cs.find((c) => /^black$/i.test(c.name.trim())) || cs.find((c) => /black/i.test(c.name) && !c.name.includes("/"));
+    return black?.image || img.hero;
+  };
 
   const styles: Record<string, { code: string; name: string; lane: string; group: string; sort: number; bands: Record<number, { lo: number | null; hi: number | null }>; hero: string | null; colors: { name: string; hex: string | null; image: string | null }[]; allColors: { name: string; hex: string | null }[]; moreColors: number }> = {};
   for (const r of rates || []) {
@@ -63,7 +76,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
       const img = imagery[r.style_code];
       styles[r.style_code] = {
         code: r.style_code, name: r.style_name, lane: r.lane, group: r.product_group, sort: r.sort, bands: {},
-        hero: img?.hero ?? null,
+        hero: cardHero(img),
         colors: img?.colors ?? [],
         allColors: img?.allColors ?? [],
         moreColors: img?.moreCount ?? 0,
