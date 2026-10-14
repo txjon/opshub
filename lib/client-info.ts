@@ -439,8 +439,15 @@ House Party Distro`;
   // .from_email_billing); replies land in billing too.
   const { data: co } = await db.from("companies").select("from_email_billing, from_email_quotes").eq("slug", "hpd").single();
   const fromAddr = co?.from_email_billing || co?.from_email_quotes || process.env.EMAIL_FROM_QUOTES || "hello@housepartydistro.com";
+  // The log row is what OPENS the hub form for 30 days (lib/hub-client
+  // infoFormEditable), so it's written first and checked: no row, no email
+  // promising a form that won't open. A failed send removes it again.
+  const { data: logRow, error: logErr } = await db.from("mail_log").insert({ kind: "client_info_request", to_addrs: to, subject, job_id: null, meta: { client: c.name, client_id: c.id } }).select("id").single();
+  if (logErr || !logRow) throw new Error(`Couldn't open the form for ${c.name}: ${logErr?.message || "no log row"}`);
   const r: any = await resend.emails.send({ from: `House Party Distro <${fromAddr}>`, replyTo: fromAddr, to, subject, text, html });
-  if (r?.error) throw new Error(`Email failed for ${c.name}: ${r.error.message || r.error}`);
-  try { await db.from("mail_log").insert({ kind: "client_info_request", to_addrs: to, subject, job_id: null, meta: { client: c.name, client_id: c.id } }); } catch {}
+  if (r?.error) {
+    await db.from("mail_log").delete().eq("id", (logRow as any).id);
+    throw new Error(`Email failed for ${c.name}: ${r.error.message || r.error}`);
+  }
   return { to };
 }

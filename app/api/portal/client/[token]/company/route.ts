@@ -15,13 +15,15 @@ export const maxDuration = 120;   // certificate files are copied into Drive on 
 // POST refuses otherwise, so a forwarded link can't change anything.
 const admin = () => createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
+export async function GET(req: NextRequest, { params }: { params: { token: string } }) {
   try {
     const db = admin();
     const { data: client } = await hubClientLookup(db, params.token, "id");
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
     const id = (client as any).id;
-    const [info, editable] = await Promise.all([loadClientInfo(db, id), infoFormEditable(db, id)]);
+    // a lookup hiccup shows the view (fails closed); ?view=1 = staff seeing what the client sees
+    const asClient = req.nextUrl.searchParams.get("view") === "1";
+    const [info, editable] = await Promise.all([loadClientInfo(db, id), asClient ? Promise.resolve(false) : infoFormEditable(db, id).catch(() => false)]);
     return NextResponse.json({ ...info, states: US_STATES, editable, updateEmail: INFO_UPDATE_EMAIL });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Couldn't load" }, { status: 500 });

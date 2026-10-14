@@ -121,7 +121,7 @@ function InfoView({ d, updateEmail }: { d: any; updateEmail: string }) {
           {row("Status", d.taxExempt ? "Tax exempt (resale)" : "Taxable")}
           {certs.map((c, i) => <div key={i}>{row(`${c.state} certificate`, <span style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "baseline" }}><span style={{ fontFamily: H.mono }}>{c.permitNumber}</span>{c.issuedOn && <span style={{ color: H.faint }}>issued {c.issuedOn}</span>}{tag(c.status === "pending" ? "In review" : c.status, c.status === "approved" ? H.green : c.status === "rejected" ? H.red : H.amber)}</span>)}</div>)}
         </div>
-        {d.taxExempt && !certs.some(c => c.status === "approved") && <p style={{ color: H.dim, fontSize: 13.5, lineHeight: 1.5, margin: "12px 0 0" }}>We don't have a current resale certificate for you yet. Please email it to <a href={mail} style={{ color: H.text, fontWeight: 700 }}>{updateEmail}</a>.</p>}
+        {d.taxExempt && !certs.some(c => c.status === "approved") && !(d.taxDocs || []).length && <p style={{ color: H.dim, fontSize: 13.5, lineHeight: 1.5, margin: "12px 0 0" }}>We don't have a current resale certificate for you yet. Please email it to <a href={mail} style={{ color: H.text, fontWeight: 700 }}>{updateEmail}</a>.</p>}
       </div>
 
       <a href={mail} style={{ display: "block", textAlign: "center", marginTop: 22, background: "#fff", color: H.ink, borderRadius: 999, padding: "15px 22px", fontSize: 13, fontWeight: 900, letterSpacing: "0.07em", textTransform: "uppercase", textDecoration: "none" }}>Email us a change</a>
@@ -154,7 +154,9 @@ export default function CompanyInfoPage() {
   const [view, setView] = useState<{ d: any; updateEmail: string } | null>(null);   // not editable → the read-only page
 
   useEffect(() => {
-    fetch(`/api/portal/client/${token}/company`).then(r => r.json()).then(d => {
+    // ?view=1 passes through: staff previewing the client's read-only page
+    const asClient = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("view") === "1";
+    fetch(`/api/portal/client/${token}/company${asClient ? "?view=1" : ""}`).then(r => r.json()).then(d => {
       if (d.error) { setErr(d.error); return; }
       if (!d.editable) { setView({ d, updateEmail: d.updateEmail }); setLoaded(true); return; }
       setClientName(d.clientName); setStates(d.states || []); setCompany(d.company); setBillingState(d.company?.billing?.line1 ? "ask" : "edit");
