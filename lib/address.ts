@@ -65,7 +65,8 @@ export function billAddrCols(a: Partial<Addr>) {
 // QuickBooks PhysicalAddress ← parts (name rides on Line1 like a label)
 export function toQbAddr(a: Partial<Addr> | null | undefined): any | undefined {
   if (!a || !t(a.line1)) return undefined;
-  const lines = [t(a.name), t(a.line1), t(a.line2)].filter(Boolean);
+  // "Person / Company" name lines go on their own lines (QB has five)
+  const lines = [...t(a.name).split(/\s+\/\s+/), t(a.line1), t(a.line2)].map(t).filter(Boolean).slice(0, 5);
   const out: any = { City: t(a.city), CountrySubDivisionCode: t(a.state), PostalCode: t(a.zip), Country: (t(a.country) || "US") === "US" ? "USA" : t(a.country) };
   lines.forEach((l, i) => { out[`Line${i + 1}`] = l; });
   return out;

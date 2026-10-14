@@ -20,7 +20,7 @@ const LAB: React.CSSProperties = { fontSize: 9.5, fontWeight: 800, letterSpacing
 const INP: React.CSSProperties = { width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8, border: `1px solid ${H.line}`, background: H.surface, color: H.text, fontSize: 13, outline: "none", colorScheme: "dark" };
 const LINK: React.CSSProperties = { background: "none", border: "none", padding: 0, cursor: "pointer", color: H.blue, fontSize: 12.5, fontWeight: 700 };
 
-export function ClientLocations({ clientId, secHead }: { clientId: string; secHead?: (title: string, sub: string) => React.ReactNode }) {
+export function ClientLocations({ clientId, secHead, onSaved }: { clientId: string; secHead?: (title: string, sub: string) => React.ReactNode; onSaved?: () => void }) {
   const sb = useMemo(() => createClient(), []);
   const [rows, setRows] = useState<LocationRow[]>([]);
   const [editing, setEditing] = useState<string | null>(null);   // location id or "new"
@@ -34,7 +34,7 @@ export function ClientLocations({ clientId, secHead }: { clientId: string; secHe
   useEffect(() => { load(); }, [clientId]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const run = async (fn: () => Promise<void>, okText: string) => {
-    try { await fn(); await load(); setMsg({ ok: true, text: okText }); }
+    try { await fn(); await load(); setMsg({ ok: true, text: okText }); onSaved?.(); }   // onSaved: the client page copies the default ship-to to QuickBooks
     catch (e: any) { setMsg({ ok: false, text: e?.message || "Save failed — not saved" }); }
   };
 

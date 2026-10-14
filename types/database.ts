@@ -4572,6 +4572,48 @@ export type Database = {
           { foreignKeyName: "pulled_inventory_item_id_fkey"; columns: ["item_id"]; isOneToOne: false; referencedRelation: "items"; referencedColumns: ["id"] }
         ];
       };
+      qb_customer_sync_log: {
+        Row: {
+          id: string;
+          company_id: string | null;
+          client_id: string;
+          qb_customer_id: string;
+          fields: string[];
+          before: Json;
+          after: Json;
+          source: string;
+          synced_by: string | null;
+          synced_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id?: string | null;
+          client_id: string;
+          qb_customer_id: string;
+          fields: string[];
+          before: Json;
+          after: Json;
+          source?: string;
+          synced_by?: string | null;
+          synced_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string | null;
+          client_id?: string;
+          qb_customer_id?: string;
+          fields?: string[];
+          before?: Json;
+          after?: Json;
+          source?: string;
+          synced_by?: string | null;
+          synced_at?: string;
+        };
+        Relationships: [
+          { foreignKeyName: "qb_customer_sync_log_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] },
+          { foreignKeyName: "qb_customer_sync_log_client_id_fkey"; columns: ["client_id"]; isOneToOne: false; referencedRelation: "clients"; referencedColumns: ["id"] }
+        ];
+      };
       qb_tokens: {
         Row: {
           id: string;

@@ -352,6 +352,31 @@ export async function setCustomerTaxExempt(id: string, resaleNum: string): Promi
   return { taxable: u.Taxable !== false, resaleNum: u.ResaleNum || null };
 }
 
+// Full customer records for many ids (30 per query). Throws on any transport
+// error — the OpsHub → QB profile sync must never act on a partial read.
+export async function getCustomersFull(ids: string[]): Promise<Map<string, any>> {
+  const out = new Map<string, any>();
+  const uniq = Array.from(new Set(ids.filter(Boolean).map(String)));
+  for (let i = 0; i < uniq.length; i += 30) {
+    const list = uniq.slice(i, i + 30).map(id => `'${id.replace(/'/g, "")}'`).join(",");
+    const data = await qbFetch(`/query?query=${encodeURIComponent(`SELECT * FROM Customer WHERE Id IN (${list}) MAXRESULTS 100`)}`);
+    for (const c of (data?.QueryResponse?.Customer || []) as any[]) out.set(String(c.Id), c);
+  }
+  return out;
+}
+
+// Sparse profile update (lib/qb-customer-sync). `build` gets the FRESH record
+// (current SyncToken) and returns the fields to send, or null to skip.
+export async function updateCustomerProfile(id: string, build: (cur: any) => Record<string, any> | null): Promise<{ before: any; after: any; sent: Record<string, any> | null }> {
+  const cur = (await qbFetch(`/customer/${encodeURIComponent(id)}`))?.Customer;
+  if (!cur) throw new Error("QuickBooks customer not found");
+  const sent = build(cur);
+  if (!sent || !Object.keys(sent).length) return { before: cur, after: cur, sent: null };
+  const res = await qbFetch("/customer", { method: "POST", body: { Id: cur.Id, SyncToken: cur.SyncToken, sparse: true, ...sent } });
+  if (!res?.Customer) throw new Error("QuickBooks did not confirm the update");
+  return { before: cur, after: res.Customer, sent };
+}
+
 export async function getCustomerById(id: string): Promise<any | null> {
   try {
     const data = await qbFetch(`/customer/${id}`);

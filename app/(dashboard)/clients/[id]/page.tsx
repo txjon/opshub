@@ -43,6 +43,17 @@ export default function ClientSpacePage() {
   const supabase = createClient();
   const [section, setSection] = useState<Section>("Overview");
   const [editOpen, setEditOpen] = useState(false);
+  // after a save, the QuickBooks customer is updated to match (lib/qb-customer-sync)
+  const [qbNote, setQbNote] = useState<{ ok: boolean; t: string } | null>(null);
+  const syncQb = async () => {
+    setQbNote(null);
+    try {
+      const r = await fetch(`/api/clients/${params.id}/qb-sync`, { method: "POST" });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "QuickBooks update failed");
+      if (d.changed?.length) setQbNote({ ok: true, t: `QuickBooks customer updated: ${d.changed.join(", ")}` });
+    } catch (e: any) { setQbNote({ ok: false, t: `Saved in OpsHub, but QuickBooks wasn't updated: ${e.message}` }); }
+  };
   // Action feed inputs — same batch loads the /projects board uses, so the
   // status bars here can never disagree with that board.
   const [phaseViews, setPhaseViews] = useState<Map<string, any>>(new Map());
@@ -250,13 +261,13 @@ export default function ClientSpacePage() {
         {section === "Overview" && (
           <>
             <ActionFeed jobs={jobs} phaseViews={phaseViews} proofStatus={proofStatus} thumbs={itemThumbs} router={router} secHead={secHead} />
-            <Overview client={client} contacts={contacts} wire={wire} model={model} briefs={briefs} secHead={secHead} onEdit={() => setEditOpen(true)} />
+            <Overview client={client} contacts={contacts} wire={wire} model={model} briefs={briefs} secHead={secHead} onEdit={() => setEditOpen(true)} qbNote={qbNote} onLocationsSaved={syncQb} />
           </>
         )}
         {editOpen && (
           <EditClientModal client={client} contacts={contacts}
             onClose={() => setEditOpen(false)}
-            onSaved={(cPatch: any, nextContacts: any[]) => { setClient((c: any) => ({ ...c, ...cPatch })); setContacts(nextContacts); setEditOpen(false); }} />
+            onSaved={(cPatch: any, nextContacts: any[]) => { setClient((c: any) => ({ ...c, ...cPatch })); setContacts(nextContacts); setEditOpen(false); syncQb(); }} />
         )}
         {section === "Studio" && <StudioRail briefs={briefs} secHead={secHead} />}
         {section === "Drops" && <DropsRail releases={releases} secHead={secHead} />}
@@ -286,7 +297,7 @@ export default function ClientSpacePage() {
 }
 
 // ── Overview: the room at a glance ──
-function Overview({ client, contacts, wire, model, briefs, secHead, onEdit }: any) {
+function Overview({ client, contacts, wire, model, briefs, secHead, onEdit, qbNote, onLocationsSaved }: any) {
   const wt = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   return (
     <>
@@ -316,6 +327,7 @@ function Overview({ client, contacts, wire, model, briefs, secHead, onEdit }: an
           {/* Company — what the client info form keeps current (Oct 2026). Always
               shown so a blank is visible; edit via Edit client. */}
           {secHead("Company.", "legal entity, billing, tax")}
+          {qbNote && <div style={{ fontSize: 12, color: qbNote.ok ? H.green : H.red, margin: "-6px 0 8px" }}>{qbNote.t}</div>}
           {([
             ["Legal name", client.legal_name],
             ["EIN", client.ein],
@@ -330,7 +342,7 @@ function Overview({ client, contacts, wire, model, briefs, secHead, onEdit }: an
             </div>
           ))}
           {/* Locations: the address book — left column, below People (Jon, Sep 15). */}
-          <div style={{ marginTop: 28 }}><ClientLocations clientId={client.id} secHead={secHead} /></div>
+          <div style={{ marginTop: 28 }}><ClientLocations clientId={client.id} secHead={secHead} onSaved={onLocationsSaved} /></div>
           {client.notes && (
             <>
               {secHead("Notes.", "the standing context")}

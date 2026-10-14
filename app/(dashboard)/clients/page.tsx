@@ -83,6 +83,7 @@ export default function ClientsPage() {
       {/* Company info form — email every active hub client their prefilled
           form (lib/client-info). Two taps; owner/manager only (server-enforced). */}
       <InfoBlast clients={clients} />
+      <QbSyncPanel />
 
       {/* Inline new-client row */}
       {adding && (
@@ -197,3 +198,83 @@ function InfoBlast({ clients }: { clients: any[] }) {
   );
 }
 
+// ── OpsHub → QuickBooks customer sync (lib/qb-customer-sync) ──
+// Preview every linked client whose QB customer differs from OpsHub, field by
+// field; untick anything that shouldn't go; two taps to write. Blanks in
+// OpsHub never overwrite QB; tax and display names are never touched.
+function QbSyncPanel() {
+  type D = { field: string; label: string; qb: string; opshub: string };
+  type C = { clientId: string; name: string; qbName: string; diffs: D[] };
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState<"load" | "write" | null>(null);
+  const [rows, setRows] = useState<C[] | null>(null);
+  const [checked, setChecked] = useState<number>(0);
+  const [pick, setPick] = useState<Record<string, Set<string>>>({});
+  const [arm, setArm] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const load = async () => {
+    setBusy("load"); setErr(null); setArm(false);
+    try {
+      const r = await fetch("/api/qb/customer-sync"); const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Couldn't read QuickBooks");
+      setRows(d.clients); setChecked(d.checked);
+      setPick(Object.fromEntries((d.clients as C[]).map(c => [c.clientId, new Set(c.diffs.map(x => x.field))])));
+    } catch (e: any) { setErr(e.message); } finally { setBusy(null); }
+  };
+  const toggle = (cid: string, f: string) => setPick(p => { const s = new Set(p[cid] || []); s.has(f) ? s.delete(f) : s.add(f); return { ...p, [cid]: s }; });
+  const items = Object.entries(pick).filter(([, s]) => s.size).map(([clientId, s]) => ({ clientId, fields: Array.from(s) }));
+  const nFields = items.reduce((a, i) => a + i.fields.length, 0);
+  const write = async () => {
+    if (!arm) { setArm(true); return; }
+    setArm(false); setBusy("write"); setErr(null); setDone(null);
+    try {
+      const r = await fetch("/api/qb/customer-sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Update failed");
+      const nameOf = (id: string) => rows?.find(c => c.clientId === id)?.name || id;
+      setDone(`Updated ${d.updated} QuickBooks customer${d.updated === 1 ? "" : "s"}.` + (d.failed?.length ? ` Not updated: ${d.failed.map((f: any) => `${nameOf(f.clientId)} (${f.error})`).join("; ")}` : ""));
+      await load();
+    } catch (e: any) { setErr(e.message); } finally { setBusy(null); }
+  };
+  const btn: React.CSSProperties = { background: "transparent", color: T.muted, border: `1px solid ${T.border}`, borderRadius: 999, padding: "6px 13px", fontSize: 12, fontFamily: font, fontWeight: 600, cursor: "pointer" };
+  if (!open) return <div><button style={btn} onClick={() => { setOpen(true); load(); }}>Review QuickBooks customer updates</button></div>;
+  return (
+    <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", gap: 10, fontFamily: font }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+        <b style={{ fontSize: 13, color: T.text }}>QuickBooks customers</b>
+        <span style={{ fontSize: 12, color: T.muted }}>{busy === "load" ? "Reading QuickBooks…" : rows ? `${rows.length} of ${checked} differ from OpsHub. Untick anything that shouldn't go.` : ""}</span>
+        <button style={{ ...btn, border: "none", marginLeft: "auto" }} onClick={() => { setOpen(false); setRows(null); setDone(null); setErr(null); }}>Close</button>
+      </div>
+      {err && <div style={{ color: T.red, fontSize: 12.5 }}>{err}</div>}
+      {done && <div style={{ color: T.green, fontSize: 12.5 }}>{done}</div>}
+      {rows && rows.length === 0 && <div style={{ fontSize: 12.5, color: T.muted }}>Every linked client matches QuickBooks.</div>}
+      {rows && rows.map(c => (
+        <div key={c.clientId} style={{ borderTop: `1px solid ${T.border}`, paddingTop: 8 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: T.text }}>{c.name}{c.qbName && c.qbName !== c.name ? <span style={{ color: T.faint, fontWeight: 400 }}> · QuickBooks: {c.qbName}</span> : null}</div>
+          {c.diffs.map(d => {
+            const on = pick[c.clientId]?.has(d.field) || false;
+            return (
+              <label key={d.field} style={{ display: "grid", gridTemplateColumns: "20px minmax(90px, 0.6fr) 1fr 1fr", gap: 8, alignItems: "start", fontSize: 12, padding: "6px 0", cursor: "pointer", opacity: on ? 1 : 0.5 }}>
+                <input type="checkbox" checked={on} onChange={() => toggle(c.clientId, d.field)} style={{ accentColor: T.accent, marginTop: 2 }} />
+                <span style={{ color: T.muted }}>{d.label}</span>
+                <span style={{ color: T.faint, whiteSpace: "pre-line", textDecoration: on && d.qb ? "line-through" : "none" }}>{d.qb || "(blank in QuickBooks)"}</span>
+                <span style={{ color: T.text, whiteSpace: "pre-line" }}>{d.opshub}</span>
+              </label>
+            );
+          })}
+        </div>
+      ))}
+      {rows && rows.length > 0 && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", borderTop: `1px solid ${T.border}`, paddingTop: 10 }}>
+          <button onClick={write} disabled={!!busy || !nFields}
+            style={{ ...btn, background: arm ? T.accent : "transparent", color: arm ? "#0a0a0a" : T.text, borderColor: arm ? T.accent : T.border, opacity: nFields ? 1 : 0.5 }}>
+            {busy === "write" ? "Updating QuickBooks…" : arm ? `Tap again: update ${items.length} customers in QuickBooks` : `Update ${nFields} field${nFields === 1 ? "" : "s"} across ${items.length} customer${items.length === 1 ? "" : "s"}`}
+          </button>
+          {arm && <button style={{ ...btn, border: "none" }} onClick={() => setArm(false)}>Cancel</button>}
+          <span style={{ fontSize: 11.5, color: T.faint }}>Left column = QuickBooks now · right = what it becomes. Blanks in OpsHub never overwrite QuickBooks.</span>
+        </div>
+      )}
+    </div>
+  );
+}

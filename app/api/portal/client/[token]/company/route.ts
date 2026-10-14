@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { hubClientLookup } from "@/lib/hub-client";
 import { loadClientInfo, applyClientInfo, US_STATES } from "@/lib/client-info";
+import { applyQbSync } from "@/lib/qb-customer-sync";
 import { sendInternalMail } from "@/lib/internal-mail";
 
 export const runtime = "nodejs";
@@ -31,8 +32,15 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     const body = await req.json().catch(() => null);
     if (!body) return NextResponse.json({ error: "Nothing was sent" }, { status: 400 });
     const r = await applyClientInfo(db, (client as any).id, body);
+    // copy the confirmed info to the QuickBooks customer (staff-only note; a
+    // QB hiccup never fails the client's submission)
+    let qbLine: string | null = null;
     try {
-      await sendInternalMail({ kind: "client_info_updated", client: (client as any).name, clientId: (client as any).id, signer: String(body?.signer?.name || ""), applied: r.applied, certsPending: r.certsPending });
+      const q = await applyQbSync(db, (client as any).id, { source: "info_form" });
+      if (q.changed.length) qbLine = `QuickBooks customer updated: ${q.changed.join(", ")}`;
+    } catch (e: any) { qbLine = `QuickBooks customer NOT updated (${e?.message || "error"}). Run the QuickBooks sync from the Clients page.`; }
+    try {
+      await sendInternalMail({ kind: "client_info_updated", client: (client as any).name, clientId: (client as any).id, signer: String(body?.signer?.name || ""), applied: qbLine ? [...r.applied, qbLine] : r.applied, certsPending: r.certsPending });
     } catch {}
     return NextResponse.json({ ok: true, applied: r.applied, certsPending: r.certsPending });
   } catch (e: any) {
