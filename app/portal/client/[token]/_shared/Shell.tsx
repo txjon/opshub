@@ -127,7 +127,7 @@ const TABS: { label: keyof typeof ICONS; path: string; display: string; unreadKe
   // Route unchanged, same pattern as the Jul 20 renames.
   { label: "Reorder", display: "Catalog", path: "/reorder" },
   // Oct 14 2026: what we have on file (view-only; changes by email)
-  { label: "Company", display: "Company", path: "/company", menuOnly: true },
+  { label: "Company", display: "Account", path: "/company", menuOnly: true },
 ];
 
 export default function Shell({ children }: { children: ReactNode }) {
@@ -251,7 +251,7 @@ export default function Shell({ children }: { children: ReactNode }) {
           {/* phones: the menuOnly tabs (bottom bar is full) */}
           {visibleTabs.filter(t => t.menuOnly).map(t => (
             <Link key={t.label} href={base + t.path} style={{ display: "inline-block", marginTop: 6, fontSize: 10, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: isActive(t.path) ? C.text : C.muted, textDecoration: "none", padding: "6px 4px" }}>
-              {t.display} info
+              {t.display}
             </Link>
           ))}
         </div>

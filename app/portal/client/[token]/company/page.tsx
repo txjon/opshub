@@ -66,7 +66,7 @@ const row = (k: string, v: React.ReactNode) => (
 );
 const none = <span style={{ color: H.faint }}>Not on file</span>;
 function InfoView({ d, updateEmail }: { d: any; updateEmail: string }) {
-  const mail = `mailto:${updateEmail}?subject=${encodeURIComponent(`Company info update: ${d.clientName}`)}`;
+  const mail = `mailto:${updateEmail}?subject=${encodeURIComponent(`Account update: ${d.clientName}`)}`;
   const bill = formatAddress(d.company.billing) || d.company.billingOnFile || "";
   const contacts = (d.contacts || []) as Contact[];
   const locs = (d.locations || []) as Loc[];
@@ -74,7 +74,7 @@ function InfoView({ d, updateEmail }: { d: any; updateEmail: string }) {
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "26px 16px 120px", fontFamily: H.font, color: H.text }}>
       <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint }}>{d.clientName}</div>
-      <h1 style={{ fontSize: "clamp(30px,6vw,52px)", fontWeight: 900, textTransform: "uppercase", lineHeight: 0.98, letterSpacing: "-0.02em", margin: "8px 0 0" }}>Company info</h1>
+      <h1 style={{ fontSize: "clamp(30px,6vw,52px)", fontWeight: 900, textTransform: "uppercase", lineHeight: 0.98, letterSpacing: "-0.02em", margin: "8px 0 0" }}>Account</h1>
       <p style={{ color: H.dim, fontSize: 14.5, lineHeight: 1.55, marginTop: 12 }}>This is what we have on file for your account. Need to change something? Email <a href={mail} style={{ color: H.text, fontWeight: 700 }}>{updateEmail}</a> and we'll update it.</p>
       {d.lastSubmission && <p style={{ color: H.faint, fontSize: 13, margin: "6px 0 0" }}>Last confirmed {new Date(d.lastSubmission.submittedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} by {d.lastSubmission.signerName}.</p>}
 
@@ -227,14 +227,14 @@ export default function CompanyInfoPage() {
         Your info is up to date{done.applied.filter(a => !/certificate/.test(a)).length ? " and the changes are already in our system" : ""}.
         {done.certsPending ? ` We received your resale certificate${done.certsPending === 1 ? "" : "s"} and will review ${done.certsPending === 1 ? "it" : "them"} shortly. Sales tax comes off once it's approved.` : ""}
       </p>
-      <p style={{ color: H.faint, fontSize: 13, marginTop: 18 }}>You can see what we have on file anytime under Company in your hub. To change it later, email hello@housepartydistro.com.</p>
+      <p style={{ color: H.faint, fontSize: 13, marginTop: 18 }}>You can see what we have on file anytime under Account in your hub. To change it later, email hello@housepartydistro.com.</p>
     </div>
   );
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "26px 16px 120px", fontFamily: H.font, color: H.text }}>
       <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint }}>{clientName}</div>
-      <h1 style={{ fontSize: "clamp(30px,6vw,52px)", fontWeight: 900, textTransform: "uppercase", lineHeight: 0.98, letterSpacing: "-0.02em", margin: "8px 0 0" }}>Company info</h1>
+      <h1 style={{ fontSize: "clamp(30px,6vw,52px)", fontWeight: 900, textTransform: "uppercase", lineHeight: 0.98, letterSpacing: "-0.02em", margin: "8px 0 0" }}>Account</h1>
       <p style={{ color: H.dim, fontSize: 14.5, lineHeight: 1.55, marginTop: 12 }}>This is what we have on file. Change anything that's different, then sign at the bottom.</p>
       {lastSub && <p style={{ color: H.faint, fontSize: 13, margin: "6px 0 0" }}>Last updated {new Date(lastSub.submittedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} by {lastSub.signerName}. Their changes are already shown here.</p>}
 
