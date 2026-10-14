@@ -61,12 +61,17 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
   // black, the product shots should match). Exact "Black" first, then a
   // single-color black (Faded / Vintage / Carbon Black); two-tone names
   // ("Black/ White") don't count. A hand-dropped hero (override/ or la/
-  // in the bucket = HPD's own photo) always wins; no black = vendor hero.
-  const cardHero = (img: (typeof imagery)[string] | undefined): string | null => {
+  // in the bucket = HPD's own photo) always wins. Styles with no black
+  // name their darkest stand-in below; otherwise the vendor hero.
+  const NO_BLACK_STAND_IN: Record<string, string> = { CC1567: "Pepper" };
+  const cardHero = (code: string, img: (typeof imagery)[string] | undefined): string | null => {
     if (!img) return null;
     if (img.hero && /\/menu-assets\/(override|la)\//.test(img.hero)) return img.hero;
     const cs = (img.allColors || []).filter((c) => c.image);
-    const black = cs.find((c) => /^black$/i.test(c.name.trim())) || cs.find((c) => /black/i.test(c.name) && !c.name.includes("/"));
+    const standIn = NO_BLACK_STAND_IN[code]?.toLowerCase();
+    const black = cs.find((c) => /^black$/i.test(c.name.trim()))
+      || cs.find((c) => /black/i.test(c.name) && !c.name.includes("/"))
+      || cs.find((c) => c.name.trim().toLowerCase() === standIn);
     return black?.image || img.hero;
   };
 
@@ -76,7 +81,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
       const img = imagery[r.style_code];
       styles[r.style_code] = {
         code: r.style_code, name: r.style_name, lane: r.lane, group: r.product_group, sort: r.sort, bands: {},
-        hero: cardHero(img),
+        hero: cardHero(r.style_code, img),
         colors: img?.colors ?? [],
         allColors: img?.allColors ?? [],
         moreColors: img?.moreCount ?? 0,
