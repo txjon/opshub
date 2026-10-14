@@ -912,7 +912,7 @@ function InfoTaxBlock({ client, contacts, secHead }: any) {
         <button onClick={send} disabled={busy === "send"} style={{ ...pill, color: arm ? H.ink : H.dim, background: arm ? "#fff" : "transparent", borderColor: arm ? "#fff" : H.line }}>
           {busy === "send" ? "Sending…" : arm ? (pick.length ? `Email ${pick.length === 1 ? "this person" : `these ${pick.length}`}` : "Pick who gets it") : "Email them the info form"}
         </button>
-        {client.portal_token && <a href={`/portal/client/${client.portal_token}/company`} target="_blank" rel="noreferrer" style={pill}>Preview their form ↗</a>}
+        {client.portal_token && <a href={`/portal/client/${client.portal_token}/account`} target="_blank" rel="noreferrer" style={pill}>Preview their form ↗</a>}
         {arm && <button onClick={() => setArm(false)} style={{ ...pill, border: "none" }}>Cancel</button>}
       </div>
       {arm && (

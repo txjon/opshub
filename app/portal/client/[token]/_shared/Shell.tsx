@@ -127,7 +127,7 @@ const TABS: { label: keyof typeof ICONS; path: string; display: string; unreadKe
   // Route unchanged, same pattern as the Jul 20 renames.
   { label: "Reorder", display: "Catalog", path: "/reorder" },
   // Oct 14 2026: what we have on file (view-only; changes by email)
-  { label: "Company", display: "Account", path: "/company", menuOnly: true },
+  { label: "Company", display: "Account", path: "/account", menuOnly: true },
 ];
 
 export default function Shell({ children }: { children: ReactNode }) {

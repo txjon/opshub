@@ -1,6 +1,6 @@
 // The client info form (Oct 13 2026) — clients keep their own company info,
 // contacts, ship-to addresses and resale certificates current from their hub
-// (/portal/client/[token]/company). ONE module for prefill, apply and review.
+// (/portal/client/[token]/account). ONE module for prefill, apply and review.
 //
 // Rules (Jon, Oct 13):
 //   - company info, contacts and addresses APPLY on submit (logged in
@@ -416,7 +416,7 @@ export async function sendInfoRequest(db: Db, clientId: string, baseUrl: string,
   }
   if (!to.length) throw new Error(`${c.name} has no contact with an email`);
   const first = (((contacts || []) as any[]).find(x => to.includes(String(x.email || "").toLowerCase()))?.name || "").split(" ")[0];
-  const link = `${baseUrl}/portal/client/${c.portal_token}/company`;
+  const link = `${baseUrl}/portal/client/${c.portal_token}/account`;
   const subject = "Please confirm your company info with House Party Distro";
   const text = `Hi ${first || "there"},
 

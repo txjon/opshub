@@ -6,7 +6,7 @@ import { CERT_BUCKET } from "@/lib/client-info";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// POST /api/portal/client/[token]/company/upload { fileName, size, type }
+// POST /api/portal/client/[token]/account/upload { fileName, size, type }
 // → a one-time signed upload URL into the PRIVATE client-docs bucket, under
 // this client's own folder. The browser uploads straight there (no 4.5MB
 // API-route limit); on submit the file is filed in Drive as a staff-only

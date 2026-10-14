@@ -23,7 +23,7 @@ export async function hubClientLookup(db: any, token: string, cols: string): Pro
   return { data: null };
 }
 
-// Client info page (hub /company): VIEW-ONLY by default (Jon, Oct 14 2026 —
+// Client info page (hub /account): VIEW-ONLY by default (Jon, Oct 14 2026 —
 // a forwarded hub link must never be able to change a ship-to or billing
 // address). It opens for editing only while an info request staff emailed
 // this client is fresh, or for a signed-in OpsHub user (preview).

@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;   // certificate files are copied into Drive on submit
 
-// GET/POST /api/portal/client/[token]/company — the client info page
+// GET/POST /api/portal/client/[token]/account — the client info page
 // (lib/client-info). Token-scoped like every hub route (hubClientLookup).
 // View-only unless an info request is open (lib/hub-client infoFormEditable):
 // POST refuses otherwise, so a forwarded link can't change anything.
