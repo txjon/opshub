@@ -3,8 +3,11 @@
 // company details, contacts, ship-to addresses and resale certificates
 // current. Prefilled from OpsHub (confirm, don't retype). Company, contacts
 // and addresses apply on submit; resale certificates go to HPD for review
-// (lib/client-info). Emailed out as the "confirm your info" ask, and lives
-// in the hub for anytime updates. Client copy: no em-dashes.
+// (lib/client-info). Client copy: no em-dashes.
+// Oct 14 2026 (Jon): the hub's Company tab is VIEW-ONLY ("email hello@ to
+// update", like Uline). The form opens only while an info request we emailed
+// is fresh, or for staff previewing (server decides: lib/hub-client
+// infoFormEditable; the API refuses saves otherwise).
 import { useEffect, useState } from "react";
 import { useClientPortal } from "../_shared/context";
 import { H } from "@/components/hub/theme";
@@ -54,6 +57,78 @@ const check = (on: boolean, set: (v: boolean) => void, label: string) => (
   </label>
 );
 
+// ── view-only: what we have on file + how to change it ──
+const tag = (t: string, color: string) => <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color }}>{t}</span>;
+const row = (k: string, v: React.ReactNode) => (
+  <div style={{ display: "grid", gridTemplateColumns: "minmax(110px, 0.35fr) minmax(0, 1fr)", gap: 12, padding: "9px 0", borderTop: `1px solid ${H.line}`, fontSize: 14.5, lineHeight: 1.5 }}>
+    <span style={{ color: H.faint, fontSize: 12.5 }}>{k}</span><span style={{ overflowWrap: "anywhere", whiteSpace: "pre-line" }}>{v}</span>
+  </div>
+);
+const none = <span style={{ color: H.faint }}>Not on file</span>;
+function InfoView({ d, updateEmail }: { d: any; updateEmail: string }) {
+  const mail = `mailto:${updateEmail}?subject=${encodeURIComponent(`Company info update: ${d.clientName}`)}`;
+  const bill = formatAddress(d.company.billing) || d.company.billingOnFile || "";
+  const contacts = (d.contacts || []) as Contact[];
+  const locs = (d.locations || []) as Loc[];
+  const certs = (d.certificates || []) as { state: string; permitNumber: string; issuedOn: string | null; status: string }[];
+  return (
+    <div style={{ maxWidth: 720, margin: "0 auto", padding: "26px 16px 120px", fontFamily: H.font, color: H.text }}>
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint }}>{d.clientName}</div>
+      <h1 style={{ fontSize: "clamp(30px,6vw,52px)", fontWeight: 900, textTransform: "uppercase", lineHeight: 0.98, letterSpacing: "-0.02em", margin: "8px 0 0" }}>Company info</h1>
+      <p style={{ color: H.dim, fontSize: 14.5, lineHeight: 1.55, marginTop: 12 }}>This is what we have on file for your account. Need to change something? Email <a href={mail} style={{ color: H.text, fontWeight: 700 }}>{updateEmail}</a> and we'll update it.</p>
+      {d.lastSubmission && <p style={{ color: H.faint, fontSize: 13, margin: "6px 0 0" }}>Last confirmed {new Date(d.lastSubmission.submittedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} by {d.lastSubmission.signerName}.</p>}
+
+      <div style={box}>
+        <H2 n="1" t="Company" />
+        <div style={{ marginTop: 10 }}>
+          {row("Legal name", d.company.legalName || none)}
+          {row("Website", d.company.website || none)}
+          {row("Billing address", bill || none)}
+          {d.company.invoicePoRequired && row("Invoices", "Your PO number goes on every invoice")}
+        </div>
+      </div>
+
+      <div style={box}>
+        <H2 n="2" t="Contacts" />
+        {contacts.length ? contacts.map((c, i) => (
+          <div key={c.id || i} style={{ borderTop: `1px solid ${H.line}`, marginTop: i ? 0 : 10, padding: "11px 0", fontSize: 14.5, lineHeight: 1.5 }}>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "baseline" }}>
+              <b>{c.name || c.email}</b>{c.role && <span style={{ color: H.dim, fontSize: 13 }}>{c.role}</span>}
+              {c.isPrimary && tag("Main contact", H.text)}{c.getsInvoices && tag("Gets invoices", H.dim)}
+            </div>
+            <div style={{ color: H.dim, fontSize: 13.5, overflowWrap: "anywhere" }}>{[c.email, c.phone].filter(Boolean).join("  ·  ")}</div>
+          </div>
+        )) : <p style={{ color: H.faint, fontSize: 13.5, marginTop: 10 }}>No contacts on file.</p>}
+      </div>
+
+      <div style={box}>
+        <H2 n="3" t="Ship-to addresses" hint={locs.length > 1 ? "we ship to whichever one your order calls for" : undefined} />
+        {locs.length ? locs.map((l, i) => (
+          <div key={l.id || i} style={{ borderTop: `1px solid ${H.line}`, marginTop: i ? 0 : 10, padding: "11px 0", fontSize: 14.5, lineHeight: 1.5 }}>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "baseline" }}>
+              <b>{l.label || "Ship-to"}</b>{l.isDefault && locs.length > 1 && tag("Usual ship-to", H.text)}
+            </div>
+            <div style={{ whiteSpace: "pre-line", color: H.dim, fontSize: 13.5 }}>{formatAddress(l.addr) || l.onFile || ""}</div>
+            {(l.contactName || l.contactPhone) && <div style={{ color: H.faint, fontSize: 13 }}>Attn {[l.contactName, l.contactPhone].filter(Boolean).join(", ")}</div>}
+            {l.deliveryNotes && <div style={{ color: H.faint, fontSize: 13 }}>{l.deliveryNotes}</div>}
+          </div>
+        )) : <p style={{ color: H.faint, fontSize: 13.5, marginTop: 10 }}>No ship-to addresses on file.</p>}
+      </div>
+
+      <div style={box}>
+        <H2 n="4" t="Sales tax" />
+        <div style={{ marginTop: 10 }}>
+          {row("Status", d.taxExempt ? "Tax exempt (resale)" : "Taxable")}
+          {certs.map((c, i) => <div key={i}>{row(`${c.state} certificate`, <span style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "baseline" }}><span style={{ fontFamily: H.mono }}>{c.permitNumber}</span>{c.issuedOn && <span style={{ color: H.faint }}>issued {c.issuedOn}</span>}{tag(c.status === "pending" ? "In review" : c.status, c.status === "approved" ? H.green : c.status === "rejected" ? H.red : H.amber)}</span>)}</div>)}
+        </div>
+        {d.taxExempt && !certs.some(c => c.status === "approved") && <p style={{ color: H.dim, fontSize: 13.5, lineHeight: 1.5, margin: "12px 0 0" }}>We don't have a current resale certificate for you yet. Please email it to <a href={mail} style={{ color: H.text, fontWeight: 700 }}>{updateEmail}</a>.</p>}
+      </div>
+
+      <a href={mail} style={{ display: "block", textAlign: "center", marginTop: 22, background: "#fff", color: H.ink, borderRadius: 999, padding: "15px 22px", fontSize: 13, fontWeight: 900, letterSpacing: "0.07em", textTransform: "uppercase", textDecoration: "none" }}>Email us a change</a>
+    </div>
+  );
+}
+
 export default function CompanyInfoPage() {
   const { token } = useClientPortal() as any;
   const [loaded, setLoaded] = useState(false);
@@ -76,10 +151,12 @@ export default function CompanyInfoPage() {
   // from it, so two people on one link can't undo each other (Oct 13)
   const [original, setOriginal] = useState<any>(null);
   const [lastSub, setLastSub] = useState<{ signerName: string; submittedAt: string } | null>(null);
+  const [view, setView] = useState<{ d: any; updateEmail: string } | null>(null);   // not editable → the read-only page
 
   useEffect(() => {
     fetch(`/api/portal/client/${token}/company`).then(r => r.json()).then(d => {
       if (d.error) { setErr(d.error); return; }
+      if (!d.editable) { setView({ d, updateEmail: d.updateEmail }); setLoaded(true); return; }
       setClientName(d.clientName); setStates(d.states || []); setCompany(d.company); setBillingState(d.company?.billing?.line1 ? "ask" : "edit");
       setContacts(d.contacts.length ? d.contacts : [{ name: "", email: "", phone: "", role: "", isPrimary: true, getsInvoices: true }]);
       setLocs(d.locations.length ? d.locations.map((l: Loc) => ({ ...l, sameAsBilling: sameStreet(l.addr, d.company.billing), addrState: (l.addr.line1 ? "ask" : "edit") as AddrState })) : [{ _k: "n0", label: "Main", addr: EMPTY_ADDR, contactName: "", contactPhone: "", deliveryNotes: "", isDefault: true }]);
@@ -138,6 +215,7 @@ export default function CompanyInfoPage() {
 
   if (err && !loaded) return <div style={{ padding: 40, color: H.red, fontFamily: H.font }}>{err}</div>;
   if (!loaded) return <div style={{ padding: 40, color: H.faint, fontFamily: H.font }}>Loading your info…</div>;
+  if (view) return <InfoView d={view.d} updateEmail={view.updateEmail} />;
 
   if (done) return (
     <div style={{ maxWidth: 640, margin: "0 auto", padding: "32px 16px 80px", fontFamily: H.font, color: H.text }}>
@@ -147,7 +225,7 @@ export default function CompanyInfoPage() {
         Your info is up to date{done.applied.filter(a => !/certificate/.test(a)).length ? " and the changes are already in our system" : ""}.
         {done.certsPending ? ` We received your resale certificate${done.certsPending === 1 ? "" : "s"} and will review ${done.certsPending === 1 ? "it" : "them"} shortly. Sales tax comes off once it's approved.` : ""}
       </p>
-      <p style={{ color: H.faint, fontSize: 13, marginTop: 18 }}>You can come back to this page anytime to make changes.</p>
+      <p style={{ color: H.faint, fontSize: 13, marginTop: 18 }}>You can see what we have on file anytime under Company in your hub. To change it later, email hello@housepartydistro.com.</p>
     </div>
   );
 

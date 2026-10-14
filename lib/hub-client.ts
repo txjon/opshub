@@ -22,3 +22,21 @@ export async function hubClientLookup(db: any, token: string, cols: string): Pro
   } catch {}
   return { data: null };
 }
+
+// Client info page (hub /company): VIEW-ONLY by default (Jon, Oct 14 2026 —
+// a forwarded hub link must never be able to change a ship-to or billing
+// address). It opens for editing only while an info request staff emailed
+// this client is fresh, or for a signed-in OpsHub user (preview).
+export const INFO_REQUEST_DAYS = 30;
+export const INFO_UPDATE_EMAIL = "hello@housepartydistro.com";
+export async function infoFormEditable(db: any, clientId: string): Promise<boolean> {
+  try {
+    const sb = await createServerClient();
+    const { data: { user } } = await sb.auth.getUser();
+    if (user) return true;
+  } catch {}
+  const since = new Date(Date.now() - INFO_REQUEST_DAYS * 864e5).toISOString();
+  const { data, error } = await db.from("mail_log").select("id").eq("kind", "client_info_request").eq("meta->>client_id", clientId).gte("created_at", since).limit(1);
+  if (error) throw new Error(error.message);
+  return !!data?.length;
+}

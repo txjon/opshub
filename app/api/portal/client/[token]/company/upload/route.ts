@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { hubClientLookup } from "@/lib/hub-client";
+import { hubClientLookup, infoFormEditable, INFO_UPDATE_EMAIL } from "@/lib/hub-client";
 import { CERT_BUCKET } from "@/lib/client-info";
 
 export const runtime = "nodejs";
@@ -19,6 +19,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     const db = createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     const { data: client } = await hubClientLookup(db, params.token, "id");
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
+    if (!(await infoFormEditable(db, (client as any).id))) return NextResponse.json({ error: `This page is view-only. To send a certificate, email ${INFO_UPDATE_EMAIL}.` }, { status: 403 });
     const b = await req.json().catch(() => ({}));
     const name = String(b?.fileName || "certificate").replace(/[^a-zA-Z0-9._-]+/g, "_").slice(0, 100);
     if (Number(b?.size) > MAX_BYTES) return NextResponse.json({ error: "That file is over 15 MB. Please upload a smaller scan or a PDF." }, { status: 400 });

@@ -91,6 +91,14 @@ const ICONS: Record<string, TabIcon> = {
       <circle cx="12" cy="10" r="1.8" />
     </svg>
   ),
+  Company: (active) => (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth={active ? 2 : 1.6}
+      strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="3" width="16" height="18" rx="1.5" />
+      <path d="M8 7h3M13 7h3M8 11h3M13 11h3M8 15h3M13 15h3M10 21v-3h4v3" />
+    </svg>
+  ),
   Reorder: (active) => (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth={active ? 2 : 1.6}
@@ -104,7 +112,9 @@ const ICONS: Record<string, TabIcon> = {
 
 // display labels renamed Jul 20 (Jon): Home / Product Development /
 // Pipeline. Routes unchanged — /designs and /items keep their URLs.
-const TABS: { label: keyof typeof ICONS; path: string; display: string; unreadKey?: "designs" }[] = [
+// `menuOnly`: desktop hamburger + a link under the client name on phones, never
+// the phone bottom bar (full at 6).
+const TABS: { label: keyof typeof ICONS; path: string; display: string; unreadKey?: "designs"; menuOnly?: boolean }[] = [
   { label: "Overview", display: "Home", path: "" },
   // Product Development (the old /designs surface) stays unlisted; the
   // Studio (grant 'studio') is its stripped-down replacement.
@@ -116,6 +126,8 @@ const TABS: { label: keyof typeof ICONS; path: string; display: string; unreadKe
   // client's catalog is what we call it too (rack/reorder retired as names).
   // Route unchanged, same pattern as the Jul 20 renames.
   { label: "Reorder", display: "Catalog", path: "/reorder" },
+  // Oct 14 2026: what we have on file (view-only; changes by email)
+  { label: "Company", display: "Company", path: "/company", menuOnly: true },
 ];
 
 export default function Shell({ children }: { children: ReactNode }) {
@@ -236,6 +248,12 @@ export default function Shell({ children }: { children: ReactNode }) {
           <div style={{ fontSize: 10, fontWeight: 800, marginTop: 8, color: C.faint, letterSpacing: "0.16em", textTransform: "uppercase" }}>
             {data.client.name}
           </div>
+          {/* phones: the menuOnly tabs (bottom bar is full) */}
+          {visibleTabs.filter(t => t.menuOnly).map(t => (
+            <Link key={t.label} href={base + t.path} style={{ display: "inline-block", marginTop: 6, fontSize: 10, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: isActive(t.path) ? C.text : C.muted, textDecoration: "none", padding: "6px 4px" }}>
+              {t.display} info
+            </Link>
+          ))}
         </div>
 
         {/* Desktop tab nav — hidden on mobile via CSS. Uses visibleTabs (same as
@@ -302,7 +320,7 @@ export default function Shell({ children }: { children: ReactNode }) {
         justifyContent: "space-around",
         boxShadow: "0 -2px 12px rgba(0,0,0,0.04)",
       }}>
-        {visibleTabs.map(t => {
+        {visibleTabs.filter(t => !t.menuOnly).map(t => {
           const href = base + t.path;
           const active = isActive(t.path);
           const unread = t.unreadKey ? unreadCounts[t.unreadKey] : 0;

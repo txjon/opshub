@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { hubClientLookup } from "@/lib/hub-client";
+import { hubClientLookup, infoFormEditable, INFO_UPDATE_EMAIL } from "@/lib/hub-client";
 import { loadClientInfo, applyClientInfo, US_STATES } from "@/lib/client-info";
 import { applyQbSync } from "@/lib/qb-customer-sync";
 import { sendInternalMail } from "@/lib/internal-mail";
@@ -9,8 +9,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;   // certificate files are copied into Drive on submit
 
-// GET/POST /api/portal/client/[token]/company — the client info form
+// GET/POST /api/portal/client/[token]/company — the client info page
 // (lib/client-info). Token-scoped like every hub route (hubClientLookup).
+// View-only unless an info request is open (lib/hub-client infoFormEditable):
+// POST refuses otherwise, so a forwarded link can't change anything.
 const admin = () => createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
 export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
@@ -18,7 +20,9 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     const db = admin();
     const { data: client } = await hubClientLookup(db, params.token, "id");
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
-    return NextResponse.json({ ...(await loadClientInfo(db, (client as any).id)), states: US_STATES });
+    const id = (client as any).id;
+    const [info, editable] = await Promise.all([loadClientInfo(db, id), infoFormEditable(db, id)]);
+    return NextResponse.json({ ...info, states: US_STATES, editable, updateEmail: INFO_UPDATE_EMAIL });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Couldn't load" }, { status: 500 });
   }
@@ -29,6 +33,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     const db = admin();
     const { data: client } = await hubClientLookup(db, params.token, "id, name");
     if (!client) return NextResponse.json({ error: "Invalid link" }, { status: 404 });
+    if (!(await infoFormEditable(db, (client as any).id))) return NextResponse.json({ error: `This page is view-only. To change your info, email ${INFO_UPDATE_EMAIL}.` }, { status: 403 });
     const body = await req.json().catch(() => null);
     if (!body) return NextResponse.json({ error: "Nothing was sent" }, { status: 400 });
     const r = await applyClientInfo(db, (client as any).id, body);

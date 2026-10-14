@@ -424,7 +424,7 @@ We're updating our records so your invoices, shipments and sales tax are right. 
 
 Review your info: ${link}
 
-It's filled in with what we have on file, so you only need to change what's different.
+It's filled in with what we have on file, so you only need to change what's different. The form is open for the next 30 days.
 
 Thanks,
 House Party Distro`;
@@ -432,7 +432,7 @@ House Party Distro`;
 <p>Hi ${first || "there"},</p>
 <p>We're updating our records so your invoices, shipments and sales tax are right. Please take two minutes to confirm your company info, who should receive invoices and your ship-to addresses. If you buy from us for resale, you can upload your resale certificate there too.</p>
 <p style="margin:26px 0"><a href="${link}" style="background:#111;color:#fff;text-decoration:none;padding:12px 22px;border-radius:999px;font-weight:700;font-size:14px">Review your info</a></p>
-<p>It's filled in with what we have on file, so you only need to change what's different.</p>
+<p>It's filled in with what we have on file, so you only need to change what's different. The form is open for the next 30 days.</p>
 <p>Thanks,<br/>House Party Distro</p></div>`;
   const resend = resendForSlug("hpd");
   // From billing@ — the same sender account statements use (companies
