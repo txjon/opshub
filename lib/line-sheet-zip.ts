@@ -32,7 +32,7 @@ export async function approvedMocks(db: Db, sheetId: string) {
   const files: { driveId: string; folder: string; base: string }[] = [];
   for (const it of items) {
     const label = safeName([it.item_no != null ? String(it.item_no).padStart(2, "0") : null, it.name].filter(Boolean).join(" "), "item");
-    const folder = it.section_id && secName.get(it.section_id) ? safeName(secName.get(it.section_id)) + "/" : "";
+    const folder = it.section_id && secName.get(it.section_id) ? safeName(secName.get(it.section_id)).replace(/^\.+$/, "_") + "/" : "";
     it.images.forEach((img: SheetImage, i: number) => files.push({ driveId: img.driveId, folder, base: it.images.length > 1 ? `${label} (${i + 1})` : label }));
   }
   const title = [(sheet as any).clients?.name, (sheet as any).title, (sheet as any).season].filter(Boolean).join(" - ");
@@ -49,10 +49,11 @@ export async function approvedMocksZipStream(db: Db, sheetId: string): Promise<{
     const missing: string[] = [];
     try {
       for (const f of a.files) {
-        const meta = await driveFileMeta(f.driveId);
+        // one Drive hiccup = one MISSING.txt line, not a dead ZIP
+        const meta = await driveFileMeta(f.driveId).catch(() => null);
         const ext = /\.[a-z0-9]{2,5}$/i.exec(meta?.name || "")?.[0] || "";
         const name = uniq(`${f.folder}${f.base}${ext}`);
-        const body = meta ? await driveFileStream(f.driveId) : null;
+        const body = meta ? await driveFileStream(f.driveId).catch(() => null) : null;
         if (!body) { missing.push(name); continue; }
         await new Promise<void>((resolve, reject) => {
           const src = Readable.fromWeb(body as any);
