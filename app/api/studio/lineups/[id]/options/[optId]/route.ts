@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { studioUser } from "@/lib/studio-access";
 import { dbNoStore } from "@/lib/db-nostore";
 import { deleteDriveFileIfUnreferenced } from "@/lib/google-drive-refs";
 
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
 // references it (shared-asset rule: brief files, item files, other options).
 async function requireUser() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await studioUser(supabase);
   return user;
 }
 

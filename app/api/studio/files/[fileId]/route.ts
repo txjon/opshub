@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { detachFileFromWorkOrders } from "@/lib/design-work-orders-server";
 import { createClient } from "@/lib/supabase/server";
+import { studioUser } from "@/lib/studio-access";
 import { dbNoStore } from "@/lib/db-nostore";
 import { deleteDriveFileIfUnreferenced } from "@/lib/google-drive-refs";
 import { LEGACY_CLIENT_KINDS } from "@/lib/brief-visibility";
@@ -14,7 +15,7 @@ export const dynamic = "force-dynamic";
 // (no-op for legacy client-facing kinds, which are visible BY KIND).
 export async function PATCH(req: NextRequest, { params }: { params: { fileId: string } }) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await studioUser(supabase);
   if (!user) return NextResponse.json({ error: "Sign in" }, { status: 401 });
   const db = dbNoStore();
   const b = await req.json().catch(() => ({}));
@@ -36,7 +37,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { fileId: st
 // blind delete would wipe another surface's art).
 export async function DELETE(_req: NextRequest, { params }: { params: { fileId: string } }) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await studioUser(supabase);
   if (!user) return NextResponse.json({ error: "Sign in" }, { status: 401 });
   const db = dbNoStore();
 

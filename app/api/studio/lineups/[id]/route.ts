@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { studioUser } from "@/lib/studio-access";
 import { dbNoStore } from "@/lib/db-nostore";
 
 export const runtime = "nodejs";
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
 //                                       Drive files stay — shared-asset rule)
 async function requireUser() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await studioUser(supabase);
   if (!user) return null;
   const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", user.id).single();
   return (profile as any)?.full_name || user.email || "HPD";

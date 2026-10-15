@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { studioUser } from "@/lib/studio-access";
 import { dbNoStore } from "@/lib/db-nostore";
 import { getActiveCompany } from "@/lib/company";
 import { todayPacific } from "@/lib/dates";
@@ -14,7 +15,7 @@ export const dynamic = "force-dynamic";
 const admin = dbNoStore;
 async function requireUser() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await studioUser(supabase);
   return user;
 }
 

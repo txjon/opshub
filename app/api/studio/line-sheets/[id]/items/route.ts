@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { studioUser } from "@/lib/studio-access";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { newImageId } from "@/lib/line-sheets";
 
@@ -17,7 +18,7 @@ export const dynamic = "force-dynamic";
 const admin = () => createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 async function authed() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await studioUser(supabase);
   return !!user;
 }
 

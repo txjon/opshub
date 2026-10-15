@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { studioUser } from "@/lib/studio-access";
 import { dbNoStore } from "@/lib/db-nostore";
 import { generatePsdPreview, isPsdFile } from "@/lib/psd-preview-server";
 
@@ -15,7 +16,7 @@ export const maxDuration = 60;
 // the ball exactly like the multipart branch of ../messages.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await studioUser(supabase);
   if (!user) return NextResponse.json({ error: "Sign in" }, { status: 401 });
 
   const db = dbNoStore();

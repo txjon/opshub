@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { studioUser } from "@/lib/studio-access";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { getActiveCompany } from "@/lib/company";
 
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
 const admin = () => createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 async function me() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await studioUser(supabase);
   if (!user) return null;
   const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", user.id).single();
   return { user, name: (profile as any)?.full_name || user.email || "HPD" };

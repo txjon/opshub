@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { studioUser } from "@/lib/studio-access";
 import { woDb, resolveTarget } from "@/lib/design-work-orders-server";
 import { createWorkOrder } from "@/lib/design-work-orders-create";
 
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
 // POST → hand it to a designer (lib/design-work-orders-create).
 async function me() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await studioUser(supabase);
   if (!user) return null;
   const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", user.id).single();
   return { user, name: (profile as any)?.full_name || user.email || "HPD" };
