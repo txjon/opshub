@@ -99,6 +99,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   // in its own bucket below the shelves here AND in the hub. section_id is
   // untouched, so un-downing puts it straight back on its shelf.
   const notApproved = items.filter(i => i.client_thumb === "down");
+  const approvedN = items.filter(i => i.client_thumb === "up").length;
   const tray = items.filter(i => !i.section_id && i.client_thumb !== "down");
   // Organizing is live in their hub; only never-published uploads wait (Oct 1 2026).
   const unpublished = items.filter(i => !i.dropped && i.added_in == null).length;
@@ -266,6 +267,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         {versions.length > 0 && <span style={{ fontSize: 10, fontFamily: H.mono, color: H.faint }}>last publish {fmtStamp(versions[versions.length - 1].published_at)}</span>}
         <span style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "center" }}>
           <input ref={fileIn} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { if (e.target.files?.length) enqueue(e.target.files); if (fileIn.current) fileIn.current.value = ""; }} />
+          {approvedN > 0 && <a href={`/api/studio/line-sheets/${params.id}/approved-zip`} download title="Every thumbs-up mockup, full res, in one ZIP" style={{ ...ghostBtn, textDecoration: "none" }}>↓ Approved ({approvedN})</a>}
           <button onClick={() => fileIn.current?.click()} style={ghostBtn}>+ Add mockups</button>
           <button disabled={busy} onClick={() => setPublishOpen(true)} style={{ ...primaryBtn, padding: "11px 20px" }}>Publish {sheet.current_version ? `v${sheet.current_version + 1}` : "v1"} →</button>
         </span>
