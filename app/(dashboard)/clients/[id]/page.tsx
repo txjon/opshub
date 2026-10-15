@@ -660,6 +660,16 @@ function EditClientModal({ client, contacts, onClose, onSaved }: any) {
           next.push(data);
         }
       }
+      // One main contact: rows save one at a time and the DB keeps a sole contact
+      // main (mig 204), so a demoted contact can come back primary. Clear the rest.
+      const prim = next.find(c => c.is_primary && c.id);
+      if (prim) {
+        const { error } = await (supabase.from("contacts") as any).update({ is_primary: false }).eq("client_id", client.id).neq("id", prim.id).eq("is_primary", true);
+        if (error) throw new Error(error.message);
+      }
+      const { data: fresh } = await (supabase.from("contacts") as any).select("id, is_primary").in("id", next.map(c => c.id));
+      const primNow = new Map(((fresh || []) as any[]).map(f => [f.id, !!f.is_primary]));
+      for (const c of next) if (primNow.has(c.id)) c.is_primary = primNow.get(c.id);
       onSaved(cPatch, next);
     } catch (e: any) { setErr(e.message || "Save failed."); setBusy(false); }
   }
