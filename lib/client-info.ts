@@ -279,11 +279,7 @@ export async function applyClientInfo(db: Db, clientId: string, p: InfoPayload):
   if (primaryId) await db.from("contacts").update({ is_primary: false }).eq("client_id", clientId).neq("id", primaryId);
   if (primaryId) await db.from("contacts").update({ is_primary: true }).eq("id", primaryId).eq("client_id", clientId);
   else if (clearPrimaryOf) await db.from("contacts").update({ is_primary: false }).eq("id", clearPrimaryOf).eq("client_id", clientId);
-  // a sole contact is the main contact
-  {
-    const { data: act } = await db.from("contacts").select("id, is_primary").eq("client_id", clientId).or("doc_routing.is.null,doc_routing.not.cs.{none}");
-    if (act?.length === 1 && !act[0].is_primary) await db.from("contacts").update({ is_primary: true }).eq("id", act[0].id);
-  }
+  // a sole contact becomes the main contact: DB trigger (mig 204)
 
   // ship-to addresses — same rules (client address book; job-specific untouched)
   const curLoc = new Map(before.locations.filter(l => l.id).map(l => [l.id as string, l]));
