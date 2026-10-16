@@ -211,6 +211,18 @@ export type VendorShipTo = {
 // Mixed (some items to HPD, some drop-ship) stays all-to-HPD: the production
 // board can't put two destinations in one box either, and a vendor PO is one
 // consignment. Per-item route badges already flag the drop-ship items.
+// The location's name on top of a single drop-ship address (Jon, Oct 16: "YFZ
+// Ranch / ETG" wasn't printing). Placeholder names ("Main", "Project
+// address") say nothing to a vendor, and a name the address already opens
+// with isn't repeated. Split blocks print the label on their own.
+const PLACEHOLDER_LABELS = new Set(["", "main", "main shipping", "project address", "ship-to", "ship to", "default"]);
+export function withPlaceName(label: string | null | undefined, address: string): string {
+  const name = String(label || "").trim();
+  const first = address.trim().split("\n")[0]?.trim().toLowerCase() || "";
+  if (PLACEHOLDER_LABELS.has(name.toLowerCase()) || first === name.toLowerCase()) return address;
+  return `${name}\n${address}`;
+}
+
 export async function vendorPaperShipTo(sb: Sb, args: {
   jobId: string;
   jobRoute: string | null;
@@ -228,7 +240,7 @@ export async function vendorPaperShipTo(sb: Sb, args: {
     if (dests.length > 1) isSplit = true;
     perItem.set(it.id, dests.map(d => ({ locationId: d.shipTo.locationId, label: d.shipTo.label, address: d.shipTo.address, contactName: d.shipTo.contactName, contactPhone: d.shipTo.contactPhone, qtys: d.qtys, total: sumQ(d.qtys) })));
   }
-  const defaultAddr = shipTo?.address || "";
+  const defaultAddr = shipTo ? withPlaceName(shipTo.label, shipTo.address) : "";
   if (!isSplit) { perItem.clear(); return { address: defaultAddr, isSplit: false, perItem }; }
   // Header carries NO address on a split — one address up top made vendors
   // read that instead of the per-item blocks (Jon, Sep 15).
