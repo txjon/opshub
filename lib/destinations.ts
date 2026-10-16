@@ -217,6 +217,7 @@ export type VendorShipTo = {
 // with isn't repeated. Split blocks print the label on their own.
 const PLACEHOLDER_LABELS = new Set(["", "main", "main shipping", "project address", "ship-to", "ship to", "default"]);
 export function withPlaceName(label: string | null | undefined, address: string): string {
+  if (!address.trim()) return address;   // no address: keep the "-" / "to be confirmed" fallbacks
   const name = String(label || "").trim();
   const first = address.trim().split("\n")[0]?.trim().toLowerCase() || "";
   if (PLACEHOLDER_LABELS.has(name.toLowerCase()) || first === name.toLowerCase()) return address;
