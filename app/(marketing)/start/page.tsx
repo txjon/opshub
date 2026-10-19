@@ -85,6 +85,19 @@ function makeDefaultSizes(): SizeCell[] {
   }));
 }
 
+// Step 3 gate: every item needs a name and at least one unit. Active
+// sizes left blank count as 0 and show as 0 in the confirmation, so a
+// skipped size is a visible choice, not a silent gap.
+function itemTotal(it: ItemRow): number {
+  return it.sizes.reduce((s, c) => s + (parseInt(c.qty) || 0), 0);
+}
+function itemComplete(it: ItemRow): boolean {
+  return !!it.name.trim() && itemTotal(it) > 0;
+}
+function itemBreakdown(it: ItemRow): string {
+  return it.sizes.filter(c => c.label.trim()).map(c => `${c.label} ${parseInt(c.qty) || 0}`).join(" · ");
+}
+
 type FormState = {
   // Step 1
   project_type: string;
@@ -97,8 +110,10 @@ type FormState = {
   // Step 2: Next unlocks with at least one file OR the "no files yet" box.
   files: FileRow[];
   noFiles: boolean;
-  // Step 3
+  // Step 3: Next unlocks once every item is complete AND the client ticks
+  // the breakdown confirmation. Any item edit clears the tick.
   items: ItemRow[];
+  qtyConfirmed: boolean;
   // Step 4
   contactName: string;
   email: string;
@@ -136,6 +151,7 @@ function makeInitialState(): FormState {
     files: [],
     noFiles: false,
     items: [makeBlankItem()],
+    qtyConfirmed: false,
     contactName: "",
     email: "",
     phone: "",
@@ -187,6 +203,7 @@ export default function StartPage() {
   function canAdvance(): boolean {
     if (step === 1) return !!form.project_name.trim();
     if (step === 2) return form.files.length > 0 || form.noFiles;
+    if (step === 3) return form.items.length > 0 && form.items.every(itemComplete) && form.qtyConfirmed;
     if (step === 4) return !!form.contactName.trim() && /\S+@\S+\.\S+/.test(form.email) && !!form.company.trim();
     return true;
   }
@@ -242,6 +259,7 @@ export default function StartPage() {
           .filter(f => f.uploaded && f.path)
           .map(f => ({ filename: f.file.name, size: f.size, path: f.path })),
         needs_design_help: form.files.length === 0 && form.noFiles,
+        quantities_confirmed: form.qtyConfirmed,
       };
 
       const res = await fetch("/api/onboard", {
@@ -366,22 +384,24 @@ export default function StartPage() {
   }
 
   function addItem() {
-    setForm(f => ({ ...f, items: [...f.items, makeBlankItem()] }));
+    setForm(f => ({ ...f, items: [...f.items, makeBlankItem()], qtyConfirmed: false }));
   }
   function updateItem(id: string, patch: Partial<ItemRow>) {
     setForm(f => ({
       ...f,
       items: f.items.map(it => it.id === id ? { ...it, ...patch } : it),
+      qtyConfirmed: false,
     }));
   }
   function replaceItemSizes(itemId: string, sizes: SizeCell[]) {
     setForm(f => ({
       ...f,
       items: f.items.map(it => it.id === itemId ? { ...it, sizes } : it),
+      qtyConfirmed: false,
     }));
   }
   function removeItem(id: string) {
-    setForm(f => ({ ...f, items: f.items.filter(it => it.id !== id) }));
+    setForm(f => ({ ...f, items: f.items.filter(it => it.id !== id), qtyConfirmed: false }));
   }
 
   const filesPending = useMemo(() => form.files.some(f => f.uploading), [form.files]);
@@ -533,6 +553,8 @@ export default function StartPage() {
                 onUpdate={updateItem}
                 onReplaceSizes={replaceItemSizes}
                 onRemove={removeItem}
+                confirmed={form.qtyConfirmed}
+                onConfirm={v => update("qtyConfirmed", v)}
               />
             )}
 
@@ -723,7 +745,7 @@ function StepHeading({ step }: { step: Step }) {
   const titles: Record<Step, { title: string; sub: string }> = {
     1: { title: "Tell us about it",         sub: "The more we know, the faster we can get to work." },
     2: { title: "Upload your files",         sub: "Artwork, logos, mockups, inspiration, tech packs. Anything that helps us understand your vision. No art yet? Tick the box below." },
-    3: { title: "Products &amp; quantities", sub: "If you know your size breakdown, enter it here. Skip if not." },
+    3: { title: "Products &amp; quantities", sub: "Name each item and set its sizes and quantities, then confirm the breakdown." },
     4: { title: "Your details",              sub: "Where should we send your quote?" },
     5: { title: "Review &amp; submit",       sub: "Last look before we get to work." },
   };
@@ -945,13 +967,15 @@ function Step2({
 }
 
 function Step3({
-  items, onAdd, onUpdate, onReplaceSizes, onRemove,
+  items, onAdd, onUpdate, onReplaceSizes, onRemove, confirmed, onConfirm,
 }: {
   items: ItemRow[];
   onAdd: () => void;
   onUpdate: (id: string, patch: Partial<ItemRow>) => void;
   onReplaceSizes: (itemId: string, sizes: SizeCell[]) => void;
   onRemove: (id: string) => void;
+  confirmed: boolean;
+  onConfirm: (v: boolean) => void;
 }) {
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const editingItem = items.find(it => it.id === editingItemId) || null;
@@ -964,7 +988,7 @@ function Step3({
           padding: "20px 18px", textAlign: "center", marginBottom: 12,
         }}>
           <div style={{ fontSize: 13, color: "#6b6b78", marginBottom: 12 }}>
-            No items yet. Add one if you have a size breakdown in mind. Otherwise skip this step.
+            Add at least one item with its sizes and quantities.
           </div>
         </div>
       )}
@@ -1050,6 +1074,33 @@ function Step3({
       >
         + Add an item
       </button>
+
+      {items.length > 0 && !items.every(itemComplete) && (
+        <div style={{ fontSize: 12, color: "#6b6b78", marginTop: 14 }}>
+          Name every item and set its quantities to continue.
+        </div>
+      )}
+      {items.length > 0 && items.every(itemComplete) && (
+        <label style={{
+          display: "flex", alignItems: "flex-start", gap: 10, marginTop: 16,
+          padding: "14px 16px", border: `1px solid ${confirmed ? "#1a1a1a" : "#e0e0e4"}`,
+          borderRadius: 8, cursor: "pointer",
+        }}>
+          <input type="checkbox" checked={confirmed} onChange={e => onConfirm(e.target.checked)}
+            style={{ width: 16, height: 16, marginTop: 2, accentColor: "#1a1a1a", cursor: "pointer", flexShrink: 0 }} />
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", marginBottom: 6 }}>
+              These sizes and quantities are correct.
+            </div>
+            {items.map(it => (
+              <div key={it.id} style={{ fontSize: 13, color: "#1a1a1a", lineHeight: 1.6 }}>
+                <span style={{ fontWeight: 600 }}>{it.name.trim()}:</span> {itemBreakdown(it)}
+                <span style={{ color: "#6b6b78" }}> ({itemTotal(it)} total)</span>
+              </div>
+            ))}
+          </div>
+        </label>
+      )}
 
       {editingItem && (
         <SizeModal

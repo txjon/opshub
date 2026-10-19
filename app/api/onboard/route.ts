@@ -51,6 +51,7 @@ type IntakeBody = {
   items?: { name?: string; sizes?: Record<string, number | string> }[];
   files?: { filename?: string; url?: string | null; size?: number; path?: string }[];
   needs_design_help?: boolean;
+  quantities_confirmed?: boolean;
 };
 
 function admin() {
@@ -102,6 +103,7 @@ export async function POST(req: NextRequest) {
       legacyAddress ? `Address: ${legacyAddress}` : "",
       extraContactsBlock ? `Extra contacts:\n${extraContactsBlock}` : "",
       body.needs_design_help ? "No files yet. Needs design help." : "",
+      body.quantities_confirmed ? "Client confirmed sizes and quantities." : "",
     ].filter(Boolean).join("\n\n") || null;
 
     // Items — normalize size values to numbers so the DB has clean shape.
