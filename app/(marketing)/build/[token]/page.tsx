@@ -62,6 +62,14 @@ const LANES_BY_GROUP: Record<string, { key: string; label: string; blurb: string
     { key: "stickers", label: "Stickers", blurb: "Die-cut vinyl. From 25." },
   ],
 };
+// Tees + hoodies render as ONE grid sorted by "from" price, low to high
+// (Jon, Oct 19 2026): brand lanes made people shop by label instead of
+// budget. Lanes still name the brand in the style modal. Hats and
+// accessories keep their lanes (product types, not brands).
+const PRICE_SORTED_GROUPS = new Set(["tee", "hoodie"]);
+const byFromPrice = (a: StyleRow, b: StyleRow) =>
+  (fromPrice(a) ?? Infinity) - (fromPrice(b) ?? Infinity) || a.sort - b.sort;
+
 // Minimums and tiers derive from each style's own rate rows — the
 // Accessories tab mixes minimums (patches/flags 50, stickers 25), so
 // per-group band config would lie. Apparel additionally opens a 25–49
@@ -381,15 +389,20 @@ export default function MenuPage() {
             </a>
           </div>
 
-          {(LANES_BY_GROUP[group] || []).map((lane) => {
-            const laneStyles = visible.filter((s) => s.lane === lane.key);
+          {(PRICE_SORTED_GROUPS.has(group)
+            ? [{ key: "all", label: "", blurb: "", styles: [...visible].sort(byFromPrice) }]
+            : (LANES_BY_GROUP[group] || []).map((l) => ({ ...l, styles: visible.filter((s) => s.lane === l.key) }))
+          ).map((lane) => {
+            const laneStyles = lane.styles;
             if (laneStyles.length === 0) return null;
             return (
               <section key={lane.key} style={{ marginBottom: 44 }}>
-                <div style={{ marginBottom: 16 }}>
-                  <h2 style={{ fontSize: 20, fontWeight: 900, margin: 0, textTransform: "uppercase" }}>{lane.label}</h2>
-                  <span style={{ fontSize: 12.5, color: FAINT }}>{lane.blurb}</span>
-                </div>
+                {lane.label && (
+                  <div style={{ marginBottom: 16 }}>
+                    <h2 style={{ fontSize: 20, fontWeight: 900, margin: 0, textTransform: "uppercase" }}>{lane.label}</h2>
+                    <span style={{ fontSize: 12.5, color: FAINT }}>{lane.blurb}</span>
+                  </div>
+                )}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(240px,1fr))", gap: "24px 20px" }}>
                   {laneStyles.map((s) => {
                     const inQuote = picks.items.find((i) => i.styleCode === s.code);
