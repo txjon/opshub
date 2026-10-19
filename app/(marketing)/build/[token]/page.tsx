@@ -375,7 +375,7 @@ export default function MenuPage() {
             </div>
             <a
               href={`/start?brief=1${email ? `&email=${encodeURIComponent(email)}` : ""}`}
-              style={{ fontSize: 12, color: MUTED, textDecoration: "none", border: `1px solid ${LINE_SOFT}`, padding: "8px 14px", whiteSpace: "nowrap" }}
+              style={{ fontSize: 14, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: "#fff", textDecoration: "none", border: "2px solid #fff", padding: "12px 22px", whiteSpace: "nowrap" }}
             >
               I know what I want →
             </a>
