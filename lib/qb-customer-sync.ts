@@ -27,8 +27,16 @@ const alnum = (s: any) => lc(s).replace(/[^a-z0-9]/g, "");
 // QB address ↔ text, in QB's own field order
 const qbAddrLines = (q: any) => !q ? [] : [q.Line1, q.Line2, q.Line3, q.Line4, q.Line5, [[q.City, q.CountrySubDivisionCode].filter(Boolean).join(", "), q.PostalCode].filter(Boolean).join(" "), q.Country && !/^(us|usa|united states)/i.test(q.Country) ? q.Country : ""].map(x => String(x ?? "").trim()).filter(Boolean);
 const showQb = (q: any) => qbAddrLines(q).join("\n");
-// same address = same letters and digits, ignoring a trailing "USA"
-const sameAddr = (q: any, ours: any) => alnum(qbAddrLines(q).join(" ").replace(/\b(usa|united states)\b/gi, "")) === alnum(qbAddrLines(ours).join(" ").replace(/\b(usa|united states)\b/gi, ""));
+// same address = same value IN EACH FIELD (letters and digits only). Comparing
+// the joined text missed QB-side scrambles where the right words sat in the
+// wrong fields (Concordia, Oct 16: street in City, ZIP in Country) — the text
+// read the same, so the preview said "matches".
+const addrFields = (q: any) => !q ? null : {
+  lines: [q.Line1, q.Line2, q.Line3, q.Line4, q.Line5].map(alnum).filter(Boolean).join("|"),
+  city: alnum(q.City), state: alnum(q.CountrySubDivisionCode), zip: alnum(q.PostalCode),
+  country: /^(|us|usa|unitedstates|unitedstatesofamerica)$/.test(alnum(q.Country)) ? "us" : alnum(q.Country),
+};
+const sameAddr = (q: any, ours: any) => { const x = addrFields(q), y = addrFields(ours); return !!x && !!y && x.lines === y.lines && x.city === y.city && x.state === y.state && x.zip === y.zip && x.country === y.country; };
 // QB keeps old lines unless told otherwise: send all five, blanks included
 const fullQbAddr = (a: Addr) => { const q = toQbAddr(a)!; for (let i = 1; i <= 5; i++) if (!(`Line${i}` in q)) q[`Line${i}`] = ""; return q; };
 const webNorm = (u: string) => lc(u).replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/+$/, "");
