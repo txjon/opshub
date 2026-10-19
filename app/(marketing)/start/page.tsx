@@ -1,18 +1,17 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-// /start — 6-step intake form. Single client component with a `step`
+// /start — 5-step intake form. Single client component with a `step`
 // state machine and one `form` state object for all collected data.
 // Submits to POST /api/onboard. Files uploaded in parallel via
 // /api/onboard/upload before final submission.
 //
 // Steps:
-//   1. Project type
-//   2. Project details + scope
-//   3. File upload
-//   4. Items + size breakdown (optional)
-//   5. Contact + shipping route
-//   6. Review + submit
+//   1. Project type + details + scope
+//   2. File upload (or "no files yet, need design help")
+//   3. Items + size breakdown (optional)
+//   4. Contact + shipping route
+//   5. Review + submit
 
 const PROJECT_TYPES = [
   { value: "production",   title: "Product Manufacturing",      desc: "You know what you want and just need us to make it happen." },
@@ -31,7 +30,7 @@ const SHIPPING_ROUTES = [
   { value: "drop_ship",             title: "Ship directly to me", desc: "" },
 ];
 
-const TOTAL_STEPS = 6;
+const TOTAL_STEPS = 5;
 
 // Earliest "needed by" date a client can pick: today and the next 3 business
 // days are blocked, because anything that fast isn't realistic for sourcing
@@ -53,7 +52,7 @@ function getMinNeededByDate(): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-type Step = 1 | 2 | 3 | 4 | 5 | 6;
+type Step = 1 | 2 | 3 | 4 | 5;
 
 type FileRow = {
   id: string;            // local key
@@ -89,18 +88,18 @@ function makeDefaultSizes(): SizeCell[] {
 type FormState = {
   // Step 1
   project_type: string;
-  // Step 2
   project_name: string;
   description: string;
   items_count_range: string;
   units_range: string;
   target_ship_date: string;
   budget_range: string;
-  // Step 3
+  // Step 2: Next unlocks with at least one file OR the "no files yet" box.
   files: FileRow[];
-  // Step 4
+  noFiles: boolean;
+  // Step 3
   items: ItemRow[];
-  // Step 5
+  // Step 4
   contactName: string;
   email: string;
   phone: string;
@@ -135,6 +134,7 @@ function makeInitialState(): FormState {
     target_ship_date: "",
     budget_range: "",
     files: [],
+    noFiles: false,
     items: [makeBlankItem()],
     contactName: "",
     email: "",
@@ -157,7 +157,7 @@ export default function StartPage() {
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   // Two doors (Sep 7 2026): null = the door screen; "intake" = the classic
-  // 6-step wizard. The other door is the email gate → /menu/[token].
+  // 5-step wizard. The other door is the email gate → /menu/[token].
   const [door, setDoor] = useState<"intake" | null>(null);
   const [entered, setEntered] = useState(false); // knocked — hero flips to "You're in."
   const sessionRef = useRef<string>(`s-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
@@ -175,7 +175,7 @@ export default function StartPage() {
     if (q.get("brief") === "1") {
       const em = q.get("email") || "";
       if (em) update("email", em);
-      setStep(2);
+      setStep(1);
       setDoor("intake");
     }
   }, []);
@@ -185,9 +185,9 @@ export default function StartPage() {
   }
 
   function canAdvance(): boolean {
-    if (step === 1) return !!form.project_type;
-    if (step === 2) return !!form.project_name.trim();
-    if (step === 5) return !!form.contactName.trim() && /\S+@\S+\.\S+/.test(form.email) && !!form.company.trim();
+    if (step === 1) return !!form.project_name.trim();
+    if (step === 2) return form.files.length > 0 || form.noFiles;
+    if (step === 4) return !!form.contactName.trim() && /\S+@\S+\.\S+/.test(form.email) && !!form.company.trim();
     return true;
   }
 
@@ -202,7 +202,7 @@ export default function StartPage() {
         contactName: form.contactName.trim(),
         email: form.email.trim(),
         phone: form.phone.trim() || undefined,
-        // Step 1-2
+        // Step 1
         project_type: form.project_type || undefined,
         project_name: form.project_name.trim() || undefined,
         description: form.description.trim() || undefined,
@@ -210,7 +210,7 @@ export default function StartPage() {
         units_range: form.units_range || undefined,
         target_ship_date: form.target_ship_date || undefined,
         budget_range: form.budget_range || undefined,
-        // Step 5
+        // Step 4
         shipping_route: form.shipping_route || undefined,
         // Drop-ship address — only relevant when route is "drop_ship";
         // we still send if filled regardless, in case the user toggled.
@@ -221,7 +221,7 @@ export default function StartPage() {
           state: form.ship_state.trim() || undefined,
           zip: form.ship_zip.trim() || undefined,
         } : undefined,
-        // Step 4 — only items with a name OR some sizes. Sizes are stored
+        // Step 3 — only items with a name OR some sizes. Sizes are stored
         // as a SizeCell[] for the UI; the API still wants a flat
         // { label: qty } record, so we flatten on the way out.
         items: form.items
@@ -235,12 +235,13 @@ export default function StartPage() {
               return acc;
             }, {}),
           })),
-        // Step 3 — only successfully-uploaded files. Key off `path` (set
+        // Step 2 — only successfully-uploaded files. Key off `path` (set
         // once the blob lands in storage), NOT `url`: the download URL is
         // signed server-side in /api/onboard now, so it isn't known here.
         files: form.files
           .filter(f => f.uploaded && f.path)
           .map(f => ({ filename: f.file.name, size: f.size, path: f.path })),
+        needs_design_help: form.files.length === 0 && form.noFiles,
       };
 
       const res = await fetch("/api/onboard", {
@@ -261,7 +262,7 @@ export default function StartPage() {
   }
 
   // Upload a single file. Triggered immediately when the user picks a
-  // file in step 3 — keeps the final submit fast (files are already in
+  // file in step 2 — keeps the final submit fast (files are already in
   // storage by then).
   //
   // Two-step flow to bypass Vercel's 4.5MB serverless body limit:
@@ -492,14 +493,14 @@ export default function StartPage() {
         </div>
       </section>
 
-      {door === null && <DoorScreen onEntered={() => setEntered(true)} onIntake={(gateEmail) => { update("email", gateEmail); setStep(2); setDoor("intake"); }} />}
+      {door === null && <DoorScreen onEntered={() => setEntered(true)} onIntake={(gateEmail) => { update("email", gateEmail); setStep(1); setDoor("intake"); }} />}
 
       {/* Form body */}
       {door === "intake" && (
       <section style={{ padding: "48px 32px 96px", background: "#fff" }}>
         <div style={{ maxWidth: 680, margin: "0 auto" }}>
           {/* Progress bar */}
-          <StepBar step={step - 1} total={TOTAL_STEPS - 1} />
+          <StepBar step={step} total={TOTAL_STEPS} />
 
           <div style={{
             background: "#fff",
@@ -512,26 +513,21 @@ export default function StartPage() {
             <StepHeading step={step} />
 
             {step === 1 && (
-              <Step1
-                value={form.project_type}
-                onSelect={v => update("project_type", v)}
-              />
+              <Step1 form={form} update={update} />
             )}
 
             {step === 2 && (
-              <Step2 form={form} update={update} />
+              <Step2
+                files={form.files}
+                onAdd={addFiles}
+                onRemove={removeFile}
+                noFiles={form.noFiles}
+                onNoFiles={v => update("noFiles", v)}
+              />
             )}
 
             {step === 3 && (
               <Step3
-                files={form.files}
-                onAdd={addFiles}
-                onRemove={removeFile}
-              />
-            )}
-
-            {step === 4 && (
-              <Step4
                 items={form.items}
                 onAdd={addItem}
                 onUpdate={updateItem}
@@ -540,15 +536,15 @@ export default function StartPage() {
               />
             )}
 
+            {step === 4 && (
+              <Step4 form={form} update={update} />
+            )}
+
             {step === 5 && (
-              <Step5 form={form} update={update} />
+              <Step5 form={form} />
             )}
 
-            {step === 6 && (
-              <Step6 form={form} />
-            )}
-
-            {submitError && step === 6 && (
+            {submitError && step === TOTAL_STEPS && (
               <div style={{
                 background: "#ffe8ec", border: "1px solid #ffc3cc",
                 color: "#c43030", borderRadius: 8,
@@ -562,7 +558,7 @@ export default function StartPage() {
             <div style={{
               display: "flex", gap: 10, marginTop: 28,
             }}>
-              {step > 2 && (
+              {step > 1 && (
                 <button
                   type="button"
                   onClick={() => setStep((step - 1) as Step)}
@@ -612,7 +608,7 @@ export default function StartPage() {
 // ─── The door screen ────────────────────────────────────────────
 // Door 1: email gate → the unlisted menu (instant reveal — the lead is
 // captured the moment they knock; the email is just the return key).
-// Door 2: the classic 6-step intake wizard.
+// Door 2: the classic 5-step intake wizard.
 function DoorScreen({ onIntake, onEntered }: { onIntake: (email: string) => void; onEntered: () => void }) {
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
@@ -724,13 +720,12 @@ function StepBar({ step, total }: { step: number; total: number }) {
 }
 
 function StepHeading({ step }: { step: Step }) {
-  const titles: Record<Step, { eyebrow: string; title: string; sub: string }> = {
-    1: { eyebrow: "Step 1 of 6", title: "What do you need from us?", sub: "Pick the closest fit. We'll dial in the details together." },
-    2: { eyebrow: "Step 2 of 6", title: "Tell us about it",         sub: "The more we know, the faster we can get to work." },
-    3: { eyebrow: "Step 3 of 6", title: "Upload your files",         sub: "Artwork, logos, mockups, inspiration, tech packs. Anything that helps us understand your vision. Optional." },
-    4: { eyebrow: "Step 4 of 6", title: "Products &amp; quantities",       sub: "If you know your size breakdown, enter it here. Skip if not." },
-    5: { eyebrow: "Step 5 of 6", title: "Your details",              sub: "Where should we send your quote?" },
-    6: { eyebrow: "Step 6 of 6", title: "Review &amp; submit",       sub: "Last look before we get to work." },
+  const titles: Record<Step, { title: string; sub: string }> = {
+    1: { title: "Tell us about it",         sub: "The more we know, the faster we can get to work." },
+    2: { title: "Upload your files",         sub: "Artwork, logos, mockups, inspiration, tech packs. Anything that helps us understand your vision. No art yet? Tick the box below." },
+    3: { title: "Products &amp; quantities", sub: "If you know your size breakdown, enter it here. Skip if not." },
+    4: { title: "Your details",              sub: "Where should we send your quote?" },
+    5: { title: "Review &amp; submit",       sub: "Last look before we get to work." },
   };
   const t = titles[step];
   return (
@@ -739,7 +734,7 @@ function StepHeading({ step }: { step: Step }) {
         fontSize: 10, fontWeight: 700,
         textTransform: "uppercase", letterSpacing: "0.1em",
         color: "#a0a0ad", marginBottom: 8,
-      }}>{t.eyebrow}</div>
+      }}>Step {step} of {TOTAL_STEPS}</div>
       <h2
         dangerouslySetInnerHTML={{ __html: t.title }}
         style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.02em", lineHeight: 1.2, marginBottom: 6, color: "#1a1a1a" }}
@@ -752,43 +747,7 @@ function StepHeading({ step }: { step: Step }) {
   );
 }
 
-function Step1({ value, onSelect }: { value: string; onSelect: (v: string) => void }) {
-  return (
-    <div className="hpd-type-grid" style={{
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr",
-      gap: 10,
-    }}>
-      {PROJECT_TYPES.map(t => (
-        <button
-          key={t.value}
-          type="button"
-          onClick={() => onSelect(t.value)}
-          style={{
-            textAlign: "left",
-            border: `2px solid ${value === t.value ? "#1a1a1a" : "#e0e0e4"}`,
-            background: value === t.value ? "#f3f3f5" : "#fff",
-            borderRadius: 10,
-            padding: "18px 18px",
-            cursor: "pointer",
-            transition: "border-color 0.12s, background 0.12s",
-            fontFamily: "inherit",
-          }}
-        >
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1a1a", marginBottom: 4 }}>{t.title}</div>
-          <div style={{ fontSize: 12, color: "#6b6b78", lineHeight: 1.5 }}>{t.desc}</div>
-        </button>
-      ))}
-      <style>{`
-        @media (max-width: 540px) {
-          .hpd-type-grid { grid-template-columns: 1fr !important; }
-        }
-      `}</style>
-    </div>
-  );
-}
-
-function Step2({
+function Step1({
   form, update,
 }: {
   form: FormState;
@@ -885,12 +844,14 @@ function Step2({
   );
 }
 
-function Step3({
-  files, onAdd, onRemove,
+function Step2({
+  files, onAdd, onRemove, noFiles, onNoFiles,
 }: {
   files: FileRow[];
   onAdd: (f: FileList | null) => void;
   onRemove: (id: string) => void;
+  noFiles: boolean;
+  onNoFiles: (v: boolean) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -965,11 +926,25 @@ function Step3({
           ))}
         </div>
       )}
+
+      {/* No art yet is a real answer (design help is a service), so it
+          unlocks Next instead of an upload; hidden once a file is added. */}
+      {files.length === 0 && (
+        <label style={{
+          display: "flex", alignItems: "center", gap: 10, marginTop: 16,
+          padding: "12px 14px", border: `1px solid ${noFiles ? "#1a1a1a" : "#e0e0e4"}`,
+          borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 600, color: "#1a1a1a",
+        }}>
+          <input type="checkbox" checked={noFiles} onChange={e => onNoFiles(e.target.checked)}
+            style={{ width: 16, height: 16, accentColor: "#1a1a1a", cursor: "pointer" }} />
+          No files yet. I need design help.
+        </label>
+      )}
     </div>
   );
 }
 
-function Step4({
+function Step3({
   items, onAdd, onUpdate, onReplaceSizes, onRemove,
 }: {
   items: ItemRow[];
@@ -1376,7 +1351,7 @@ const modalLabel: React.CSSProperties = {
   color: "#a0a0ad", marginBottom: 12,
 };
 
-function Step5({
+function Step4({
   form, update,
 }: {
   form: FormState;
@@ -1459,7 +1434,7 @@ function Step5({
   );
 }
 
-function Step6({ form }: { form: FormState }) {
+function Step5({ form }: { form: FormState }) {
   const projectType = PROJECT_TYPES.find(t => t.value === form.project_type)?.title;
   const shippingRoute = SHIPPING_ROUTES.find(r => r.value === form.shipping_route)?.title;
   const itemsWithContent = form.items.filter(it =>
@@ -1513,6 +1488,9 @@ function Step6({ form }: { form: FormState }) {
             })}
           </div>
         </div>
+      )}
+      {uploadedFiles.length === 0 && form.noFiles && (
+        <Summary label="Files" value="None yet. Needs design help." />
       )}
       {uploadedFiles.length > 0 && (
         <div style={summaryBlock}>

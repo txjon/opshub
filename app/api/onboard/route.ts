@@ -50,6 +50,7 @@ type IntakeBody = {
   shipping_route?: string;
   items?: { name?: string; sizes?: Record<string, number | string> }[];
   files?: { filename?: string; url?: string | null; size?: number; path?: string }[];
+  needs_design_help?: boolean;
 };
 
 function admin() {
@@ -100,6 +101,7 @@ export async function POST(req: NextRequest) {
     const legacyNotes = [
       legacyAddress ? `Address: ${legacyAddress}` : "",
       extraContactsBlock ? `Extra contacts:\n${extraContactsBlock}` : "",
+      body.needs_design_help ? "No files yet. Needs design help." : "",
     ].filter(Boolean).join("\n\n") || null;
 
     // Items — normalize size values to numbers so the DB has clean shape.
