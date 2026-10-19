@@ -98,6 +98,17 @@ function itemBreakdown(it: ItemRow): string {
   return it.sizes.filter(c => c.label.trim()).map(c => `${c.label} ${parseInt(c.qty) || 0}`).join(" · ");
 }
 
+// Step 4 gate: everything on the page except address line 2 (Jon, Oct 19
+// 2026: nothing left for a client to say we missed). Ship-to is only
+// required when they pick "Ship directly to me".
+function detailsComplete(f: FormState): boolean {
+  const contact = !!f.contactName.trim() && !!f.company.trim()
+    && /\S+@\S+\.\S+/.test(f.email) && f.phone.replace(/\D/g, "").length >= 10;
+  if (!contact || !f.shipping_route) return false;
+  if (f.shipping_route !== "drop_ship") return true;
+  return !!f.ship_address1.trim() && !!f.ship_city.trim() && !!f.ship_state.trim() && !!f.ship_zip.trim();
+}
+
 type FormState = {
   // Step 1
   project_type: string;
@@ -204,7 +215,7 @@ export default function StartPage() {
     if (step === 1) return !!form.project_name.trim();
     if (step === 2) return form.files.length > 0 || form.noFiles;
     if (step === 3) return form.items.length > 0 && form.items.every(itemComplete) && form.qtyConfirmed;
-    if (step === 4) return !!form.contactName.trim() && /\S+@\S+\.\S+/.test(form.email) && !!form.company.trim();
+    if (step === 4) return detailsComplete(form);
     return true;
   }
 
@@ -1422,13 +1433,13 @@ function Step4({
         <Field label="Email *">
           <input type="email" value={form.email} onChange={e => update("email", e.target.value)} style={inputStyle} />
         </Field>
-        <Field label="Phone">
+        <Field label="Phone *">
           <input type="tel" value={form.phone} onChange={e => update("phone", e.target.value)} style={inputStyle} />
         </Field>
       </div>
 
       <div style={{ marginTop: 8 }}>
-        <Field label="Where should the finished product go?">
+        <Field label="Where should the finished product go? *">
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {SHIPPING_ROUTES.map(r => (
               <button
@@ -1455,20 +1466,20 @@ function Step4({
 
         {form.shipping_route === "drop_ship" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 14 }}>
-            <Field label="Address line 1">
+            <Field label="Address line 1 *">
               <input type="text" value={form.ship_address1} onChange={e => update("ship_address1", e.target.value)} style={inputStyle} />
             </Field>
-            <Field label="Address line 2">
+            <Field label="Address line 2 (optional)">
               <input type="text" value={form.ship_address2} onChange={e => update("ship_address2", e.target.value)} style={inputStyle} />
             </Field>
             <div className="hpd-row" style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 12 }}>
-              <Field label="City">
+              <Field label="City *">
                 <input type="text" value={form.ship_city} onChange={e => update("ship_city", e.target.value)} style={inputStyle} />
               </Field>
-              <Field label="State">
+              <Field label="State *">
                 <input type="text" value={form.ship_state} onChange={e => update("ship_state", e.target.value)} style={inputStyle} />
               </Field>
-              <Field label="ZIP">
+              <Field label="ZIP *">
                 <input type="text" value={form.ship_zip} onChange={e => update("ship_zip", e.target.value)} style={inputStyle} />
               </Field>
             </div>
