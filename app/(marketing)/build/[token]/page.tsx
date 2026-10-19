@@ -966,9 +966,11 @@ function Chip({ children, on, dim, small, onClick }: { children: React.ReactNode
       onClick={onClick}
       disabled={dim || !onClick}
       style={{
-        border: on ? `1px solid ${TEXT}` : `1px solid ${LINE}`,
+        // Unselected options read as tappable: house blue text + border
+        // (Jon, Oct 19 2026: grey chips hid that other options exist).
+        border: on ? `1px solid ${TEXT}` : dim ? `1px solid ${LINE}` : `1px solid ${TEAL}`,
         background: on ? TEXT : "transparent",
-        color: dim ? "rgba(255,255,255,0.3)" : on ? BG : MUTED,
+        color: dim ? "rgba(255,255,255,0.3)" : on ? BG : TEAL,
         borderRadius: 999,
         padding: small ? "6px 14px" : "8px 18px",
         fontSize: small ? 12 : 13,
