@@ -213,6 +213,22 @@ export async function approveVersion(db: any, opts: {
  * on first render and reused forever after (write-once evidence). Drafts are
  * never stored — there is nothing to go stale.
  */
+// The mockup travels to Browserless inside the HTML as base64; past this it
+// risks the 10 MB request cap.
+const MOCKUP_EMBED_MAX = 4 * 1024 * 1024;
+
+// Drive's resized copy of an image (same proportions, long edge `size` px).
+async function driveResized(token: string, fileId: string, size: number): Promise<{ type: string; bytes: Buffer } | null> {
+  try {
+    const meta = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=thumbnailLink`, { headers: { Authorization: `Bearer ${token}` } });
+    const link = meta.ok ? (await meta.json())?.thumbnailLink : null;
+    if (!link) return null;
+    const res = await fetch(String(link).replace(/=s\d+(-c)?$/, `=s${size}`));
+    if (!res.ok) return null;
+    return { type: res.headers.get("content-type") || "image/jpeg", bytes: Buffer.from(await res.arrayBuffer()) };
+  } catch { return null; }
+}
+
 export async function renderVersionPdf(versionId: string): Promise<{ ok: true; pdf: Buffer; fileName: string; cached: boolean } | { ok: false; error: string; status: number }> {
   const db = admin();
   const { data: v } = await db.from("proof_versions").select("*").eq("id", versionId).maybeSingle();
@@ -271,8 +287,25 @@ export async function renderVersionPdf(versionId: string): Promise<{ ok: true; p
       const token = await getAccessToken();
       const res = await fetch(`https://www.googleapis.com/drive/v3/files/${version.mockup_drive_file_id}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) {
-        const type = res.headers.get("content-type") || "image/png";
-        const bytes = Buffer.from(await res.arrayBuffer());
+        let type = res.headers.get("content-type") || "image/png";
+        let bytes: Buffer = Buffer.from(await res.arrayBuffer());
+        // Browserless refuses a request over 10 MB, and the mockup rides inside
+        // it as base64 (+33%). A huge original (Oct 20: a 7.7 MB jacket mock)
+        // is swapped for Drive's own resized copy. The crop math reads only
+        // proportions, so a zoomed mockup lands exactly where it did.
+        if (bytes.length > MOCKUP_EMBED_MAX) {
+          // Drive keeps PNGs as PNG, so step down until it fits. 1600px is
+          // still ~300 dpi in the printed frame.
+          let small: { type: string; bytes: Buffer } | null = null;
+          for (const px of [2400, 2000, 1600, 1200]) {
+            small = await driveResized(token, version.mockup_drive_file_id, px);
+            if (!small || small.bytes.length <= MOCKUP_EMBED_MAX) break;
+          }
+          if (!small || small.bytes.length > MOCKUP_EMBED_MAX) {
+            return { ok: false, error: "This proof's mockup image is too large to draw. Upload a smaller copy (under 4 MB) in the proof editor.", status: 413 };
+          }
+          ({ type, bytes } = small);
+        }
         mockupUrl = `data:${type};base64,${bytes.toString("base64")}`;
         const { imageSize } = await import("./image-size");
         mockupSize = imageSize(bytes);
