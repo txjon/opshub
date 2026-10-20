@@ -213,20 +213,36 @@ export async function approveVersion(db: any, opts: {
  * on first render and reused forever after (write-once evidence). Drafts are
  * never stored — there is nothing to go stale.
  */
-// The mockup travels to Browserless inside the HTML as base64; past this it
-// risks the 10 MB request cap.
-const MOCKUP_EMBED_MAX = 4 * 1024 * 1024;
+// The mockup is embedded in the HTML as base64 (+33%) for Browserless (10 MB
+// request cap), and Chrome carries it into the PDF at about the same weight,
+// which then has to leave through a Vercel function (4.5 MB response cap).
+// That second limit is the one that binds.
+const MOCKUP_EMBED_MAX = 2.5 * 1024 * 1024;
 
-// Drive's resized copy of an image (same proportions, long edge `size` px).
-async function driveResized(token: string, fileId: string, size: number): Promise<{ type: string; bytes: Buffer } | null> {
+// Drive's resized copy of an image (same proportions), stepping down in size
+// until it fits under `max`. A non-image or a suspiciously small copy (e.g. the
+// default 220px thumbnail if the link format ever changes) is refused: a
+// degraded picture must never become an approved proof's permanent record.
+async function driveResizedUnder(token: string, fileId: string, max: number): Promise<{ type: string; bytes: Buffer } | null> {
+  let link: string | null = null;
   try {
     const meta = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=thumbnailLink`, { headers: { Authorization: `Bearer ${token}` } });
-    const link = meta.ok ? (await meta.json())?.thumbnailLink : null;
-    if (!link) return null;
-    const res = await fetch(String(link).replace(/=s\d+(-c)?$/, `=s${size}`));
-    if (!res.ok) return null;
-    return { type: res.headers.get("content-type") || "image/jpeg", bytes: Buffer.from(await res.arrayBuffer()) };
+    link = meta.ok ? (await meta.json())?.thumbnailLink || null : null;
   } catch { return null; }
+  if (!link || !/=s\d+(-c)?$/.test(link)) return null;
+  const { imageSize } = await import("./image-size");
+  for (const px of [2400, 2000, 1600, 1200]) {
+    try {
+      const res = await fetch(link.replace(/=s\d+(-c)?$/, `=s${px}`));
+      const type = res.headers.get("content-type") || "";
+      if (!res.ok || !type.startsWith("image/")) continue;
+      const bytes = Buffer.from(await res.arrayBuffer());
+      const dim = imageSize(bytes);
+      if (!dim || Math.max(dim.w, dim.h) < 1000) continue;
+      if (bytes.length <= max) return { type, bytes };
+    } catch { /* try the next size */ }
+  }
+  return null;
 }
 
 export async function renderVersionPdf(versionId: string): Promise<{ ok: true; pdf: Buffer; fileName: string; cached: boolean } | { ok: false; error: string; status: number }> {
@@ -294,15 +310,9 @@ export async function renderVersionPdf(versionId: string): Promise<{ ok: true; p
         // is swapped for Drive's own resized copy. The crop math reads only
         // proportions, so a zoomed mockup lands exactly where it did.
         if (bytes.length > MOCKUP_EMBED_MAX) {
-          // Drive keeps PNGs as PNG, so step down until it fits. 1600px is
-          // still ~300 dpi in the printed frame.
-          let small: { type: string; bytes: Buffer } | null = null;
-          for (const px of [2400, 2000, 1600, 1200]) {
-            small = await driveResized(token, version.mockup_drive_file_id, px);
-            if (!small || small.bytes.length <= MOCKUP_EMBED_MAX) break;
-          }
-          if (!small || small.bytes.length > MOCKUP_EMBED_MAX) {
-            return { ok: false, error: "This proof's mockup image is too large to draw. Upload a smaller copy (under 4 MB) in the proof editor.", status: 413 };
+          const small = await driveResizedUnder(token, version.mockup_drive_file_id, MOCKUP_EMBED_MAX);
+          if (!small) {
+            return { ok: false, error: "This proof's mockup image is too large to draw. Upload a smaller copy (under 2.5 MB) in the proof editor.", status: 413 };
           }
           ({ type, bytes } = small);
         }
@@ -327,6 +337,12 @@ export async function renderVersionPdf(versionId: string): Promise<{ ok: true; p
     pdf = (await generatePDF(html)) as Buffer;
   } catch (e: any) {
     return { ok: false, error: e?.message || "Could not render the proof", status: 500 };
+  }
+
+  // Vercel can't send a response over 4.5 MB. Say so plainly, and never keep
+  // an approved PDF that could never be downloaded again.
+  if (pdf.length > 4.3 * 1024 * 1024) {
+    return { ok: false, error: "This proof came out too large to download. Upload a smaller mockup image in the proof editor.", status: 413 };
   }
 
   // An APPROVED version's PDF is kept the first time it is made. That file is
