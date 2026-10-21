@@ -298,10 +298,17 @@ export async function renderVersionPdf(versionId: string): Promise<{ ok: true; p
   // mockup looks the same in the PDF as it does in the editor.
   let mockupUrl: string | null = null;
   let mockupSize: { w: number; h: number } | null = null;
+  // A version that HAS a mockup never renders without it. This used to fall
+  // through to a blank frame, and for an approved version that mockup-less PDF
+  // was then archived forever as the record of the sign-off. Same rule as the
+  // archived-PDF read above: a transport error must never produce a
+  // substitute document. Fail, and let the next try draw the real thing.
   if (version.mockup_drive_file_id) {
+    let gone = false;
     try {
       const token = await getAccessToken();
       const res = await fetch(`https://www.googleapis.com/drive/v3/files/${version.mockup_drive_file_id}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
+      gone = res.status === 404;
       if (res.ok) {
         let type = res.headers.get("content-type") || "image/png";
         let bytes: Buffer = Buffer.from(await res.arrayBuffer());
@@ -320,7 +327,14 @@ export async function renderVersionPdf(versionId: string): Promise<{ ok: true; p
         const { imageSize } = await import("./image-size");
         mockupSize = imageSize(bytes);
       }
-    } catch { /* a proof without its mockup still renders */ }
+    } catch (e: any) {
+      console.error(`[proof-versions] mockup ${version.mockup_drive_file_id} unreadable:`, e?.message || e);
+    }
+    if (!mockupUrl) {
+      return gone
+        ? { ok: false, error: "This proof's mockup image is no longer in Drive. Open the proof editor and upload the mockup again.", status: 409 }
+        : { ok: false, error: "This proof's mockup image could not be loaded just now. Please try again in a moment.", status: 502 };
+    }
   }
 
   let pdf: Buffer;
