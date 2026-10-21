@@ -323,7 +323,8 @@ export async function renderVersionPdf(versionId: string): Promise<{ ok: true; p
           }
           ({ type, bytes } = small);
         }
-        mockupUrl = `data:${type};base64,${bytes.toString("base64")}`;
+        // A 200 that isn't a picture (empty, a PDF, a PSD) is no mockup either.
+        if (type.startsWith("image/") && bytes.length > 0) mockupUrl = `data:${type};base64,${bytes.toString("base64")}`;
         const { imageSize } = await import("./image-size");
         mockupSize = imageSize(bytes);
       }
