@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { resendForSlug } from "@/lib/resend-client";
 import { needsProof } from "@/lib/proof-gate";
 import { todayPacific } from "@/lib/dates";
+import { NON_GARMENT } from "@/lib/pricing";
 
 const admin = () =>
   createClient(
@@ -51,7 +52,7 @@ export async function GET(req: NextRequest) {
       { data: allProofs },
     ] = await Promise.all([
       sb.from("payment_records").select("id, job_id, amount, status, due_date, type").in("job_id", jobIds),
-      sb.from("items").select("id, job_id, name, pipeline_stage, pipeline_timestamps, blanks_order_number, blanks_order_cost, artwork_status").in("job_id", jobIds),
+      sb.from("items").select("id, job_id, name, garment_type, pipeline_stage, pipeline_timestamps, blanks_order_number, blanks_order_cost, artwork_status").in("job_id", jobIds),
       sb.from("item_files").select("id, item_id, stage, approval, created_at").in("stage", ["proof"]).eq("approval", "pending").is("superseded_at", null),
     ]);
 
@@ -88,7 +89,8 @@ export async function GET(req: NextRequest) {
       }
 
       // ── SHIP DATE WITHIN 3 DAYS ──
-      if (job.target_ship_date && job.phase !== "complete") {
+      // On hold = deliberately parked; its old ship date is not a late order.
+      if (job.target_ship_date && job.phase !== "complete" && job.phase !== "on_hold") {
         const daysUntil = Math.ceil((new Date(job.target_ship_date).getTime() - now.getTime()) / 86400000);
         if (daysUntil < 0) {
           // Suppress "ship date passed" once EVERY item has shipped — production
@@ -122,6 +124,9 @@ export async function GET(req: NextRequest) {
       // or the job is on hold, the question is moot; nagging is pure noise
       // (Jon, Aug 24: 32 of 40 digest nags were on printed goods).
       const jobPastProduction = ["production", "receiving", "fulfillment", "complete", "on_hold"].includes(job.phase);
+      // One line per project, not one per item: a quiet client with five
+      // proofs out is one thing to chase.
+      const waiting: { name: string; days: number }[] = [];
       for (const proof of proofs) {
         if (jobPastProduction) continue;
         const item = items.find(i => i.id === proof.item_id);
@@ -129,20 +134,25 @@ export async function GET(req: NextRequest) {
         if (item?.artwork_status === "approved" || !needsProof(item)) continue;
         if (["in_production", "shipped"].includes(item?.pipeline_stage || "")) continue;
         const daysPending = Math.floor((now.getTime() - new Date(proof.created_at).getTime()) / 86400000);
-        if (daysPending >= 3) {
-          alerts.push({
-            priority: 2,
-            type: "pending_proof",
-            message: `Proof pending ${daysPending}d — ${item?.name || "Item"} · ${ref}`,
-            jobId: job.id,
-          });
-        }
+        if (daysPending >= 3) waiting.push({ name: item?.name || "Item", days: daysPending });
+      }
+      if (waiting.length) {
+        const oldest = Math.max(...waiting.map(w => w.days));
+        alerts.push({
+          priority: 2,
+          type: "pending_proof",
+          message: waiting.length === 1
+            ? `Proof pending ${oldest}d — ${waiting[0].name} · ${ref}`
+            : `${waiting.length} proofs pending ${oldest}d · ${ref}`,
+          jobId: job.id,
+        });
       }
 
       // ── BLANKS NOT ORDERED (ready phase) ──
       // Resolved = has an order total (0 = free/client-supplied), OR order # is
       // "NA"/"N/A" (no blank purchased — accessory / cost-on-PO).
-      const blanksResolved = (i: any) => i.blanks_order_cost != null || /^n\/?a$/i.test(String(i.blanks_order_number || "").trim());
+      // Patches, flags and other non-garments have no blank to buy.
+      const blanksResolved = (i: any) => NON_GARMENT.includes(i.garment_type || "") || i.blanks_order_cost != null || /^n\/?a$/i.test(String(i.blanks_order_number || "").trim());
       if (job.phase === "ready") {
         const unordered = items.filter(i => !blanksResolved(i));
         if (unordered.length > 0) {

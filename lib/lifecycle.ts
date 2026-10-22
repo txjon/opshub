@@ -4,6 +4,7 @@
  */
 import { isItemInProduction } from "./item-status";
 import { proofSatisfied } from "./proof-gate";
+import { NON_GARMENT } from "./pricing";
 
 export type LifecycleInput = {
   job: {
@@ -114,7 +115,6 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
   // "Ordered" signal is a NON-NULL order total — an explicit 0 marks free /
   // client-supplied blanks as ordered, so null (never entered) is the only
   // not-ordered state.
-  const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
   const apparelItems = items.filter(it => !NON_GARMENT.includes(it.garment_type || ""));
   const blanksOrdered = apparelItems.filter(it => it.blanks_order_cost != null).length;
   const allProofsApproved = items.every(it => proofSatisfied(it, proofStatus[it.id]));

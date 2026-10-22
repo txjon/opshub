@@ -12,6 +12,7 @@ import { poSentToItem } from "./item-status";
 import { transitDaysFor } from "./date-chain";
 import { addDays } from "./dates";
 import { proofSatisfied } from "./proof-gate";
+import { NON_GARMENT as NON_GARMENT_LIST } from "./pricing";
 
 type Sb = any; // Supabase client (project convention: loose typing at the boundary)
 
@@ -195,7 +196,7 @@ function shipWavesFrom(raw: any[]): { tracking: string | null; total: number }[]
 
 // Non-garment items aren't screen-printed/embroidered — excluded from the
 // Embellishments count (still counted in Items + Units). Mirrors /production.
-const NON_GARMENT = new Set(["accessory", "patch", "sticker", "poster", "pin", "koozie", "banner", "flag", "lighter", "towel", "water_bottle", "samples", "custom", "key_chain", "woven_labels", "bandana", "socks", "tote", "custom_bag", "pillow", "rug", "pens", "napkins", "balloons", "stencils"]);
+const NON_GARMENT = new Set(NON_GARMENT_LIST);
 
 // Embellishments for one item = (active print locations + tag print) × units,
 // read from the item's costing entry (matched by garment type). Same math as the

@@ -53,7 +53,9 @@ export function effectiveShipRate(p: any): number {
   return DEFAULT_SHIP_RATES[p?.garment_type || ""] ?? 0;
 }
 
-const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
+// Products that are not blank garments: no blank to buy, no print grid.
+// THE list: lifecycle, item-state and the alerts digest read it from here.
+export const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
 
 /**
  * THE blank cost of a product: per-size price × per-size qty, and the same with
