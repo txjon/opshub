@@ -3,6 +3,7 @@ import { T, font, mono } from "@/lib/theme";
 import { poSentToItem, isItemInProduction } from "@/lib/item-status";
 import { isCostingLocked } from "@/lib/costing-lock";
 import { allProofsSatisfied } from "@/lib/proof-gate";
+import { NON_GARMENT } from "@/lib/pricing";
 
 type Step = {
   id: string;
@@ -26,7 +27,6 @@ export function ProjectProgress({ job, items, payments, proofStatus, onTabClick,
   // jobs/page.tsx. Anything in this list isn't a real garment blank —
   // it's priced via custom-cost lines and should be excluded from the
   // blanks denominator and from the "needs a blank" gate.
-  const NON_GARMENT = ["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"];
   const itemReady = (it: any) => {
     const hasBlank = it.blank_vendor || NON_GARMENT.includes(it.garment_type);
     const qty = it.totalQty || Object.values(it.qtys || {}).reduce((a: number, v: any) => a + (Number(v) || 0), 0);

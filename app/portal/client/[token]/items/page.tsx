@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useClientPortal } from "../_shared/context";
+import { NON_GARMENT } from "@/lib/pricing";
 import { C, fmtDate, fmtDateYear, daysUntil } from "../_shared/theme";
 import { ItemState, CLIENT_STATE_LABELS } from "@/lib/item-status";
 import { StatusPill } from "../_shared/StatusPill";
@@ -80,8 +81,7 @@ function friendlyColor(raw: string | null): string | null {
 // Color only makes sense on actual apparel. Patches, stickers, custom
 // accessories, tote bags, etc. carry a mockup_color value (often the
 // default #ffffff) that isn't a real product attribute — it's a stray
-// default the Buy Sheet wrote. Mirrors NON_GARMENT in lib/pricing.ts /
-// lib/lifecycle.ts.
+// default the Buy Sheet wrote. Reads NON_GARMENT from lib/pricing.ts.
 const ITEM_CATS: { key: string; label: string; match: (g: string) => boolean }[] = [
   { key: "tees", label: "Tees", match: g => g.includes("tee") || g === "tank" || g.includes("shirt") },
   { key: "hoodies", label: "Hoodies", match: g => g.includes("hoodie") || g.includes("crewneck") || g.includes("sweat") },
@@ -93,12 +93,7 @@ const itemCatOf = (g: string | null) => {
   return ITEM_CATS.find(c => c.match(x))?.key || "other";
 };
 
-const NON_GARMENT_TYPES = new Set([
-  "accessory","patch","sticker","poster","pin","koozie","banner","flag",
-  "lighter","towel","water_bottle","samples","custom","key_chain",
-  "woven_labels","bandana","socks","tote","custom_bag","pillow","rug",
-  "pens","napkins","balloons","stencils",
-]);
+const NON_GARMENT_TYPES = new Set(NON_GARMENT);
 function shouldShowColor(garmentType: string | null): boolean {
   if (!garmentType) return true;
   return !NON_GARMENT_TYPES.has(garmentType);

@@ -174,7 +174,7 @@ export async function GET(req: NextRequest) {
           alerts.push({
             priority: 2,
             type: "po_not_sent",
-            message: `Blanks ordered but POs not sent · ${ref}`,
+            message: `POs not sent · ${ref}`,
             jobId: job.id,
           });
         }

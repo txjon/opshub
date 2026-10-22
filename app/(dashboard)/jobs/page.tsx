@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { NON_GARMENT as NON_GARMENT_LIST } from "@/lib/pricing";
 import { useRouter } from "next/navigation";
 import { useIsMobile } from "@/lib/useIsMobile";
 import { effectiveRevenue } from "@/lib/revenue";
@@ -235,7 +236,7 @@ export default function JobsPage() {
     // count, so a half-shipped job contributes just its remaining work.
     // Terminal/paused jobs (complete / cancelled / on_hold) are excluded; a
     // project counts only if it still has at least one active item.
-    const NON_GARMENT = new Set(["accessory","patch","sticker","poster","pin","koozie","banner","flag","lighter","towel","water_bottle","samples","custom","key_chain","woven_labels","bandana","socks","tote","custom_bag","pillow","rug","pens","napkins","balloons","stencils"]);
+    const NON_GARMENT = new Set(NON_GARMENT_LIST);
     const isActiveItem = (it: any) => it.pipeline_stage !== "shipped" && !it.received_at_hpd;
     const activeJobIds = new Set<string>();
     let itemCount = 0, units = 0, prints = 0;
