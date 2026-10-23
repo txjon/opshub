@@ -18,5 +18,8 @@ export async function allRows<T = any>(
     out.push(...((data as T[]) || []));
     if (!data || (data as T[]).length < 1000) break;
   }
-  return out;
+  // A row inserted mid-read shifts a page boundary and can come back twice;
+  // drop repeats by id (rows without an id pass through untouched).
+  const seen = new Set<unknown>();
+  return out.filter((r: any) => r?.id == null || (seen.has(r.id) ? false : (seen.add(r.id), true)));
 }
