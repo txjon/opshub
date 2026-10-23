@@ -5,6 +5,7 @@ import { T, font, mono } from "@/lib/theme";
 import { parseUpsCsv, aggregateShipments, matchShipments, calculatedShipping, FREIGHT_SOURCES, INVOICE_LEVEL_SECTION } from "@/lib/ups-freight";
 import { resolvePoRef, buildPoRefIndex, type JobLite } from "@/lib/po-ref-match";
 import { todayPacific } from "@/lib/dates";
+import { allRows } from "@/lib/all-rows";
 
 // Inbound production freight (UPS). Upload CSV(s) → match by ref → IMPORT ALL
 // (matched → jobs, unmatched → a persistent "Needs a match" queue) → reconcile the
@@ -25,6 +26,7 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
   const [jobItems, setJobItems] = useState<any[]>([]); // qty overlay truth for calculatedShipping (S3)
   const [existing, setExisting] = useState<FreightEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [staged, setStaged] = useState<Staged[]>([]);
   const [importing, setImporting] = useState(false);
   const [qSearch, setQSearch] = useState<Record<string, string>>({}); // queue-row job search
@@ -40,12 +42,23 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
 
   async function loadAll() {
     setLoading(true);
-    const [{ data: js }, { data: es }, { data: its }] = await Promise.all([
-      supabase.from("jobs").select("id, job_number, type_meta, qb_invoice_number, qb_invoice_id, costing_data, clients(name)").eq("company_id", companyId),
-      supabase.from("cost_entries").select("id, job_id, amount, ext_tracking, ext_date, vendor_invoice_number, vendor_name, po_ref, not_job_specific, created_at, source, status").in("source", FREIGHT_SOURCES),
-      // Single-source S3: freight calc overlays qty from buy_sheet_lines.
-      supabase.from("items").select("id, job_id, name, sort_order, blank_costs, buy_sheet_lines(size, qty_ordered)"),
-    ]);
+    // All three outgrow the 1,000-row cap, so they page. `existing` also
+    // de-dupes UPS re-uploads: a truncated read would import old charges
+    // twice, so a failed read stops here instead of carrying on short.
+    let js: any[], es: any[], its: any[];
+    try {
+      [js, es, its] = await Promise.all([
+        allRows((f, t) => supabase.from("jobs").select("id, job_number, type_meta, qb_invoice_number, qb_invoice_id, costing_data, clients(name)").eq("company_id", companyId).order("id").range(f, t)),
+        allRows((f, t) => supabase.from("cost_entries").select("id, job_id, amount, ext_tracking, ext_date, vendor_invoice_number, vendor_name, po_ref, not_job_specific, created_at, source, status").in("source", FREIGHT_SOURCES).order("id").range(f, t)),
+        // Single-source S3: freight calc overlays qty from buy_sheet_lines.
+        allRows((f, t) => supabase.from("items").select("id, job_id, name, sort_order, blank_costs, buy_sheet_lines(size, qty_ordered)").order("id").range(f, t)),
+      ]);
+    } catch (err: any) {
+      setLoadError(err?.message || "Could not load freight");
+      setLoading(false);
+      return;
+    }
+    setLoadError(null);
     setJobs(((js as any[]) || []).map(j => ({ id: j.id, job_number: j.job_number, qb_invoice_number: j.qb_invoice_number ?? null, client_name: (j.clients as any)?.name ?? null, costing_data: j.costing_data })));
     setExisting((es as any[]) || []);
     setJobItems(((its as any[]) || []));
@@ -74,7 +87,8 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
   }
 
   async function onFiles(files: FileList | null) {
-    if (!files?.length) return;
+    // Dupe detection needs the FULL freight list; never stage against a partial one.
+    if (!files?.length || loading || loadError) return;
     const all: Staged[] = []; const seen = new Set<string>();
     for (const f of Array.from(files)) {
       const text = await f.text();
@@ -99,6 +113,7 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
   const dupeCount = staged.length - fresh.length;
 
   async function doImport() {
+    if (loading || loadError) return;
     const rows = fresh.map(s => s.tracking ? ({
       source: "ups_inbound", charge_type: "freight", status: s.job ? "matched" : "unmatched",
       job_id: s.job?.id ?? null, vendor_name: s.sender || "UPS", vendor_invoice_number: s.invoiceNumber,
@@ -318,7 +333,8 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
           <span style={{ fontSize: 12, color: T.muted }}>actual <strong style={{ fontFamily: mono, color: T.text }}>{money(totalActual)}</strong> vs calculated <strong style={{ fontFamily: mono, color: T.text }}>{money(totalCalc)}</strong>{poolTotal ? <> · non-job <strong style={{ fontFamily: mono, color: T.text }}>+{money(poolTotal)}</strong></> : null} · <strong style={{ fontFamily: mono, color: totalActual - totalCalc + poolTotal > 0 ? T.red : T.green }}>{totalActual - totalCalc + poolTotal >= 0 ? "+" : ""}{money(totalActual - totalCalc + poolTotal)}</strong> variance</span>
         )}
       </div>
-      {loading ? <div style={{ color: T.muted, fontSize: 12, padding: 12 }}>Loading…</div>
+      {loadError ? <div style={{ color: T.red, fontSize: 12, padding: 12 }}>Freight didn't load completely, so nothing is shown. Refresh the page before uploading. ({loadError})</div>
+      : loading ? <div style={{ color: T.muted, fontSize: 12, padding: 12 }}>Loading…</div>
         : perJob.length === 0 ? <div style={{ color: T.muted, fontSize: 12, padding: 12 }}>No freight assigned to jobs yet.</div>
           : (
             <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, overflow: "hidden" }}>

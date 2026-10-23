@@ -12,6 +12,7 @@ import { poSentToItem } from "./item-status";
 import { transitDaysFor } from "./date-chain";
 import { addDays } from "./dates";
 import { proofSatisfied } from "./proof-gate";
+import { allRows } from "./all-rows";
 import { NON_GARMENT as NON_GARMENT_LIST } from "./pricing";
 
 type Sb = any; // Supabase client (project convention: loose typing at the boundary)
@@ -37,26 +38,7 @@ const toMovement = (m: any): Movement => ({
   type: m.type, qtys: m.qtys || {}, shipmentId: m.shipment_id, reversesId: m.reverses_id, id: m.id,
 });
 
-// Supabase caps un-ranged selects at 1,000 rows and silently truncates.
-// That put ENTERED items back on /staging2 (Sep 8 2026): the board's
-// movement set hit 1,222 rows, 222 got dropped in arbitrary order, and
-// whenever an item's entered movements fell in the tail the ledger math
-// saw it as un-entered. Every multi-row batch read here pages through
-// this instead. Callers must include a stable .order() in the builder.
-async function allRows<T = any>(
-  build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>
-): Promise<T[]> {
-  const out: T[] = [];
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await build(from, from + 999);
-    // A failed read must never look like "no rows": that's how /staging2 went
-    // blank (Oct 6 2026) — every item read as never staged, never entered.
-    if (error) throw new Error(`Board read failed: ${error.message || error}`);
-    out.push(...((data as T[]) || []));
-    if (!data || (data as T[]).length < 1000) break;
-  }
-  return out;
-}
+// Paged reads (1,000-row cap): lib/all-rows.
 
 // An .in() list rides in the URL. Past ~390 uuids the request fails outright
 // (/staging2: 395 items, Oct 6 2026), so every id-list read goes in chunks —

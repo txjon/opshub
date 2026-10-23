@@ -17,6 +17,7 @@ import { VarianceView } from "./VarianceView";
 import { ShippingView } from "./ShippingView";
 import { ContractorHoursView } from "./ContractorHoursView";
 import { isFreightSource } from "@/lib/ups-freight";
+import { allRows } from "@/lib/all-rows";
 
 const supabase = createClient();
 
@@ -86,6 +87,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
   const [jobsRaw, setJobsRaw] = useState<Record<string, any>>({});
   const [marks, setMarks] = useState<{ job_id: string; vendor_id: string; reason: string | null }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // add-form state
   const [vendorId, setVendorId] = useState("");
@@ -129,14 +131,26 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
   const [nbNotified, setNbNotified] = useState(false);
 
   async function loadAll() {
-    const [v, j, e, d, m, itm] = await Promise.all([
-      supabase.from("ap_vendors").select("id, name, kind, decorator_id, match_keys, default_bill_method").eq("active", true).order("name"),
-      supabase.from("jobs").select("id, job_number, phase, type_meta, qb_invoice_number, qb_invoice_id, client_id, clients(name), costing_data, costing_summary").eq("company_id", companyId).order("created_at", { ascending: false }),
-      supabase.from("cost_entries").select("*").order("created_at", { ascending: false }),
-      supabase.from("decorators").select("id, name, short_code, pricing_data, capabilities, contacts_list"),
-      supabase.from("cost_vendor_status").select("job_id, vendor_id, reason"),
-      supabase.from("items").select("id, job_id, name, sort_order, blank_costs, blanks_order_cost, blanks_order_number, buy_sheet_lines(size, qty_ordered)"),
-    ]);
+    // jobs, bills and items all outgrow the 1,000-row cap, so they page.
+    // A failed read stops the page rather than showing totals with rows
+    // silently missing.
+    let v: any, j: any, e: any, d: any, m: any, itm: any;
+    try {
+      [v, d, m, j, e, itm] = await Promise.all([
+        supabase.from("ap_vendors").select("id, name, kind, decorator_id, match_keys, default_bill_method").eq("active", true).order("name"),
+        supabase.from("decorators").select("id, name, short_code, pricing_data, capabilities, contacts_list"),
+        supabase.from("cost_vendor_status").select("job_id, vendor_id, reason"),
+        allRows((f, t) => supabase.from("jobs").select("id, job_number, phase, type_meta, qb_invoice_number, qb_invoice_id, client_id, clients(name), costing_data, costing_summary").eq("company_id", companyId).order("created_at", { ascending: false }).order("id").range(f, t)).then(data => ({ data })),
+        allRows((f, t) => supabase.from("cost_entries").select("*").order("created_at", { ascending: false }).order("id").range(f, t)).then(data => ({ data })),
+        allRows((f, t) => supabase.from("items").select("id, job_id, name, sort_order, blank_costs, blanks_order_cost, blanks_order_number, buy_sheet_lines(size, qty_ordered)").order("id").range(f, t)).then(data => ({ data })),
+      ]);
+      for (const r of [v, d, m]) if (r.error) throw new Error(r.error.message);
+    } catch (err: any) {
+      setLoadError(err?.message || "Could not load bills");
+      setLoading(false);
+      return;
+    }
+    setLoadError(null);
     setMarks((m.data as any) || []);
     setVendors((v.data as any) || []);
     const jrows = ((j.data as any) || []);
@@ -729,6 +743,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
   const inp = { padding: "7px 9px", border: `1px solid ${T.border}`, borderRadius: 6, background: T.card, color: T.text, fontSize: 13, fontFamily: font, outline: "none" };
 
   if (loading) return <div style={{ padding: 24, color: T.muted, fontFamily: font }}>Loading…</div>;
+  if (loadError) return <div style={{ padding: 24, color: T.red, fontFamily: font }}>Bills didn't load completely, so no totals are shown. Refresh the page. ({loadError})</div>;
 
   return (
     <div style={{ padding: "22px 26px", fontFamily: font, maxWidth: 1180, margin: "0 auto" }}>
