@@ -295,11 +295,8 @@ export async function GET(req: NextRequest, { params }: { params: { jobId: strin
           const override = (dbItem as any).id in varianceOverrides ? Number(varianceOverrides[(dbItem as any).id]) : null;
           const line = invoiceLineQtys({ item: dbItem as any, jobRoute: (job as any).shipping_route, forwardedMap: fwdByItem[(dbItem as any).id] || null, override });
           totalQty = line.totalQty;
-          // Size grid: the delivered sizes — unless the override bills the
-          // quoted run ("bill as quoted"), then the quoted grid adds up to it.
-          const quotedTotal = Object.values(quotedQtys).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
-          const deliveredTotal = Object.values(line.perSize).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
-          effectiveQtys = totalQty !== deliveredTotal && totalQty === quotedTotal ? quotedQtys : line.perSize;
+          // Size grid comes with it (quoted grid when billing as quoted).
+          effectiveQtys = line.perSize;
         } else {
           effectiveQtys = quotedQtys;
           totalQty = Object.values(effectiveQtys).reduce((a: number, v: any) => a + (Number(v) || 0), 0);

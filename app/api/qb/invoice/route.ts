@@ -67,7 +67,10 @@ export async function POST(req: NextRequest) {
     // on the job page clears the stamp, which re-opens ordered-qty pushes.
     const tmV = ((job as any).type_meta || {}) as any;
     const varianceLocked = !reqUseShipped && !reqBillable && !!tmV.qb_variance_pushed_at;
-    const useShippedQtys = !!reqUseShipped || varianceLocked;
+    // Per-line billable qtys ARE a variance review: stamp them like one, or
+    // the next locked re-sync rebuilds from the old stamp and undoes this
+    // push (#4463, Oct 27 2026).
+    const useShippedQtys = !!reqUseShipped || !!reqBillable || varianceLocked;
     const billableQtys: Record<string, number> | null = reqBillable || (varianceLocked ? (tmV.qb_variance_billable_qtys || null) : null);
 
     const { data: items } = await admin.from("items")
@@ -292,6 +295,9 @@ export async function POST(req: NextRequest) {
           qb_variance_pushed_at: new Date().toISOString(),
           qb_variance_total: updated.totalWithTax,
           qb_variance_tax: updated.taxAmount,
+          // QB now bills these qtys, so the invoice is no longer "as billed"
+          // (the review screen reads this to decide whether QB needs a push).
+          ...(reqUseShipped || reqBillable ? { qb_variance_as_billed: false } : {}),
           ...(billableQtys ? { qb_variance_billable_qtys: billableQtys } : {}),
         } : {}),
       });

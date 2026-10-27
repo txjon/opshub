@@ -129,7 +129,7 @@ export function InvoiceVarianceReviewModal({
   }
 
   // Finalize AS BILLED (Jon, Sep 16 2026): every line billable at its quoted
-  // qty → the invoice doesn't change, so nothing goes to QB or the client.
+  // qty → no revision for the client (nothing is emailed).
   // Stamp the same variance-finalized keys the push writes (total/tax = the
   // invoice as it stands) so every reader — rail, House close-out, AR —
   // sees "reconciled". A paid-in-full job short a unit is the textbook case:
@@ -137,6 +137,24 @@ export function InvoiceVarianceReviewModal({
   async function finalizeAsBilled() {
     setPushing(true);
     setError(null);
+    // QuickBooks still gets the quoted qtys. "Nothing changed" is only true
+    // if QB bills the quoted run right now, and OpsHub can't know that: an
+    // earlier review may have cut it (Reopen clears our record, not QB). On
+    // #4463 (Oct 27 2026) skipping the push would have stamped $1,017 done
+    // while the client paid the quoted $1,130. A same-numbers push is a
+    // no-op for QB and sends nothing to the client. Stripe voids + recreates,
+    // so it keeps the local finalize.
+    if (provider === "quickbooks") {
+      try {
+        const res = await fetch("/api/qb/invoice", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId, useShippedQtys: true, billableQtys }),
+        });
+        const data = await res.json().catch(() => ({ error: `QuickBooks push failed (server ${res.status})` }));
+        if (!res.ok) { setError(data.error || "Push failed"); setPushing(false); return; }
+      } catch (e: any) { setError(e.message || "Push failed"); setPushing(false); return; }
+    }
     const r = await patchJobTypeMeta(supabase, jobId, (tm) => ({
       ...tm,
       qb_variance_pushed_at: new Date().toISOString(),

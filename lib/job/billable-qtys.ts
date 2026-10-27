@@ -82,8 +82,16 @@ export function invoiceLineQtys(opts: {
 }): { perSize: SizeMap; totalQty: number } {
   const { perSize } = billableQtysForItem(opts);
   const billable = deductSamples(perSize, opts.item.sample_qtys);
-  let totalQty = Object.values(billable).reduce((a, q) => a + (q || 0), 0);
+  const deliveredTotal = Object.values(billable).reduce((a, q) => a + (q || 0), 0);
+  let totalQty = deliveredTotal;
   const o = opts.override == null ? NaN : Number(opts.override);
   if (!isNaN(o) && o >= 0) totalQty = Math.floor(o);
+  // Size grid: the delivered sizes, unless the override bills the quoted run
+  // ("bill as quoted"): then the quoted grid is the one that adds up to it.
+  // A 50-unit line with a 45-unit grid confused #4463 (Oct 27 2026).
+  const ordered: SizeMap = {};
+  for (const l of opts.item.buy_sheet_lines || []) ordered[l.size] = Number(l.qty_ordered) || 0;
+  const orderedTotal = Object.values(ordered).reduce((a, q) => a + q, 0);
+  if (totalQty !== deliveredTotal && totalQty === orderedTotal) return { perSize: ordered, totalQty };
   return { perSize: billable, totalQty };
 }
