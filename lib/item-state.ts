@@ -12,7 +12,7 @@ import { poSentToItem } from "./item-status";
 import { transitDaysFor } from "./date-chain";
 import { addDays } from "./dates";
 import { proofSatisfied } from "./proof-gate";
-import { allRows } from "./all-rows";
+import { allRows, allRowsIn } from "./all-rows";
 import { NON_GARMENT as NON_GARMENT_LIST } from "./pricing";
 
 type Sb = any; // Supabase client (project convention: loose typing at the boundary)
@@ -40,22 +40,6 @@ const toMovement = (m: any): Movement => ({
 
 // Paged reads (1,000-row cap): lib/all-rows.
 
-// An .in() list rides in the URL. Past ~390 uuids the request fails outright
-// (/staging2: 395 items, Oct 6 2026), so every id-list read goes in chunks —
-// each chunk paged through allRows. Rows for one id never straddle chunks, so
-// per-id ordering (e.g. newest mockup first) holds.
-const IN_CHUNK = 150;
-async function allRowsIn<T = any>(
-  ids: string[],
-  build: (chunk: string[], from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>
-): Promise<T[]> {
-  const out: T[] = [];
-  for (let i = 0; i < ids.length; i += IN_CHUNK) {
-    const chunk = ids.slice(i, i + IN_CHUNK);
-    out.push(...await allRows<T>((f, t) => build(chunk, f, t)));
-  }
-  return out;
-}
 
 // ── one item ─────────────────────────────────────────────────────────────
 export async function loadItemState(sb: Sb, itemId: string): Promise<ItemView | null> {

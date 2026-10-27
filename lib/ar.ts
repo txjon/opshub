@@ -42,7 +42,17 @@ export type InvoiceRow = {
   // (totals.no_billables). History-only filler; never chased, never aged.
   noBillables?: boolean;
   remindedAt?: string | null;   // last payment reminder (fulfillment: mig 194)
+  // The client has this invoice: sent from OpsHub, OR a non-draft payment
+  // record / money received (legacy, out-of-band, QB-sent). Same rule the
+  // client hub uses to show an invoice. Pushed-to-QB alone is not issued.
+  issued: boolean;
 };
+
+// THE rule for "goes on a client's account statement": money owed on an
+// invoice the client actually has. The statement PDF and the Send-statement
+// email both read this, so the email total always equals the PDF.
+export const onStatement = (r: InvoiceRow): boolean =>
+  r.balance > 0.01 && r.issued && !r.noBillables;
 
 export type ArSummary = {
   rows: InvoiceRow[];
@@ -132,6 +142,9 @@ export function buildAr(opts: {
       financialClosedAt: j.financial_closed_at || null,
       payLink: tm.qb_payment_link || null,
       waived: d.waivedAmount,
+      issued: !!tm.invoice_sent_at
+        || payments.some((p: any) => p.status && !["draft", "void"].includes(p.status))
+        || d.aggPaidSum > 0.01,
     });
   }
 
@@ -178,6 +191,7 @@ export function buildAr(opts: {
       payLink: r.qb_payment_link || null,
       noBillables,
       remindedAt: r.last_reminded_at || null,
+      issued: !!(r.sent_at || r.paid_at) || paid > 0.01,
     });
   }
 

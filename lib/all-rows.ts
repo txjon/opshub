@@ -23,3 +23,20 @@ export async function allRows<T = any>(
   const seen = new Set<unknown>();
   return out.filter((r: any) => r?.id == null || (seen.has(r.id) ? false : (seen.add(r.id), true)));
 }
+
+// An .in() list rides in the URL. Past ~390 uuids the request fails outright
+// (/staging2: 395 items, Oct 6 2026), so every id-list read goes in chunks,
+// each chunk paged through allRows. Rows for one id never straddle chunks, so
+// per-id ordering (e.g. newest mockup first) holds.
+const IN_CHUNK = 150;
+export async function allRowsIn<T = any>(
+  ids: string[],
+  build: (chunk: string[], from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let i = 0; i < ids.length; i += IN_CHUNK) {
+    const chunk = ids.slice(i, i + IN_CHUNK);
+    out.push(...await allRows<T>((f, t) => build(chunk, f, t)));
+  }
+  return out;
+}

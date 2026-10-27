@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { patchJobTypeMeta } from "@/lib/job-type-meta";
 import { createClient } from "@/lib/supabase/client";
 import { T, font, mono } from "@/lib/theme";
-import { buildAr, isCloseable, type ArAging, type ArSummary, type InvoiceRow } from "@/lib/ar";
+import { buildAr, isCloseable, onStatement, type ArAging, type ArSummary, type InvoiceRow } from "@/lib/ar";
 import { computeBillingQueue } from "@/lib/billing-queue";
 import { buildPrintersMap } from "@/lib/pricing";
 import { maybeAutoFinalizeInvoice } from "@/lib/job/auto-finalize";
@@ -512,7 +512,8 @@ function SendStatementModal({ rows, daysLate, onClose }: {
   const clients = useMemo(() => {
     const by: Record<string, { id: string; name: string; total: number; pastDue: number; count: number }> = {};
     for (const r of rows) {
-      if (r.balance <= 0.01) continue;
+      // Same rule as the statement PDF (lib/ar onStatement): totals match.
+      if (!onStatement(r)) continue;
       const c = (by[r.clientId] ||= { id: r.clientId, name: r.clientName, total: 0, pastDue: 0, count: 0 });
       c.total += r.balance; c.count++;
       if (daysLate(r) > 0) c.pastDue += r.balance;

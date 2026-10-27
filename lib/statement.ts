@@ -3,7 +3,8 @@
 // the statement can never disagree with /invoices; this file only shapes
 // them for the page and renders the PDF HTML (design locked from the
 // hand-built Silencer Co statement Jon approved 2026-06-23).
-import { buildAr, type InvoiceRow } from "@/lib/ar";
+import { allRows, allRowsIn } from "@/lib/all-rows";
+import { buildAr, type InvoiceRow, onStatement } from "@/lib/ar";
 import { loadLocations } from "./destinations";
 import type { PdfBranding } from "@/lib/branding";
 
@@ -46,19 +47,21 @@ export async function buildStatementData(db: any, clientId: string, now = new Da
   // qb_invoice_number/qb_invoice_id: lib/ar reads the invoice identity from
   // the columns (Sep 17 2026). Without them every job read as never invoiced
   // and statements came out $0 (Silencer, Oct 27 2026).
-  const jobsRes = await db.from("jobs").select("id, job_number, title, phase, client_id, payment_terms, target_ship_date, costing_summary, costing_data, type_meta, qb_invoice_number, qb_invoice_id, created_at, shipping_route, fulfillment_status, is_inventory, is_test, is_internal, financial_closed_at").eq("client_id", clientId);
-  if (jobsRes.error) return { error: jobsRes.error.message };
-  const clientJobIds = ((jobsRes.data || []) as any[]).map(j => j.id);
-  const [clientRes, paysRes, ssRes, contactsRes] = await Promise.all([
+  let jobsRows: any[], payRows: any[];
+  try {
+    jobsRows = await allRows((f, t) => db.from("jobs").select("id, job_number, title, phase, client_id, payment_terms, target_ship_date, costing_summary, costing_data, type_meta, qb_invoice_number, qb_invoice_id, created_at, shipping_route, fulfillment_status, is_inventory, is_test, is_internal, financial_closed_at").eq("client_id", clientId).order("id").range(f, t));
+    // This client's jobs only, chunked (URL length) and paged (1,000-row cap).
+    // A failed read errors: it would otherwise show paid invoices as owed.
+    payRows = await allRowsIn(jobsRows.map(j => j.id), (c, f, t) => db.from("payment_records").select("id, job_id, amount, status, due_date").in("job_id", c).order("id").range(f, t));
+  } catch (e: any) { return { error: e?.message || "Read failed" }; }
+  const jobsRes = { data: jobsRows };
+  const paysRes = { data: payRows };
+  const [clientRes, ssRes, contactsRes] = await Promise.all([
     db.from("clients").select("id, name, default_terms, billing_address").eq("id", clientId).single(),
-    // This client's jobs only: the whole table would hit the 1,000-row cap.
-    clientJobIds.length ? db.from("payment_records").select("id, job_id, amount, status, due_date").in("job_id", clientJobIds) : Promise.resolve({ data: [], error: null }),
     db.from("shipstation_reports").select("id, client_id, report_type, period_label, totals, postage_totals, qb_invoice_number, qb_total_with_tax, paid_at, paid_amount, sent_at, created_at").eq("client_id", clientId),
     db.from("contacts").select("name, email, role_label, is_primary").eq("client_id", clientId),
   ]);
   if (clientRes.error || !clientRes.data) return { error: clientRes.error?.message || "Client not found" };
-  // A failed payments read would show paid invoices as owed.
-  if ((paysRes as any).error) return { error: (paysRes as any).error.message };
   const client = clientRes.data as any;
   const jobs = (jobsRes.data || []) as any[];
 
@@ -75,9 +78,9 @@ export async function buildStatementData(db: any, clientId: string, now = new Da
   const poByJob: Record<string, string> = {};
   for (const j of jobs) poByJob[j.id] = String((j.type_meta as any)?.client_po_number || "");
 
-  // Drafts were never sent: the client has nothing to match them to, so a
-  // statement can't bill them (Silencer: 5 drafts, $96,662.50, Oct 27 2026).
-  const open = ar.rows.filter(r => r.clientId === clientId && r.balance > 0.01 && r.state !== "draft");
+  // Only invoices the client actually has (lib/ar onStatement): unsent
+  // drafts were never received, so a statement can't bill them.
+  const open = ar.rows.filter(r => r.clientId === clientId && onStatement(r));
   const lines: StatementLine[] = open.map(r => ({
     date: r.date,
     invoiceNumber: r.invoiceNumber || r.jobNumber || "—",
