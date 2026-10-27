@@ -62,6 +62,8 @@ export async function buildStatementData(db: any, clientId: string, now = new Da
     db.from("contacts").select("name, email, role_label, is_primary").eq("client_id", clientId),
   ]);
   if (clientRes.error || !clientRes.data) return { error: clientRes.error?.message || "Client not found" };
+  // A failed fulfillment read would drop those invoices and understate the total.
+  if (ssRes.error) return { error: ssRes.error.message };
   const client = clientRes.data as any;
   const jobs = (jobsRes.data || []) as any[];
 
