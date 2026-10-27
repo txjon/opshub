@@ -66,7 +66,9 @@ export function InvoiceVarianceReviewModal({
       const { data: jobRow } = await supabase.from("jobs").select("qb_invoice_id, type_meta").eq("id", jobId).maybeSingle();
       const tmq: any = (jobRow as any)?.type_meta || {};
       const qbTotal = Number(tmq.qb_total_with_tax);
-      setQbPreTax((jobRow as any)?.qb_invoice_id && isFinite(qbTotal) ? qbTotal - (Number(tmq.qb_tax_amount) || 0) : null);
+      // null = no QB invoice (never push). Invoice but no stored total
+      // (legacy) = unknown, so NaN: compares as "differs" and pushes.
+      setQbPreTax((jobRow as any)?.qb_invoice_id ? (isFinite(qbTotal) && tmq.qb_total_with_tax != null ? qbTotal - (Number(tmq.qb_tax_amount) || 0) : NaN) : null);
       setExtrasTotal((Array.isArray(tmq.invoice_extra_lines) ? tmq.invoice_extra_lines : []).reduce((a: number, l: any) => a + (Number(l?.amount) || 0), 0));
       const { data: moves } = await supabase
         .from("movements").select("item_id, type, qtys").eq("job_id", jobId).eq("type", "forward");
