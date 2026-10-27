@@ -264,6 +264,14 @@ export async function POST(req: NextRequest) {
     const allowCC = clientRow.allow_cc !== false;
     const allowACH = clientRow.allow_ach !== false;
 
+    // A review push (shipped / per-line billable qtys) revises an invoice
+    // that exists. It must never CREATE one: from the review screen on a
+    // Stripe job, or after the customer self-heal above cleared the refs,
+    // that minted a second live invoice for the same order.
+    if ((reqUseShipped || reqBillable) && !existingInvoiceId) {
+      return NextResponse.json({ error: "There's no QuickBooks invoice on this project to revise. Create the invoice first." }, { status: 409 });
+    }
+
     if (existingInvoiceId) {
       // Update existing QB invoice
       const updated = await updateInvoice(existingInvoiceId, lineItems, {
@@ -295,8 +303,7 @@ export async function POST(req: NextRequest) {
           qb_variance_pushed_at: new Date().toISOString(),
           qb_variance_total: updated.totalWithTax,
           qb_variance_tax: updated.taxAmount,
-          // QB now bills these qtys, so the invoice is no longer "as billed"
-          // (the review screen reads this to decide whether QB needs a push).
+          // A review push changed what QB bills, so it's no longer "as billed".
           ...(reqUseShipped || reqBillable ? { qb_variance_as_billed: false } : {}),
           ...(billableQtys ? { qb_variance_billable_qtys: billableQtys } : {}),
         } : {}),

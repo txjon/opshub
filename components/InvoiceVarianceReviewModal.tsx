@@ -46,6 +46,9 @@ export function InvoiceVarianceReviewModal({
   const [loading, setLoading] = useState(true);
   const [pushing, setPushing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // What QB bills right now, pre-tax, as of OpsHub's last push.
+  const [qbPreTax, setQbPreTax] = useState<number | null>(null);
+  const [extrasTotal, setExtrasTotal] = useState(0);
 
   const prefersReceived = shippingRoute === "ship_through" || shippingRoute === "stage";
 
@@ -60,6 +63,11 @@ export function InvoiceVarianceReviewModal({
       // Client-delivered truth for warehouse routes = the ledger's forward
       // movements (what went OUT to the client), not received_qtys (what
       // landed at HPD) — lib/job/billable-qtys, shared with the QB push.
+      const { data: jobRow } = await supabase.from("jobs").select("qb_invoice_id, type_meta").eq("id", jobId).maybeSingle();
+      const tmq: any = (jobRow as any)?.type_meta || {};
+      const qbTotal = Number(tmq.qb_total_with_tax);
+      setQbPreTax((jobRow as any)?.qb_invoice_id && isFinite(qbTotal) ? qbTotal - (Number(tmq.qb_tax_amount) || 0) : null);
+      setExtrasTotal((Array.isArray(tmq.invoice_extra_lines) ? tmq.invoice_extra_lines : []).reduce((a: number, l: any) => a + (Number(l?.amount) || 0), 0));
       const { data: moves } = await supabase
         .from("movements").select("item_id, type, qtys").eq("job_id", jobId).eq("type", "forward");
       const movesByItem: Record<string, any[]> = {};
@@ -137,14 +145,16 @@ export function InvoiceVarianceReviewModal({
   async function finalizeAsBilled() {
     setPushing(true);
     setError(null);
-    // QuickBooks still gets the quoted qtys. "Nothing changed" is only true
-    // if QB bills the quoted run right now, and OpsHub can't know that: an
-    // earlier review may have cut it (Reopen clears our record, not QB). On
-    // #4463 (Oct 27 2026) skipping the push would have stamped $1,017 done
-    // while the client paid the quoted $1,130. A same-numbers push is a
-    // no-op for QB and sends nothing to the client. Stripe voids + recreates,
-    // so it keeps the local finalize.
-    if (provider === "quickbooks") {
+    // "Nothing changed" holds only if QB bills the quoted run right now. An
+    // earlier review may have cut it, and Reopen clears our record but not
+    // QB: on #4463 (Oct 27 2026) this stamped $1,017 done while the client
+    // paid the quoted $1,130. So when QB's last-pushed total isn't the quoted
+    // total, push the quoted qtys. When it is, write nothing to QB: a push
+    // rebuilds every line from OpsHub and would wipe edits made in QB.
+    // Stripe voids + recreates, so it keeps the local finalize.
+    const quotedPreTax = (rows || []).reduce((a, r) => a + r.orderedRevenue, 0) + extrasTotal;
+    const qbAlreadyQuoted = qbPreTax != null && Math.abs(qbPreTax - quotedPreTax) < 0.01;
+    if (provider === "quickbooks" && qbPreTax != null && !qbAlreadyQuoted) {
       try {
         const res = await fetch("/api/qb/invoice", {
           method: "POST",

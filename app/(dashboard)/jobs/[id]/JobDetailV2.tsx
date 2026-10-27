@@ -3678,6 +3678,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       {/* ── invoice variance review (reconcile-at-ship / QB heal) ── */}
       {showVariance && (
         <InvoiceVarianceReviewModal jobId={job.id} shippingRoute={job.shipping_route} jobTitle={job.title} clientName={client}
+          provider={!job.qb_invoice_id && (job.type_meta as any)?.stripe_invoice_number ? "stripe" : "quickbooks"}
           onClose={() => setShowVariance(false)}
           onApproved={(mode) => {
             logJobActivity(job.id, mode === "as_billed"
