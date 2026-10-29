@@ -146,13 +146,15 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     let live = true;
     (createClient().from("movements") as any).select("item_id, type, qtys").eq("job_id", job.id).eq("type", "forward")
       .then(({ data, error }: any) => {
-        if (!live || error) return;
+        if (!live) return;
+        // A failed read bills without forwards (received → shipped → ordered)
+        // rather than leaving the card stuck on a false "in sync".
         const grouped: Record<string, any[]> = {};
-        for (const m of data || []) (grouped[m.item_id] ||= []).push(m);
+        for (const m of (error ? [] : data) || []) (grouped[m.item_id] ||= []).push(m);
         const out: Record<string, Record<string, number>> = {};
         for (const [iid, ms] of Object.entries(grouped)) out[iid] = sumForwarded(ms);
         setFwdByItem(out);
-      });
+      }, () => { if (live) setFwdByItem({}); });
     return () => { live = false; };
   }, [varianceFinal, job?.id]);
   const [localContacts, setLocalContacts] = useState<any[]>(contacts);
@@ -946,9 +948,12 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // then the reviewer's overrides), the same invoiceLineQtys the QB push and
   // the PDF use. Ordered qtys here flagged every short-shipped job as
   // "added since invoicing" (#4511, Oct 2026). Unknown until forwards load.
-  const overrides: Record<string, number> = tm.qb_variance_billable_qtys || {};
+  const overrides: Record<string, number> = (tm.qb_variance_pushed_at ? tm.qb_variance_billable_qtys : tm.stripe_variance_billable_qtys) || {};
+  // Ordered qtys from it.qtys when present: local adds/edits update qtys but
+  // not the loaded buy_sheet_lines.
+  const withLines = (it: any) => it.qtys ? { ...it, buy_sheet_lines: Object.entries(it.qtys).map(([size, q]) => ({ size, qty_ordered: Number(q) || 0 })) } : it;
   const billedQty = (it: any) => varianceFinal
-    ? invoiceLineQtys({ item: it, jobRoute: job?.shipping_route, forwardedMap: fwdByItem?.[it.id] || null, override: it.id in overrides ? Number(overrides[it.id]) : null }).totalQty
+    ? invoiceLineQtys({ item: withLines(it), jobRoute: job?.shipping_route, forwardedMap: fwdByItem?.[it.id] || null, override: it.id in overrides ? Number(overrides[it.id]) : null }).totalQty
     : qtyOf(it);
   const orderKnown = !varianceFinal || fwdByItem !== null;
   const orderTotal = items.reduce((a: number, it: any) => a + (Number(it.sell_per_unit) || 0) * qtyOf(it), 0) + extrasTotal;
@@ -2177,7 +2182,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             // Out of sync with QB (order changed since invoicing) → the next
             // action is a REVISED invoice send, and it says so.
             const needsRevise = !!invNum && Math.abs(toInvoice) > 0.01;
-            const primary = !flags.approved ? "quote" : (!invNum || needsRevise) ? "invoice" : paid < billedTotal ? "payment" : null;
+            const primary = !flags.approved ? "quote" : (!invNum || needsRevise) ? "invoice" : paid < (invoiced || billedTotal) - 0.01 ? "payment" : null;
             // What the package holds right now: the client approves all of it or
             // none of it, so this is the only place proofs go out (Jon's rule).
             const pk = items.filter((x: any) => needsProof(x) && !carriedApproved(x) && x.proof_spec);
@@ -2267,7 +2272,9 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                   {row("Invoice", invNum ? (
                     <>
                       <span>{invNum} · {tm.invoice_sent_at ? "sent" : <span style={{ color: T.amber }}>not sent</span>}</span>
-                      {Math.abs(toInvoice) <= 0.01
+                      {!orderKnown
+                        ? <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.muted }}>checking…</span>
+                        : Math.abs(toInvoice) <= 0.01
                         ? <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.green }}>✓ QB in sync</span>
                         : <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.amber }} title={`OpsHub ${varianceFinal ? "billed" : "order"} ${fmtMoney(billedTotal)} vs QB ${fmtMoney(invoicedSub)} (pre-tax). Send invoice re-pushes.`}>⚠ off {fmtMoney(Math.abs(toInvoice))} vs QB</span>}
                     </>
