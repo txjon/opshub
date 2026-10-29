@@ -39,6 +39,7 @@ import { pushInvoiceToQB, recordPayment, cyclePaymentStatus, deletePayment, refr
 import { QBCustomerChooser } from "@/components/QBCustomerChooser";
 import { InvoiceVarianceReviewModal } from "@/components/InvoiceVarianceReviewModal";
 import { deriveInvoice } from "@/lib/job/invoice-derive";
+import { invoiceLineQtys, sumForwarded } from "@/lib/job/billable-qtys";
 import { DestinationsPanel } from "@/components/DestinationsPanel";
 import { loadJobShipTo, type ShipTo } from "@/lib/destinations";
 import { BlankRepOrderModal } from "@/components/BlankRepOrderModal";
@@ -135,6 +136,25 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   useEffect(() => { setShipTo(shipToProp); }, [shipToProp]);
   const [payments, setPayments] = useState<any[]>(paymentsProp);
   useEffect(() => { setPayments(paymentsProp); }, [paymentsProp]);
+  // Once the shipped-qty review is finalized, the invoice bills delivered
+  // quantities (lib/job/billable-qtys). Warehouse routes need the ledger's
+  // forwards for that, so load them; null = not loaded yet.
+  const varianceFinal = !!(job?.type_meta?.qb_variance_pushed_at || job?.type_meta?.stripe_variance_pushed_at);
+  const [fwdByItem, setFwdByItem] = useState<Record<string, Record<string, number>> | null>(null);
+  useEffect(() => {
+    if (!varianceFinal || !job?.id) { setFwdByItem(null); return; }
+    let live = true;
+    (createClient().from("movements") as any).select("item_id, type, qtys").eq("job_id", job.id).eq("type", "forward")
+      .then(({ data, error }: any) => {
+        if (!live || error) return;
+        const grouped: Record<string, any[]> = {};
+        for (const m of data || []) (grouped[m.item_id] ||= []).push(m);
+        const out: Record<string, Record<string, number>> = {};
+        for (const [iid, ms] of Object.entries(grouped)) out[iid] = sumForwarded(ms);
+        setFwdByItem(out);
+      });
+    return () => { live = false; };
+  }, [varianceFinal, job?.id]);
   const [localContacts, setLocalContacts] = useState<any[]>(contacts);
   // The contacts PROP is the classic page's FLAT shape ({...contact, role_on_job})
   // — no job_contacts id, so × can't target the join row and the list renders
@@ -921,15 +941,25 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // as scripts/qb-reconcile.cjs, so the grew/re-invoice signal matches it.
   const extraLines: any[] = Array.isArray(job?.type_meta?.invoice_extra_lines) ? job.type_meta.invoice_extra_lines : [];
   const extrasTotal = extraLines.reduce((a, l: any) => a + (Number(l?.amount) || 0), 0);
-  const orderTotal = items.reduce((a: number, it: any) => a + (Number(it.sell_per_unit) || 0) * qtyOf(it), 0) + extrasTotal;
   const tm = job?.type_meta || {};
+  // Finalized reconcile: bill what a push would bill now (delivered − samples,
+  // then the reviewer's overrides), the same invoiceLineQtys the QB push and
+  // the PDF use. Ordered qtys here flagged every short-shipped job as
+  // "added since invoicing" (#4511, Oct 2026). Unknown until forwards load.
+  const overrides: Record<string, number> = tm.qb_variance_billable_qtys || {};
+  const billedQty = (it: any) => varianceFinal
+    ? invoiceLineQtys({ item: it, jobRoute: job?.shipping_route, forwardedMap: fwdByItem?.[it.id] || null, override: it.id in overrides ? Number(overrides[it.id]) : null }).totalQty
+    : qtyOf(it);
+  const orderKnown = !varianceFinal || fwdByItem !== null;
+  const orderTotal = items.reduce((a: number, it: any) => a + (Number(it.sell_per_unit) || 0) * qtyOf(it), 0) + extrasTotal;
+  const billedTotal = items.reduce((a: number, it: any) => a + (Number(it.sell_per_unit) || 0) * billedQty(it), 0) + extrasTotal;
   // invoiced total incl. tax (QB or Stripe). invoicedSub = pre-tax, to compare
-  // against orderTotal (also pre-tax) for the "order grew" delta.
+  // against billedTotal (also pre-tax) for the "order grew" delta.
   const invoiced = Number(tm.qb_total_with_tax) || (Number(tm.stripe_total_cents) ? Number(tm.stripe_total_cents) / 100 : 0);
   const invoicedSub = Math.max(0, invoiced - (Number(tm.qb_tax_amount) || 0));
   const invNum = job.qb_invoice_number || tm.stripe_invoice_number || "";
   const paid = payments.filter((p: any) => p.status === "paid").reduce((a: number, p: any) => a + (Number(p.amount) || 0), 0);
-  const toInvoice = Math.round((orderTotal - invoicedSub) * 100) / 100;
+  const toInvoice = orderKnown ? Math.round((billedTotal - invoicedSub) * 100) / 100 : 0;
   const route = job?.shipping_route || "";
   // Ship-to resolves by route: drop_ship → client; ship_through/stage → HPD
   // warehouse (goods land with us first). Per-vendor defaults can still route
@@ -2147,7 +2177,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             // Out of sync with QB (order changed since invoicing) → the next
             // action is a REVISED invoice send, and it says so.
             const needsRevise = !!invNum && Math.abs(toInvoice) > 0.01;
-            const primary = !flags.approved ? "quote" : (!invNum || needsRevise) ? "invoice" : paid < orderTotal ? "payment" : null;
+            const primary = !flags.approved ? "quote" : (!invNum || needsRevise) ? "invoice" : paid < billedTotal ? "payment" : null;
             // What the package holds right now: the client approves all of it or
             // none of it, so this is the only place proofs go out (Jon's rule).
             const pk = items.filter((x: any) => needsProof(x) && !carriedApproved(x) && x.proof_spec);
@@ -2239,7 +2269,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                       <span>{invNum} · {tm.invoice_sent_at ? "sent" : <span style={{ color: T.amber }}>not sent</span>}</span>
                       {Math.abs(toInvoice) <= 0.01
                         ? <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.green }}>✓ QB in sync</span>
-                        : <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.amber }} title={`OpsHub order ${fmtMoney(orderTotal)} vs QB ${fmtMoney(invoicedSub)} (pre-tax). Send invoice re-pushes.`}>⚠ off {fmtMoney(Math.abs(toInvoice))} vs QB</span>}
+                        : <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: T.amber }} title={`OpsHub ${varianceFinal ? "billed" : "order"} ${fmtMoney(billedTotal)} vs QB ${fmtMoney(invoicedSub)} (pre-tax). Send invoice re-pushes.`}>⚠ off {fmtMoney(Math.abs(toInvoice))} vs QB</span>}
                     </>
                   ) : "none")}
                   {job.qb_invoice_id && row("Pay link", (
@@ -3258,7 +3288,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             </div>
             {clientAction === "invoice" && invNum && Math.abs(toInvoice) > 0.01 && (
               <div style={{ fontSize: 12.5, color: T.muted, lineHeight: 1.5, marginBottom: 12, padding: "9px 12px", background: `${T.amber}12`, border: `1px solid ${T.amber}44`, borderRadius: 8 }}>
-                Updates QB invoice <b>#{invNum}</b> in place ({fmtMoney(invoicedSub)} → {fmtMoney(orderTotal)} pre-tax; QB recalculates tax), then emails the revised invoice. Same invoice number, same pay link.
+                Updates QB invoice <b>#{invNum}</b> in place ({fmtMoney(invoicedSub)} → {fmtMoney(billedTotal)} pre-tax; QB recalculates tax), then emails the revised invoice. Same invoice number, same pay link.
               </div>
             )}
             {clientAction === "payment" ? (
