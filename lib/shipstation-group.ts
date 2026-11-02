@@ -3,7 +3,9 @@
 //
 // A "group" is a set of rows with the same SKU root + description root,
 // differing only in trailing size token. Rows without a recognized size
-// token stand alone (single-variant "groups").
+// token group by identical product name instead (Nov 2026: some stores export
+// plain numeric SKUs per variant with no size anywhere, e.g. FT Industries,
+// and every variant became its own cost row). Rows with no name stand alone.
 
 // Canonical size tokens we'll recognize at the tail of a SKU or the last
 // " - X" segment of a description. Covers apparel + one-size items.
@@ -74,9 +76,9 @@ export function stripSizeFromDescription(desc: string): { root: string; size: st
 }
 
 // Groups rows where BOTH SKU and description roots match AND both had a
-// size token detected. Rows without a detected size stand alone as
-// single-variant groups so the rendering code can treat everything
-// uniformly.
+// size token detected. Rows without a detected size group by exact name
+// (trimmed, case-insensitive), unless a saved row's cost differs from the
+// group's: that row stands alone so a merge never blends two costs.
 export function groupLineItems(items: RawLine[]): Group[] {
   const groups = new Map<string, Group>();
   let standaloneCounter = 0;
@@ -89,9 +91,16 @@ export function groupLineItems(items: RawLine[]): Group[] {
     // in the description that happens to equal a size token (very rare)
     // won't accidentally collapse unrelated items.
     const canGroup = !!skuSize && !!descSize && skuSize === descSize;
-    const key = canGroup ? `group:${skuRoot}|${descRoot}` : `solo:${item.sku || "nosku"}:${standaloneCounter++}`;
+    const nameKey = (item.description || "").trim().toLowerCase();
+    let key: string;
+    if (canGroup) key = `group:${skuRoot}|${descRoot}`;
+    else {
+      const named = nameKey ? groups.get(`name:${nameKey}`) : undefined;
+      const clash = !!named && item.unit_cost > 0 && named.unit_cost > 0 && Math.abs(named.unit_cost - item.unit_cost) > 0.001;
+      key = nameKey && !clash ? `name:${nameKey}` : `solo:${item.sku || "nosku"}:${standaloneCounter++}`;
+    }
     const rootSku = canGroup ? skuRoot : item.sku;
-    const rootDesc = canGroup ? descRoot : item.description;
+    const rootDesc = canGroup ? descRoot : (item.description || "").trim();
 
     let g = groups.get(key);
     if (!g) {
@@ -139,5 +148,13 @@ export function groupLineItems(items: RawLine[]): Group[] {
     });
   }
 
-  return Array.from(groups.values());
+  // A name group spans unrelated SKUs: label it by count, not the first SKU.
+  for (const g of groups.values()) {
+    if (g.key.startsWith("name:") && g.variants.length > 1) g.root_sku = `${g.variants.length} SKUs`;
+  }
+
+  // Alphabetical by product, so the cost list reads the same way every month
+  // (export order looked random and made cost entry hard to teach).
+  return Array.from(groups.values()).sort((a, b) =>
+    a.root_description.localeCompare(b.root_description, undefined, { sensitivity: "base" }));
 }
