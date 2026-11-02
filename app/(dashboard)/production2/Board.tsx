@@ -1085,8 +1085,11 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
                     <ItemThumb fileId={it.mockupFileId} name={it.name} />
                     <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
                       <span style={{ fontSize: 13, fontWeight: 600 }}>{it.name} <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 400, color: T.muted }}>{itemTotal(it.itemId)}u</span></span>
-                      {/* PO # as the vendor's PO prints it (invoice # + letter, e.g. 4511C). */}
-                      <span style={{ fontFamily: mono, fontSize: 11.5, color: T.muted }}>PO# {it.strip.invoiceNumber || it.strip.jobNumber}{it.letter || ""}</span>
+                      {/* The vendor PO's number base + this item's letter, as the PO's
+                          item block reads ("C - name"). The full PO# joins every letter
+                          on that PO (4511ABC); shipped items are off the board, so it
+                          can't be rebuilt from here. */}
+                      <span style={{ fontFamily: mono, fontSize: 11.5, color: T.muted }}>PO# {it.strip.invoiceNumber || it.strip.jobNumber}{it.letter ? ` · item ${it.letter}` : ""}</span>
                     </div>
                     <div style={{ flex: 1 }} />
                     {elsewhere > 0 && (
