@@ -16,6 +16,9 @@ type ParsedRow = {
   qty_sold: number;
   product_sales: number;
   included: boolean;
+  // Edit mode: the saved unit_cost. Grouping keys include cost, so the render
+  // path must regroup with the same costs the seed path used.
+  saved_cost?: number;
 };
 
 // ── Postage CSV row shape ─────────────────────────────────────────────────
@@ -332,6 +335,7 @@ export default function NewShipstationReportPage() {
             qty_sold: Number(l.qty_sold) || 0,
             product_sales: Number(l.product_sales) || 0,
             included: true,
+            saved_cost: Number(l.unit_cost) || 0,
           }));
           setRawRows(parsed);
           setMergedCount(0);
@@ -693,7 +697,7 @@ export default function NewShipstationReportPage() {
       description: r.description,
       qty_sold: r.qty_sold,
       product_sales: r.product_sales,
-      unit_cost: 0,
+      unit_cost: r.saved_cost ?? 0,
       idx: r.idx,
     }));
     return groupLineItems(raw);

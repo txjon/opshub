@@ -730,7 +730,8 @@ function LineItemsTable({ report, period }: { report: Report; period?: string })
           </thead>
           <tbody>
             {groups.map(g => {
-              const totalCost = g.unit_cost * g.qty_sold;
+              const totalCost = g.total_cost;
+              const unitCost = g.qty_sold ? g.total_cost / g.qty_sold : g.unit_cost; // per-unit average when variant costs differ
               const net = g.product_sales - totalCost;
               const fee = net * report.hpd_fee_pct;
               const profit = net - fee;
@@ -746,7 +747,7 @@ function LineItemsTable({ report, period }: { report: Report; period?: string })
                   </td>
                   <td style={{ ...tdStyle, textAlign: "right" }}>{fmtN(g.qty_sold)}</td>
                   <td style={{ ...tdStyle, textAlign: "right" }}>{fmtD(g.product_sales)}</td>
-                  <td style={{ ...tdStyle, textAlign: "right", color: T.muted }}>{fmtD(g.unit_cost)}</td>
+                  <td style={{ ...tdStyle, textAlign: "right", color: T.muted }}>{fmtD(unitCost)}</td>
                   <td style={{ ...tdStyle, textAlign: "right", color: T.muted }}>{fmtD(totalCost)}</td>
                   <td style={{ ...tdStyle, textAlign: "right" }}>{fmtD(net)}</td>
                   <td style={{ ...tdStyle, textAlign: "right", color: T.amber }}>{fmtD(fee)}</td>

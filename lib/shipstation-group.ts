@@ -53,6 +53,9 @@ export type Group = {
   // keep the primary "first non-zero" and the UI can surface the mix.
   unit_cost: number;
   unit_costs_differ: boolean;
+  // Σ variant unit_cost × qty. Use this for money, never unit_cost × qty:
+  // a size group's variants can carry different costs.
+  total_cost: number;
   variants: Variant[];
 };
 
@@ -77,8 +80,12 @@ export function stripSizeFromDescription(desc: string): { root: string; size: st
 
 // Groups rows where BOTH SKU and description roots match AND both had a
 // size token detected. Rows without a detected size group by exact name
-// (trimmed, case-insensitive), unless a saved row's cost differs from the
-// group's: that row stands alone so a merge never blends two costs.
+// (trimmed, case-insensitive) AND equal unit_cost, so a merge never blends
+// two saved costs (a $0 row joining a $10 group was billed at $10). A fresh
+// CSV passes cost 0 everywhere, so same-name rows merge. Callers must pass
+// the same costs on every regroup of the same rows (the wizard's edit path
+// does), or keys won't line up. Solo keys use idx when given so they stay
+// stable when other rows are unchecked.
 export function groupLineItems(items: RawLine[]): Group[] {
   const groups = new Map<string, Group>();
   let standaloneCounter = 0;
@@ -92,13 +99,9 @@ export function groupLineItems(items: RawLine[]): Group[] {
     // won't accidentally collapse unrelated items.
     const canGroup = !!skuSize && !!descSize && skuSize === descSize;
     const nameKey = (item.description || "").trim().toLowerCase();
-    let key: string;
-    if (canGroup) key = `group:${skuRoot}|${descRoot}`;
-    else {
-      const named = nameKey ? groups.get(`name:${nameKey}`) : undefined;
-      const clash = !!named && item.unit_cost > 0 && named.unit_cost > 0 && Math.abs(named.unit_cost - item.unit_cost) > 0.001;
-      key = nameKey && !clash ? `name:${nameKey}` : `solo:${item.sku || "nosku"}:${standaloneCounter++}`;
-    }
+    const key = canGroup ? `group:${skuRoot}|${descRoot}`
+      : nameKey ? `name:${nameKey}|${Math.round((Number(item.unit_cost) || 0) * 10000)}`
+      : `solo:${item.sku || "nosku"}:${typeof item.idx === "number" ? item.idx : "c" + standaloneCounter++}`;
     const rootSku = canGroup ? skuRoot : item.sku;
     const rootDesc = canGroup ? descRoot : (item.description || "").trim();
 
@@ -112,6 +115,7 @@ export function groupLineItems(items: RawLine[]): Group[] {
         product_sales: 0,
         unit_cost: 0,
         unit_costs_differ: false,
+        total_cost: 0,
         variants: [],
       };
       groups.set(key, g);
@@ -128,6 +132,7 @@ export function groupLineItems(items: RawLine[]): Group[] {
     g.variants.push(variant);
     g.qty_sold += item.qty_sold;
     g.product_sales += item.product_sales;
+    g.total_cost += (Number(item.unit_cost) || 0) * item.qty_sold;
 
     if (item.unit_cost > 0) {
       if (g.unit_cost === 0) g.unit_cost = item.unit_cost;

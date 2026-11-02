@@ -90,7 +90,8 @@ function renderSalesReportHTML(data: {
       <div style="font-size:${opts.bold ? 12 : 11}px;font-weight:${opts.bold ? 800 : 600};color:#1a1a1a;font-family:monospace">${escapeHtml(value)}</div>
     </div>`;
   const rows = groups.map(g => {
-    const totalCost = g.unit_cost * g.qty_sold;
+    const totalCost = g.total_cost;
+    const unitCost = g.qty_sold ? g.total_cost / g.qty_sold : g.unit_cost; // per-unit average when variant costs differ
     const net = g.product_sales - totalCost;
     const fee = net * data.feePct;
     const profit = net - fee;
@@ -126,7 +127,7 @@ function renderSalesReportHTML(data: {
       <!-- Borderless numeric grid — aligns vertically across items -->
       <div style="margin-top:16px;display:grid;grid-template-columns:repeat(6,1fr);gap:0 10px">
         ${numCell("Sales", fmtD(g.product_sales))}
-        ${numCell("Unit Cost", fmtD(g.unit_cost))}
+        ${numCell("Unit Cost", fmtD(unitCost))}
         ${numCell("Total Cost", fmtD(totalCost))}
         ${numCell("Net", fmtD(net))}
         ${numCell("HPD Fee", fmtD(fee))}
@@ -628,7 +629,8 @@ function renderCombinedReportHTML(data: {
       <div style="font-size:${opts.bold ? 12 : 11}px;font-weight:${opts.bold ? 800 : 600};color:#1a1a1a;font-family:monospace">${escapeHtml(value)}</div>
     </div>`;
   const salesRows = groups.map(g => {
-    const totalCost = g.unit_cost * g.qty_sold;
+    const totalCost = g.total_cost;
+    const unitCost = g.qty_sold ? g.total_cost / g.qty_sold : g.unit_cost; // per-unit average when variant costs differ
     const net = g.product_sales - totalCost;
     const fee = net * data.feePct;
     const profit = net - fee;
@@ -657,7 +659,7 @@ function renderCombinedReportHTML(data: {
       </div>` : ""}
       <div style="margin-top:16px;display:grid;grid-template-columns:repeat(6,1fr);gap:0 10px">
         ${numCell("Sales", fmtD(g.product_sales))}
-        ${numCell("Unit Cost", fmtD(g.unit_cost))}
+        ${numCell("Unit Cost", fmtD(unitCost))}
         ${numCell("Total Cost", fmtD(totalCost))}
         ${numCell("Net", fmtD(net))}
         ${numCell("HPD Fee", fmtD(fee))}
