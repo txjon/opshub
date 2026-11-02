@@ -1082,8 +1082,12 @@ function ShipModal({ items, vendorName, decoratorId, freightCarriers, onClose, o
               return (
                 <div key={it.itemId} style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: "10px 12px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600 }}>{it.name}</span>
-                    <span style={{ fontFamily: mono, fontSize: 12, color: T.muted }}>{itemTotal(it.itemId)}u</span>
+                    <ItemThumb fileId={it.mockupFileId} name={it.name} />
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600 }}>{it.name} <span style={{ fontFamily: mono, fontSize: 12, fontWeight: 400, color: T.muted }}>{itemTotal(it.itemId)}u</span></span>
+                      {/* PO # as the vendor's PO prints it (invoice # + letter, e.g. 4511C). */}
+                      <span style={{ fontFamily: mono, fontSize: 11.5, color: T.muted }}>PO# {it.strip.invoiceNumber || it.strip.jobNumber}{it.letter || ""}</span>
+                    </div>
                     <div style={{ flex: 1 }} />
                     {elsewhere > 0 && (
                       <span title="Final is offered on the box for the last destination" style={{ fontSize: 10, fontWeight: 800, letterSpacing: 0.4, textTransform: "uppercase", color: T.faint }}>{elsewhere} owed elsewhere</span>
