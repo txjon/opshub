@@ -194,11 +194,12 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
   }
 
   async function onDelete() {
-    const pushed = !!report?.qb_invoice_id;
+    // QB-linked invoices go through Void & delete; this is only reached when
+    // there's no API link (a number linked by hand can't be voided from here).
     const ok = await confirm({
       title: "Delete this invoice?",
-      message: pushed
-        ? "Removes it from OpsHub permanently. The invoice already created in QuickBooks stays there — void it in QB separately if it shouldn't be billed."
+      message: report?.qb_invoice_number
+        ? `Removes it from OpsHub permanently. QuickBooks invoice #${report.qb_invoice_number} was linked by number only, so it stays live there. Void it in QuickBooks too if it shouldn't be billed.`
         : "Removes it from OpsHub permanently. This can't be undone.",
       confirmLabel: "Delete invoice",
     });
@@ -206,6 +207,27 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
     setDeleting(true);
     await supabase.from("shipstation_reports").delete().eq("id", params.id);
     router.push("/invoices?stream=fulfillment");
+  }
+
+  // A QB-linked invoice must be voided in QB, not just removed here
+  // (delete alone left #4581/#4582 live and collectable).
+  async function onVoidDelete() {
+    const ok = await confirm({
+      title: `Void & delete invoice #${report?.qb_invoice_number || ""}?`,
+      message: "Voids it in QuickBooks (it stays there at $0 for the record), then removes it from OpsHub. If the client already has it, let them know to disregard it. Can't be undone.",
+      confirmLabel: "Void & delete",
+    });
+    if (!ok) return;
+    setDeleting(true); setQbMsg(null);
+    try {
+      const res = await fetch("/api/qb/void-fulfillment-invoice", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reportId: params.id }) });
+      const data = await res.json().catch(() => ({ error: `Void failed (server ${res.status}). QuickBooks may be slow; try again.` }));
+      if (!res.ok) throw new Error(data.error || "Void failed");
+      router.push("/invoices?stream=fulfillment");
+    } catch (e: any) {
+      setQbMsg({ ok: false, text: e.message || "Void failed" });
+      setDeleting(false);
+    }
   }
 
   async function pushToQB(opts: { qbCustomerId?: string; forceCreate?: boolean } = {}) {
@@ -376,7 +398,9 @@ export default function ShipstationReportDetail({ params }: { params: { id: stri
               {!hasQB && !isManualInvoice && (
                 <button onClick={() => { setShowManualQb(true); setMenuOpen(false); }} style={menuItem}>Link existing QB invoice #</button>
               )}
-              <button disabled={deleting} onClick={() => { setMenuOpen(false); onDelete(); }} style={{ ...menuItem, color: T.red }}>Delete invoice</button>
+              {hasQB
+                ? <button disabled={deleting || qbBusy} onClick={() => { setMenuOpen(false); onVoidDelete(); }} style={{ ...menuItem, color: T.red }}>{deleting ? "Voiding…" : "Void & delete"}</button>
+                : <button disabled={deleting} onClick={() => { setMenuOpen(false); onDelete(); }} style={{ ...menuItem, color: T.red }}>Delete invoice</button>}
             </div>
           )}
         </div>
