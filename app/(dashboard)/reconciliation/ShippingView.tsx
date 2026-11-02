@@ -285,8 +285,10 @@ export function ShippingView({ companyId, billingOnly = false }: { companyId: st
 
       {/* Needs a match — the persistent reconciliation queue */}
       {queue.length > 0 && (
-        <div style={{ border: `1px solid ${T.amber}66`, borderRadius: 12, marginBottom: 24, overflow: "hidden" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 16px", background: T.amberDim, borderBottom: `1px solid ${T.amber}44` }}>
+        // No overflow:hidden here: it clipped the job-search dropdown on the
+        // last rows, so a job that matched looked like "no result".
+        <div style={{ border: `1px solid ${T.amber}66`, borderRadius: 12, marginBottom: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 16px", background: T.amberDim, borderBottom: `1px solid ${T.amber}44`, borderRadius: "12px 12px 0 0" }}>
             <input type="checkbox" title="Select all" checked={selQ.size > 0 && selQ.size === queue.length} ref={el => { if (el) el.indeterminate = selQ.size > 0 && selQ.size < queue.length; }} onChange={e => setSelQ(e.target.checked ? new Set(queue.map(q => q.id)) : new Set())} style={{ cursor: "pointer", width: 15, height: 15 }} />
             <span style={{ fontSize: 13, fontWeight: 800, color: T.text }}>Needs a match — {queue.length}</span>
             <span style={{ fontSize: 11.5, color: T.muted, fontFamily: mono }}>{money(queueTotal)} unassigned</span>
