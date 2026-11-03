@@ -105,39 +105,99 @@ export async function exchangeCode(code: string): Promise<{
 
 // ── Token management ──
 
+// QB disconnected two nights running (Nov 2–3 2026, invalid_grant) with no
+// trace of what invalidated the token. Every connect / renewal / failure now
+// lands in qb_token_events (fingerprints only, never tokens) from whatever
+// process did it, saves are checked, and a disconnect emails the owner once.
+function tokenFp(t?: string | null): string | null {
+  if (!t) return null;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  return require("crypto").createHash("sha256").update(t).digest("hex").slice(0, 10);
+}
+
+function tokenHost(): string {
+  if (process.env.VERCEL_ENV) return `vercel:${process.env.VERCEL_ENV}:${process.env.VERCEL_URL || ""}`;
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  try { return `local:${require("os").hostname()}`; } catch { return "local"; }
+}
+
+function tokenCaller(): string {
+  const lines = (new Error().stack || "").split("\n").slice(1).map(l => l.trim());
+  // Prod bundles are minified, so keep a few frames: the route's chunk path
+  // (…/app/api/<route>/route.js) still says who asked.
+  const own = /\b(tokenCaller|refreshAccessToken|doRefresh|saveTokens)\b|node:internal|processTicksAndRejections/;
+  return lines.filter(l => !own.test(l)).slice(0, 4).map(l => l.replace(/^at /, "")).join(" < ").slice(0, 600);
+}
+
+async function logTokenEvent(event: string, f: { old?: string | null; new?: string | null; detail?: string; caller?: string } = {}) {
+  try {
+    const { error } = await getSupabase().from("qb_token_events").insert({
+      event, old_fp: tokenFp(f.old), new_fp: tokenFp(f.new), host: tokenHost(), caller: f.caller || tokenCaller(), detail: f.detail?.slice(0, 1000) ?? null,
+    });
+    if (error) console.error("[QB token] event log failed:", error.message);
+  } catch (e: any) {
+    console.error("[QB token] event log failed:", e?.message);
+  }
+  console.log(`[QB token] ${event} old=${tokenFp(f.old)} new=${tokenFp(f.new)} host=${tokenHost()}${f.detail ? ` ${f.detail.slice(0, 200)}` : ""}`);
+}
+
+// One email per disconnect: skipped if an alert already went out since the
+// last connect.
+async function alertDisconnected(detail: string) {
+  try {
+    const { data: last } = await getSupabase().from("qb_token_events").select("event")
+      .in("event", ["connect", "alert_sent"]).order("at", { ascending: false }).limit(1).maybeSingle();
+    if ((last as any)?.event === "alert_sent") return;
+    const { resendForSlug } = await import("./resend-client");
+    const link = "https://app.housepartydistro.com/api/qb/connect";
+    await resendForSlug("hpd").emails.send({
+      from: process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev",
+      to: process.env.OWNER_EMAIL!,
+      subject: "OpsHub · QuickBooks disconnected",
+      html: `<div style="font-family:system-ui,sans-serif;max-width:560px">
+  <p style="font-size:15px">QuickBooks rejected OpsHub's login token, so every QuickBooks push and pull is failing until it's reconnected. Nothing was changed.</p>
+  <p><a href="${link}" style="font-size:15px;font-weight:600">Reconnect QuickBooks</a></p>
+  <p style="font-size:12px;color:#666">${detail.replace(/</g, "&lt;").slice(0, 300)}<br>Token history: qb_token_events.</p>
+</div>`,
+    });
+    await logTokenEvent("alert_sent");
+  } catch (e: any) {
+    console.error("[QB token] disconnect alert failed:", e?.message);
+  }
+}
+
 export async function saveTokens(
   accessToken: string,
   refreshToken: string,
   expiresIn: number,
-  realmId?: string
+  realmId?: string,
+  meta: { event: "connect" | "refresh"; oldRefreshToken?: string; caller?: string } = { event: "refresh" }
 ) {
+  const caller = meta.caller || tokenCaller(); // before any await: async hops drop the stack
   const supabase = getSupabase();
   const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
   const realm = realmId || process.env.QB_REALM_ID;
 
-  // Upsert — always one row
-  const { data: existing } = await supabase
-    .from("qb_tokens")
-    .select("id")
-    .limit(1)
-    .single();
-
-  if (existing) {
-    await supabase.from("qb_tokens").update({
-      access_token: accessToken,
-      refresh_token: refreshToken,
-      expires_at: expiresAt,
-      realm_id: realm,
-      updated_at: new Date().toISOString(),
-    }).eq("id", existing.id);
-  } else {
-    await supabase.from("qb_tokens").insert({
-      access_token: accessToken,
-      refresh_token: refreshToken,
-      expires_at: expiresAt,
-      realm_id: realm,
-    });
+  // Upsert — always one row. A failed save used to pass silently, leaving a
+  // token QB had already replaced; now it retries once, then throws.
+  const write = async () => {
+    const { data: existing, error: rErr } = await supabase.from("qb_tokens").select("id").limit(1).maybeSingle();
+    if (rErr) return rErr.message;
+    const row = { access_token: accessToken, refresh_token: refreshToken, expires_at: expiresAt, realm_id: realm };
+    const { data, error } = existing
+      ? await supabase.from("qb_tokens").update({ ...row, updated_at: new Date().toISOString() }).eq("id", (existing as any).id).select("id")
+      : await supabase.from("qb_tokens").insert(row).select("id");
+    if (error) return error.message;
+    if (!data?.length) return "no row written";
+    return null;
+  };
+  let err = await write();
+  if (err) err = await write();
+  if (err) {
+    await logTokenEvent("save_failed", { old: meta.oldRefreshToken, new: refreshToken, detail: err, caller });
+    throw new Error(`QuickBooks issued a new login token but OpsHub couldn't save it (${err}). Reconnect QuickBooks if calls start failing.`);
   }
+  await logTokenEvent(meta.event, { old: meta.oldRefreshToken, new: refreshToken, caller });
 }
 
 async function getTokens(): Promise<{
@@ -154,15 +214,11 @@ async function getTokens(): Promise<{
   return data;
 }
 
-async function refreshAccessToken(): Promise<string> {
-  const tokens = await getTokens();
-  if (!tokens) throw new Error("No QB tokens — connect QuickBooks first");
-
+async function postRefresh(refreshToken: string): Promise<Response> {
   const auth = Buffer.from(
     `${process.env.QB_CLIENT_ID}:${process.env.QB_CLIENT_SECRET}`
   ).toString("base64");
-
-  const res = await fetch(QB_TOKEN_URL, {
+  return fetch(QB_TOKEN_URL, {
     method: "POST",
     headers: {
       Authorization: `Basic ${auth}`,
@@ -171,17 +227,50 @@ async function refreshAccessToken(): Promise<string> {
     },
     body: new URLSearchParams({
       grant_type: "refresh_token",
-      refresh_token: tokens.refresh_token,
+      refresh_token: refreshToken,
     }),
   });
+}
+
+// Callers in the same process share one in-flight renewal.
+let refreshInFlight: Promise<string> | null = null;
+function refreshAccessToken(): Promise<string> {
+  // Name the caller now, before any await: async hops drop the stack.
+  if (!refreshInFlight) refreshInFlight = doRefresh(tokenCaller()).finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
+}
+
+async function doRefresh(caller: string): Promise<string> {
+  const tokens = await getTokens();
+  if (!tokens) throw new Error("No QB tokens — connect QuickBooks first");
+
+  let used = tokens.refresh_token;
+  let res = await postRefresh(used);
+
+  // Another process may have renewed (and replaced) the token between our
+  // read and our call. Re-read once before declaring QB disconnected.
+  if (!res.ok && res.status === 400) {
+    const text = await res.clone().text();
+    if (text.includes("invalid_grant")) {
+      const now = await getTokens();
+      if (now && now.refresh_token !== used) {
+        await logTokenEvent("refresh_superseded", { old: used, new: now.refresh_token, caller });
+        if (new Date(now.expires_at).getTime() - Date.now() > 5 * 60 * 1000) return now.access_token;
+        used = now.refresh_token;
+        res = await postRefresh(used);
+      }
+    }
+  }
 
   if (!res.ok) {
     const text = await res.text();
+    await logTokenEvent("refresh_failed", { old: used, detail: `${res.status} ${text}`, caller });
+    if (text.includes("invalid_grant")) await alertDisconnected(`${res.status} ${text}`);
     throw new Error(`Token refresh failed: ${res.status} ${text}`);
   }
 
   const data = await res.json();
-  await saveTokens(data.access_token, data.refresh_token, data.expires_in);
+  await saveTokens(data.access_token, data.refresh_token, data.expires_in, undefined, { event: "refresh", oldRefreshToken: used, caller });
   return data.access_token;
 }
 

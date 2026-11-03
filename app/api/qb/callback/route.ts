@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const tokens = await exchangeCode(code);
-    await saveTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in, realmId || undefined);
+    await saveTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in, realmId || undefined, { event: "connect" });
     return NextResponse.redirect(new URL("/settings?qb=connected", req.url));
   } catch (err: any) {
     console.error("[QB Callback] Error:", err.message);
