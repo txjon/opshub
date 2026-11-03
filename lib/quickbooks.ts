@@ -142,17 +142,23 @@ async function logTokenEvent(event: string, f: { old?: string | null; new?: stri
 }
 
 // One email per disconnect: skipped if an alert already went out since the
-// last connect.
+// last connect or good renewal (a false alarm must not mute the next real
+// one). The in-process stamp stops a burst of failing calls from mailing
+// repeatedly if the event log itself can't be written.
+let lastAlertAt = 0;
 async function alertDisconnected(detail: string) {
   try {
+    if (Date.now() - lastAlertAt < 6 * 60 * 60 * 1000) return;
+    const to = process.env.OWNER_EMAIL;
+    if (!to) { console.error("[QB token] disconnected, but OWNER_EMAIL is unset: no alert sent"); return; }
     const { data: last } = await getSupabase().from("qb_token_events").select("event")
-      .in("event", ["connect", "alert_sent"]).order("at", { ascending: false }).limit(1).maybeSingle();
+      .in("event", ["connect", "refresh", "alert_sent"]).order("at", { ascending: false }).limit(1).maybeSingle();
     if ((last as any)?.event === "alert_sent") return;
     const { resendForSlug } = await import("./resend-client");
     const link = "https://app.housepartydistro.com/api/qb/connect";
-    await resendForSlug("hpd").emails.send({
+    const { error: sendErr } = await resendForSlug("hpd").emails.send({
       from: process.env.EMAIL_FROM_QUOTES || "onboarding@resend.dev",
-      to: process.env.OWNER_EMAIL!,
+      to,
       subject: "OpsHub · QuickBooks disconnected",
       html: `<div style="font-family:system-ui,sans-serif;max-width:560px">
   <p style="font-size:15px">QuickBooks rejected OpsHub's login token, so every QuickBooks push and pull is failing until it's reconnected. Nothing was changed.</p>
@@ -160,6 +166,8 @@ async function alertDisconnected(detail: string) {
   <p style="font-size:12px;color:#666">${detail.replace(/</g, "&lt;").slice(0, 300)}<br>Token history: qb_token_events.</p>
 </div>`,
     });
+    if (sendErr) { console.error("[QB token] disconnect alert failed:", sendErr.message); return; }
+    lastAlertAt = Date.now();
     await logTokenEvent("alert_sent");
   } catch (e: any) {
     console.error("[QB token] disconnect alert failed:", e?.message);
@@ -229,6 +237,8 @@ async function postRefresh(refreshToken: string): Promise<Response> {
       grant_type: "refresh_token",
       refresh_token: refreshToken,
     }),
+    // A hung renewal would stall every QB call on this instance (they share it).
+    signal: AbortSignal.timeout(20000),
   });
 }
 
@@ -246,13 +256,17 @@ async function doRefresh(caller: string): Promise<string> {
 
   let used = tokens.refresh_token;
   let res = await postRefresh(used);
+  let rereadOk = true;
 
   // Another process may have renewed (and replaced) the token between our
   // read and our call. Re-read once before declaring QB disconnected.
   if (!res.ok && res.status === 400) {
     const text = await res.clone().text();
     if (text.includes("invalid_grant")) {
+      // Give a concurrent renewal a moment to land its save first.
+      await new Promise(r => setTimeout(r, 1500));
       const now = await getTokens();
+      if (!now) rereadOk = false; // can't tell; don't call it a disconnect
       if (now && now.refresh_token !== used) {
         await logTokenEvent("refresh_superseded", { old: used, new: now.refresh_token, caller });
         if (new Date(now.expires_at).getTime() - Date.now() > 5 * 60 * 1000) return now.access_token;
@@ -265,12 +279,19 @@ async function doRefresh(caller: string): Promise<string> {
   if (!res.ok) {
     const text = await res.text();
     await logTokenEvent("refresh_failed", { old: used, detail: `${res.status} ${text}`, caller });
-    if (text.includes("invalid_grant")) await alertDisconnected(`${res.status} ${text}`);
+    if (text.includes("invalid_grant") && rereadOk) await alertDisconnected(`${res.status} ${text}`);
     throw new Error(`Token refresh failed: ${res.status} ${text}`);
   }
 
   const data = await res.json();
-  await saveTokens(data.access_token, data.refresh_token, data.expires_in, undefined, { event: "refresh", oldRefreshToken: used, caller });
+  // saveTokens logs save_failed; this call still holds a valid token, so use
+  // it. If QB had issued a NEW refresh token, the next renewal fails and the
+  // disconnect alert fires then.
+  try {
+    await saveTokens(data.access_token, data.refresh_token, data.expires_in, undefined, { event: "refresh", oldRefreshToken: used, caller });
+  } catch (e: any) {
+    console.error("[QB token]", e?.message);
+  }
   return data.access_token;
 }
 

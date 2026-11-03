@@ -4614,6 +4614,41 @@ export type Database = {
           { foreignKeyName: "qb_customer_sync_log_client_id_fkey"; columns: ["client_id"]; isOneToOne: false; referencedRelation: "clients"; referencedColumns: ["id"] }
         ];
       };
+      qb_token_events: {
+        Row: {
+          id: string;
+          at: string;
+          event: string;
+          old_fp: string | null;
+          new_fp: string | null;
+          host: string | null;
+          caller: string | null;
+          detail: string | null;
+        };
+        Insert: {
+          id?: string;
+          at?: string;
+          event: string;
+          old_fp?: string | null;
+          new_fp?: string | null;
+          host?: string | null;
+          caller?: string | null;
+          detail?: string | null;
+        };
+        Update: {
+          id?: string;
+          at?: string;
+          event?: string;
+          old_fp?: string | null;
+          new_fp?: string | null;
+          host?: string | null;
+          caller?: string | null;
+          detail?: string | null;
+        };
+        Relationships: [
+
+        ];
+      };
       qb_tokens: {
         Row: {
           id: string;
