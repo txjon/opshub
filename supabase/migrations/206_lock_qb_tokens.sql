@@ -13,14 +13,20 @@ grant all on table public.qb_tokens to service_role;
 create or replace function public.log_qb_token_write() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
+  -- An audit trigger must never block the save it audits: any failure here
+  -- (table renamed, lock timeout, odd claims) becomes a warning, not an abort.
+  begin
   insert into public.qb_token_events (event, old_fp, new_fp, host, detail)
   values (
     'db_write',
     case when tg_op = 'UPDATE' then left(encode(sha256(convert_to(old.refresh_token, 'UTF8')), 'hex'), 10) end,
     left(encode(sha256(convert_to(new.refresh_token, 'UTF8')), 'hex'), 10),
-    'db:' || coalesce(nullif(current_setting('request.jwt.claim.role', true), ''), (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'), current_user),
+    'db:' || coalesce(nullif(current_setting('request.jwt.claim.role', true), ''), (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'), session_user),
     tg_op || ' expires ' || new.expires_at::text
   );
+  exception when others then
+    raise warning 'qb_token_events log failed: %', sqlerrm;
+  end;
   return new;
 end $$;
 drop trigger if exists qb_tokens_log_write on public.qb_tokens;

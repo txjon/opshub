@@ -205,6 +205,7 @@ export async function saveTokens(
     await logTokenEvent("save_failed", { old: meta.oldRefreshToken, new: refreshToken, detail: err, caller });
     throw new Error(`QuickBooks issued a new login token but OpsHub couldn't save it (${err}). Reconnect QuickBooks if calls start failing.`);
   }
+  lastAlertAt = 0; // working again: the next disconnect alerts
   await logTokenEvent(meta.event, { old: meta.oldRefreshToken, new: refreshToken, caller });
 }
 
@@ -255,7 +256,15 @@ async function doRefresh(caller: string): Promise<string> {
   if (!tokens) throw new Error("No QB tokens — connect QuickBooks first");
 
   let used = tokens.refresh_token;
-  let res = await postRefresh(used);
+  // A timed-out renewal may still have rotated the token at Intuit: log it.
+  const post = async (rt: string) => {
+    try { return await postRefresh(rt); }
+    catch (e: any) {
+      await logTokenEvent("refresh_failed", { old: rt, detail: `request failed: ${e?.name || ""} ${e?.message || ""}`, caller });
+      throw new Error(`Token refresh failed: QuickBooks didn't answer (${e?.message || e}).`);
+    }
+  };
+  let res = await post(used);
   let rereadOk = true;
 
   // Another process may have renewed (and replaced) the token between our
@@ -271,7 +280,7 @@ async function doRefresh(caller: string): Promise<string> {
         await logTokenEvent("refresh_superseded", { old: used, new: now.refresh_token, caller });
         if (new Date(now.expires_at).getTime() - Date.now() > 5 * 60 * 1000) return now.access_token;
         used = now.refresh_token;
-        res = await postRefresh(used);
+        res = await post(used);
       }
     }
   }
