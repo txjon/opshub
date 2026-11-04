@@ -129,16 +129,19 @@ function tokenCaller(): string {
   return lines.filter(l => !own.test(l)).slice(0, 4).map(l => l.replace(/^at /, "")).join(" < ").slice(0, 600);
 }
 
+// This server process, so overlapping renewals can be told apart in the log.
+const TOKEN_INSTANCE = Math.random().toString(36).slice(2, 10);
+
 async function logTokenEvent(event: string, f: { old?: string | null; new?: string | null; detail?: string; caller?: string } = {}) {
   try {
     const { error } = await getSupabase().from("qb_token_events").insert({
-      event, old_fp: tokenFp(f.old), new_fp: tokenFp(f.new), host: tokenHost(), caller: f.caller || tokenCaller(), detail: f.detail?.slice(0, 1000) ?? null,
+      event, old_fp: tokenFp(f.old), new_fp: tokenFp(f.new), host: tokenHost(), instance: TOKEN_INSTANCE, caller: f.caller || tokenCaller(), detail: f.detail?.slice(0, 1000) ?? null,
     });
     if (error) console.error("[QB token] event log failed:", error.message);
   } catch (e: any) {
     console.error("[QB token] event log failed:", e?.message);
   }
-  console.log(`[QB token] ${event} old=${tokenFp(f.old)} new=${tokenFp(f.new)} host=${tokenHost()}${f.detail ? ` ${f.detail.slice(0, 200)}` : ""}`);
+  console.log(`[QB token] ${event} old=${tokenFp(f.old)} new=${tokenFp(f.new)} host=${tokenHost()} instance=${TOKEN_INSTANCE}${f.detail ? ` ${f.detail.slice(0, 200)}` : ""}`);
 }
 
 // One email per disconnect: skipped if an alert already went out since the
@@ -179,7 +182,7 @@ export async function saveTokens(
   refreshToken: string,
   expiresIn: number,
   realmId?: string,
-  meta: { event: "connect" | "refresh"; oldRefreshToken?: string; caller?: string } = { event: "refresh" }
+  meta: { event: "connect" | "refresh"; oldRefreshToken?: string; caller?: string; leaseOwner?: string } = { event: "refresh" }
 ) {
   const caller = meta.caller || tokenCaller(); // before any await: async hops drop the stack
   const supabase = getSupabase();
@@ -187,20 +190,26 @@ export async function saveTokens(
   const realm = realmId || process.env.QB_REALM_ID;
 
   // Upsert — always one row. A failed save used to pass silently, leaving a
-  // token QB had already replaced; now it retries once, then throws.
+  // token QB had already replaced; now it retries once, then throws. A
+  // renewal saves only while it still holds the lease (see doRefresh); a
+  // connect saves unconditionally. Either way the lease is released.
   const write = async () => {
     const { data: existing, error: rErr } = await supabase.from("qb_tokens").select("id").limit(1).maybeSingle();
     if (rErr) return rErr.message;
-    const row = { access_token: accessToken, refresh_token: refreshToken, expires_at: expiresAt, realm_id: realm };
-    const { data, error } = existing
-      ? await supabase.from("qb_tokens").update({ ...row, updated_at: new Date().toISOString() }).eq("id", (existing as any).id).select("id")
-      : await supabase.from("qb_tokens").insert(row).select("id");
+    const row = { access_token: accessToken, refresh_token: refreshToken, expires_at: expiresAt, realm_id: realm, refresh_lock_until: null, refresh_lock_owner: null };
+    if (!existing) {
+      const { data, error } = await supabase.from("qb_tokens").insert(row).select("id");
+      return error ? error.message : data?.length ? null : "no row written";
+    }
+    let q = supabase.from("qb_tokens").update({ ...row, updated_at: new Date().toISOString() }).eq("id", (existing as any).id);
+    if (meta.leaseOwner) q = q.eq("refresh_lock_owner", meta.leaseOwner);
+    const { data, error } = await q.select("id");
     if (error) return error.message;
-    if (!data?.length) return "no row written";
+    if (!data?.length) return meta.leaseOwner ? "lease lost" : "no row written";
     return null;
   };
   let err = await write();
-  if (err) err = await write();
+  if (err && err !== "lease lost") err = await write();
   if (err) {
     await logTokenEvent("save_failed", { old: meta.oldRefreshToken, new: refreshToken, detail: err, caller });
     throw new Error(`QuickBooks issued a new login token but OpsHub couldn't save it (${err}). Reconnect QuickBooks if calls start failing.`);
@@ -210,6 +219,7 @@ export async function saveTokens(
 }
 
 async function getTokens(): Promise<{
+  id: string;
   access_token: string;
   refresh_token: string;
   expires_at: string;
@@ -243,65 +253,122 @@ async function postRefresh(refreshToken: string): Promise<Response> {
   });
 }
 
+// ── Renewal lease (Nov 4 2026, mig 208) ──
+// QB disconnected three nights running; the log showed two renewals
+// overlapping at the 1:10am token rotation, and Intuit kills the connection
+// when a just-replaced token is renewed again. So a renewal first takes a
+// lease on the token row (a conditional update: free or lapsed), and only the
+// lease holder calls Intuit and saves. Everyone else waits and uses the token
+// the holder saves. The lease outlives the 20s Intuit timeout + the save.
+const LEASE_MS = 60_000;
+const LEASE_WAIT_MS = 45_000;
+
+async function takeLease(id: string, owner: string): Promise<boolean> {
+  const now = new Date();
+  const { data, error } = await getSupabase().from("qb_tokens")
+    .update({ refresh_lock_until: new Date(now.getTime() + LEASE_MS).toISOString(), refresh_lock_owner: owner })
+    .eq("id", id)
+    .or(`refresh_lock_until.is.null,refresh_lock_until.lt.${now.toISOString()}`)
+    .select("id");
+  if (error) throw new Error(`QuickBooks token lease failed: ${error.message}`);
+  return !!data?.length;
+}
+
+async function releaseLease(id: string, owner: string) {
+  // No-op after a save (the save clears the lease).
+  try {
+    await getSupabase().from("qb_tokens").update({ refresh_lock_until: null, refresh_lock_owner: null }).eq("id", id).eq("refresh_lock_owner", owner);
+  } catch { /* lapses on its own */ }
+}
+
+// Stored token is good to use: not near expiry, and not the one QB just
+// rejected with a 401.
+function usable(t: { access_token: string; expires_at: string }, rejected?: string): boolean {
+  return new Date(t.expires_at).getTime() - Date.now() > 5 * 60 * 1000 && t.access_token !== rejected;
+}
+
 // Callers in the same process share one in-flight renewal.
 let refreshInFlight: Promise<string> | null = null;
-function refreshAccessToken(): Promise<string> {
+function refreshAccessToken(rejectedAccessToken?: string): Promise<string> {
   // Name the caller now, before any await: async hops drop the stack.
-  if (!refreshInFlight) refreshInFlight = doRefresh(tokenCaller()).finally(() => { refreshInFlight = null; });
+  if (!refreshInFlight) refreshInFlight = doRefresh(tokenCaller(), rejectedAccessToken).finally(() => { refreshInFlight = null; });
   return refreshInFlight;
 }
 
-async function doRefresh(caller: string): Promise<string> {
-  const tokens = await getTokens();
+async function doRefresh(caller: string, rejected?: string): Promise<string> {
+  const owner = `${TOKEN_INSTANCE}-${Math.random().toString(36).slice(2, 6)}`;
+  const deadline = Date.now() + LEASE_WAIT_MS;
+  let tokens = await getTokens();
   if (!tokens) throw new Error("No QB tokens — connect QuickBooks first");
-
-  let used = tokens.refresh_token;
-  // A timed-out renewal may still have rotated the token at Intuit: log it.
-  const post = async (rt: string) => {
-    try { return await postRefresh(rt); }
-    catch (e: any) {
-      await logTokenEvent("refresh_failed", { old: rt, detail: `request failed: ${e?.name || ""} ${e?.message || ""}`, caller });
-      throw new Error(`Token refresh failed: QuickBooks didn't answer (${e?.message || e}).`);
+  for (;;) {
+    if (usable(tokens, rejected)) return tokens.access_token; // renewed by someone else meanwhile
+    if (await takeLease(tokens.id, owner)) break;
+    if (Date.now() > deadline) {
+      await logTokenEvent("lease_timeout", { old: tokens.refresh_token, caller });
+      throw new Error("QuickBooks token renewal is busy in another process. Try again in a minute.");
     }
-  };
-  let res = await post(used);
-  let rereadOk = true;
+    await new Promise(r => setTimeout(r, 1000 + Math.random() * 500));
+    tokens = await getTokens();
+    if (!tokens) throw new Error("No QB tokens — connect QuickBooks first");
+  }
 
-  // Another process may have renewed (and replaced) the token between our
-  // read and our call. Re-read once before declaring QB disconnected.
-  if (!res.ok && res.status === 400) {
-    const text = await res.clone().text();
-    if (text.includes("invalid_grant")) {
-      // Give a concurrent renewal a moment to land its save first.
-      await new Promise(r => setTimeout(r, 1500));
-      const now = await getTokens();
-      if (!now) rereadOk = false; // can't tell; don't call it a disconnect
-      if (now && now.refresh_token !== used) {
-        await logTokenEvent("refresh_superseded", { old: used, new: now.refresh_token, caller });
-        if (new Date(now.expires_at).getTime() - Date.now() > 5 * 60 * 1000) return now.access_token;
-        used = now.refresh_token;
-        res = await post(used);
+  try {
+    // Re-read under the lease: a renewal may have finished between our read
+    // and taking the lease.
+    const fresh = await getTokens();
+    if (!fresh) throw new Error("No QB tokens — connect QuickBooks first");
+    if (usable(fresh, rejected)) return fresh.access_token;
+
+    let used = fresh.refresh_token;
+    await logTokenEvent("refresh_start", { old: used, caller });
+    // A timed-out renewal may still have rotated the token at Intuit: log it.
+    const post = async (rt: string) => {
+      try { return await postRefresh(rt); }
+      catch (e: any) {
+        await logTokenEvent("refresh_failed", { old: rt, detail: `request failed: ${e?.name || ""} ${e?.message || ""}`, caller });
+        throw new Error(`Token refresh failed: QuickBooks didn't answer (${e?.message || e}).`);
+      }
+    };
+    let res = await post(used);
+    let rereadOk = true;
+
+    // Should be impossible under the lease, unless a lapsed lease let another
+    // renewal in or something outside lib/quickbooks wrote the token: re-read
+    // once before declaring QB disconnected.
+    if (!res.ok && res.status === 400) {
+      const text = await res.clone().text();
+      if (text.includes("invalid_grant")) {
+        const now = await getTokens();
+        if (!now) rereadOk = false; // can't tell; don't call it a disconnect
+        if (now && now.refresh_token !== used) {
+          await logTokenEvent("refresh_superseded", { old: used, new: now.refresh_token, caller });
+          if (usable(now, rejected)) return now.access_token;
+          used = now.refresh_token;
+          res = await post(used);
+        }
       }
     }
-  }
 
-  if (!res.ok) {
-    const text = await res.text();
-    await logTokenEvent("refresh_failed", { old: used, detail: `${res.status} ${text}`, caller });
-    if (text.includes("invalid_grant") && rereadOk) await alertDisconnected(`${res.status} ${text}`);
-    throw new Error(`Token refresh failed: ${res.status} ${text}`);
-  }
+    if (!res.ok) {
+      const text = await res.text();
+      await logTokenEvent("refresh_failed", { old: used, detail: `${res.status} ${text}`, caller });
+      if (text.includes("invalid_grant") && rereadOk) await alertDisconnected(`${res.status} ${text}`);
+      throw new Error(`Token refresh failed: ${res.status} ${text}`);
+    }
 
-  const data = await res.json();
-  // saveTokens logs save_failed; this call still holds a valid token, so use
-  // it. If QB had issued a NEW refresh token, the next renewal fails and the
-  // disconnect alert fires then.
-  try {
-    await saveTokens(data.access_token, data.refresh_token, data.expires_in, undefined, { event: "refresh", oldRefreshToken: used, caller });
-  } catch (e: any) {
-    console.error("[QB token]", e?.message);
+    const data = await res.json();
+    // saveTokens logs save_failed; this call still holds a valid token, so use
+    // it. If QB had issued a NEW refresh token, the next renewal fails and the
+    // disconnect alert fires then.
+    try {
+      await saveTokens(data.access_token, data.refresh_token, data.expires_in, undefined, { event: "refresh", oldRefreshToken: used, caller, leaseOwner: owner });
+    } catch (e: any) {
+      console.error("[QB token]", e?.message);
+    }
+    return data.access_token;
+  } finally {
+    await releaseLease(tokens.id, owner);
   }
-  return data.access_token;
 }
 
 // Get a valid access token (refresh if needed)
@@ -366,7 +433,7 @@ async function qbFetch(
   // Auto-retry on 401 — refresh token and try once more
   if (res.status === 401) {
     console.log(`[QB API] 401 on ${endpoint} — refreshing token and retrying`);
-    const newToken = await refreshAccessToken();
+    const newToken = await refreshAccessToken(token);
     const retry = await fetch(url, {
       method: options.method || "GET",
       headers: {
