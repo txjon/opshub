@@ -105,6 +105,18 @@
   .j h5{font-size:14px;font-weight:700;letter-spacing:-0.01em;margin-bottom:4px}
   .j p{font-size:13px;color:var(--muted);line-height:1.45}
 
+  /* who does what · onboarding split, row per step */
+  .who{margin-top:14px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .who .wr{display:grid;grid-template-columns:150px 1fr 1fr;gap:20px;padding:12px 20px;border-top:1px solid var(--line);align-items:baseline}
+  .who .wr:first-child{border-top:none}
+  .who .wr.hd{background:var(--paper2);padding:10px 20px}
+  .who .wr.hd span{font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:var(--faint)}
+  .who .step{font-size:13px;font-weight:700;color:var(--text)}
+  .who .c{font-size:13px;line-height:1.45;color:var(--text)}
+  .who .c.none{color:var(--faint)}
+  .who .c .tag{display:none}
+  .who-note{margin-top:12px;font-size:12.5px;color:var(--muted);line-height:1.5;max-width:70ch}
+
   /* CTA · quiet horizontal band */
   .cta{border-top:1px solid var(--line);margin-top:4px;padding:32px 0;display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap}
   .cta h2{font-size:clamp(20px,2.8vw,28px);font-weight:800;letter-spacing:-0.015em;line-height:1.1}
@@ -130,7 +142,11 @@
     .cards{grid-template-columns:1fr 1fr !important}
     .start{grid-template-columns:0.7fr 1.3fr !important}
     .journey{grid-template-columns:repeat(3,1fr) !important}
-    .deal,.drops,.start,.cards,.card,.j,.cta,.ln{break-inside:avoid}
+    .who .wr{grid-template-columns:150px 1fr 1fr !important}
+    .who .wr.hd{display:grid !important}
+    .sec-who{break-before:page;border-top:none}
+    .who .c .tag{display:none !important}
+    .deal,.drops,.start,.cards,.card,.j,.cta,.ln,.who .wr{break-inside:avoid}
     .sec{padding:26px 0}
     .cta{display:none}
   }
@@ -146,6 +162,10 @@
   @media (max-width:460px){
     .journey{grid-template-columns:1fr}
     .ln{grid-template-columns:1fr;gap:3px}
+    .who .wr{grid-template-columns:1fr;gap:4px;padding:12px 16px}
+    .who .wr.hd{display:none}
+    .who .c .tag{display:inline;font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--faint);margin-right:6px}
+    .who .c.none{display:none}
   }
 </style>
 </head>
@@ -296,6 +316,26 @@
         <div class="j"><div class="num"></div><h5>Live &amp; shipping</h5><p>Your launch goes live; orders ship from our warehouse.</p></div>
         <div class="j"><div class="num"></div><h5>Ongoing</h5><p>Monthly billing, restocks, and your next launch.</p></div>
       </div>
+    </div>
+
+    <!-- WHO DOES WHAT · onboarding split. Sales tax rows mirror the
+        "Sales Tax When Fulfilling Through Nevada" client doc. -->
+    <div class="sec sec-who">
+      <div class="eyebrow">07 · Onboarding</div>
+      <h2 class="h">Who does what.</h2>
+      <div class="who">
+        <div class="wr hd"><span>Step</span><span>House Party Distro</span><span>You</span></div>
+        <div class="wr"><span class="step">Initiation</span><span class="c"><span class="tag">HPD</span>Build your Shopify store, set up your brand and product lines, and open your account.</span><span class="c"><span class="tag">You</span>Pay the $750 one-time initiation.</span></div>
+        <div class="wr"><span class="step">Store access</span><span class="c"><span class="tag">HPD</span>Connect our fulfillment system to your store.</span><span class="c"><span class="tag">You</span>Add us as an admin on your Shopify.</span></div>
+        <div class="wr"><span class="step">Customer service</span><span class="c"><span class="tag">HPD</span>Handle returns, exchanges, and refunds with your customers.</span><span class="c"><span class="tag">You</span>Give us access to your dedicated support inbox.</span></div>
+        <div class="wr"><span class="step">Nevada registration</span><span class="c"><span class="tag">HPD</span>Provide our warehouse address for your registrations.</span><span class="c"><span class="tag">You</span>Register for a Nevada business license and a Nevada sales tax permit.</span></div>
+        <div class="wr"><span class="step">Resale certificate</span><span class="c"><span class="tag">HPD</span>Stop charging Nevada sales tax on your production once it's on file.</span><span class="c"><span class="tag">You</span>Send us a completed Nevada resale certificate (TAX-F005) with your permit number.</span></div>
+        <div class="wr"><span class="step">Shopify tax</span><span class="c none"></span><span class="c"><span class="tag">You</span>Turn on Nevada tax collection in Shopify with your permit number.</span></div>
+        <div class="wr"><span class="step">Product</span><span class="c"><span class="tag">HPD</span>Source the blanks and dial in materials, decoration, and samples.</span><span class="c"><span class="tag">You</span>Bring artwork or direction, and approve goods for production.</span></div>
+        <div class="wr"><span class="step">Launch</span><span class="c"><span class="tag">HPD</span>Set up your product line in your store and ship every order from our warehouse.</span><span class="c none"></span></div>
+        <div class="wr"><span class="step">Ongoing</span><span class="c"><span class="tag">HPD</span>Invoice our share on the 1st of each month.</span><span class="c"><span class="tag">You</span>File and pay your sales tax, and track other states you may owe in.</span></div>
+      </div>
+      <p class="who-note">Storing inventory in our Las Vegas warehouse means your business collects Nevada sales tax from the first Nevada order. You're the seller, so collecting and filing stays with you. This is general information, not tax advice; confirm with your accountant.</p>
     </div>
 
     <!-- CTA removed (Jon, Jul 29) — the doc is shared by magic link mid-
