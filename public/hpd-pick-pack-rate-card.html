@@ -51,6 +51,17 @@
   .terms li .tick{flex-shrink:0;font-weight:700}
   .terms li b{font-weight:600}
 
+  /* nevada sales tax */
+  .tax{border-top:1px solid var(--line);margin-top:24px;padding-top:24px}
+  .tax h2{font-size:clamp(18px,2.2vw,22px);font-weight:800;letter-spacing:-0.015em;line-height:1.2;margin-top:7px}
+  .tax-lead{margin-top:10px;font-size:13.5px;line-height:1.55;color:var(--text);max-width:75ch}
+  .steps{counter-reset:st;list-style:none;margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:12px 28px}
+  .steps li{counter-increment:st;position:relative;padding-left:26px;font-size:13px;line-height:1.5;color:var(--muted)}
+  .steps li::before{content:counter(st,decimal-leading-zero);position:absolute;left:0;top:1px;font-size:10px;font-weight:800;letter-spacing:0.1em;color:var(--faint)}
+  .steps li b{color:var(--text);font-weight:700}
+  .steps a{color:var(--text);text-decoration:underline;text-underline-offset:2px}
+  .tax-note{margin-top:14px;font-size:12px;color:var(--muted);line-height:1.5}
+
   .docfoot{border-top:1px solid var(--line);margin-top:28px;padding:20px 0 34px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
   .docfoot .brand svg{height:14px;width:111px}
   .docfoot .meta{font-size:11.5px;color:var(--muted);letter-spacing:0.02em}
@@ -60,7 +71,9 @@
     .facts{grid-template-columns:repeat(4,1fr) !important}
     .lead{padding-top:26px}
     .sec{padding:22px 0}
-    table.rates,.facts,.terms{break-inside:avoid}
+    table.rates,.facts,.terms,.tax{break-inside:avoid}
+    .tax{break-before:page;border-top:none;margin-top:0;padding-top:0}
+    .steps{grid-template-columns:1fr 1fr !important}
     .masthead{padding:0 0 14px}
     .lead{padding-top:20px}
     .lead h1{font-size:32px}
@@ -72,6 +85,7 @@
   }
   @media (max-width:720px){
     .facts{grid-template-columns:1fr 1fr}
+    .steps{grid-template-columns:1fr}
   }
   @media (max-width:460px){
     .page{padding:0 16px}
@@ -123,7 +137,7 @@
 
       <div class="facts">
         <div><span class="k">Pricing model</span><span class="v">Per shipment</span></div>
-        <div><span class="k">Covers</span><span class="v">Pick &amp; pack</span></div>
+        <div><span class="k">Included</span><span class="v">Receiving &amp; warehousing</span></div>
         <div><span class="k">Billing minimum</span><span class="v">100 shipments / period</span></div>
         <div><span class="k">Effective</span><span class="v">April 1, 2026</span></div>
       </div>
@@ -153,10 +167,28 @@
     <div class="terms">
       <div class="eyebrow">Terms &amp; conditions</div>
       <ul>
-        <li><span class="tick">›</span><span>Rates cover <b>pick and pack only</b>. Receiving, storage, packaging materials, special handling, and returns processing are billed separately.</span></li>
-        <li><span class="tick">›</span><span>A minimum of 100 shipments per billing period is required. Clients below this threshold are billed at the 100+ rate.</span></li>
+        <li><span class="tick">›</span><span>Pricing includes initial inventory receiving and warehousing.</span></li>
+        <li><span class="tick">›</span><span>A minimum of 100 orders per billing period is required. Clients who do not meet this threshold will be billed at the 100+ rate.</span></li>
+        <li><span class="tick">›</span><span>Packaging materials, special handling, and returns processing may incur additional charges.</span></li>
         <li><span class="tick">›</span><span>Rates are subject to change with 30 days written notice.</span></li>
       </ul>
+    </div>
+
+
+    <!-- NEVADA SALES TAX · mirrors the "Sales Tax When Fulfilling Through
+        Nevada" client doc, minus the resale certificate step (that only
+        applies when HPD sells the client goods; fulfillment-only doesn't). -->
+    <div class="tax">
+      <div class="eyebrow">Nevada sales tax</div>
+      <h2>Storing with us means collecting Nevada sales tax.</h2>
+      <p class="tax-lead">Inventory in our Las Vegas warehouse counts as a physical presence in Nevada, so your business owes Nevada sales tax on orders shipped to Nevada customers, starting with the first one. The usual out-of-state threshold ($100,000 in sales or 200 orders a year) does not apply. You're the seller, so collecting and filing stays with you. We provide our warehouse address for your registrations.</p>
+      <ol class="steps">
+        <li><b>Nevada State Business License.</b> Apply on the Secretary of State's <a href="https://orion.nv.gov/portal/public">ORION portal</a>. Out-of-state companies may also need to register as a foreign business.</li>
+        <li><b>Nevada Sales Tax Permit.</b> Apply on <a href="https://mynevadatax.nv.gov">My Nevada Tax</a>. It's $15 per location; a security deposit may apply but is waived under $1,000. List our warehouse as your Nevada inventory location.</li>
+        <li><b>Turn on Nevada in Shopify.</b> Settings → Taxes and duties → United States, choose Nevada, and enter your permit number.</li>
+        <li><b>File and pay.</b> File on My Nevada Tax on the schedule Nevada assigns you, through Shopify Tax automated filing or your accountant.</li>
+      </ol>
+      <p class="tax-note">Other states: each sets its own threshold. Shopify tracks where you stand under liability insights in the same settings page. This is general information, not tax advice; confirm with your accountant.</p>
     </div>
 
     <div class="docfoot">
