@@ -14,7 +14,6 @@ const { createClient } = require("@supabase/supabase-js");
 require("dotenv").config({ path: ".env.local" });
 
 const QB_BASE_URL = "https://quickbooks.api.intuit.com";
-const QB_TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
 
 const [, , jobId] = process.argv;
 if (!jobId) { console.error("Usage: node scripts/fix-qb-payment-link.js <jobId>"); process.exit(1); }
@@ -26,19 +25,10 @@ async function getAccessToken() {
   if (!tokens) throw new Error("No QB tokens");
   const expiresAt = new Date(tokens.expires_at).getTime();
   if (Date.now() < expiresAt - 5 * 60 * 1000) return { access: tokens.access_token, realm: tokens.realm_id };
-  const auth = Buffer.from(`${process.env.QB_CLIENT_ID}:${process.env.QB_CLIENT_SECRET}`).toString("base64");
-  const res = await fetch(QB_TOKEN_URL, {
-    method: "POST",
-    headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
-    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: tokens.refresh_token }),
-  });
-  if (!res.ok) throw new Error(`Refresh failed: ${res.status} ${await res.text()}`);
-  const data = await res.json();
-  const newExpires = new Date(Date.now() + data.expires_in * 1000).toISOString();
-  await supabase.from("qb_tokens").update({
-    access_token: data.access_token, refresh_token: data.refresh_token, expires_at: newExpires, updated_at: new Date().toISOString(),
-  }).eq("id", tokens.id);
-  return { access: data.access_token, realm: tokens.realm_id };
+  // Nov 4 2026: scripts never renew the QB token themselves. A renewal here
+  // bypassed lib/quickbooks' lease + log and could overlap the server's, which
+  // kills the connection. Any QB action in OpsHub renews it; then re-run.
+  throw new Error("QuickBooks token is due for renewal. Do any QuickBooks action in OpsHub (or wait for the hourly sync), then re-run this script.");
 }
 
 async function qb(access, realm, path, init = {}) {

@@ -182,7 +182,7 @@ export async function saveTokens(
   refreshToken: string,
   expiresIn: number,
   realmId?: string,
-  meta: { event: "connect" | "refresh"; oldRefreshToken?: string; caller?: string; leaseOwner?: string } = { event: "refresh" }
+  meta: { event: "connect" | "refresh"; oldRefreshToken?: string; caller?: string; expectRefreshToken?: string; detail?: string } = { event: "refresh" }
 ) {
   const caller = meta.caller || tokenCaller(); // before any await: async hops drop the stack
   const supabase = getSupabase();
@@ -191,31 +191,36 @@ export async function saveTokens(
 
   // Upsert — always one row. A failed save used to pass silently, leaving a
   // token QB had already replaced; now it retries once, then throws. A
-  // renewal saves only while it still holds the lease (see doRefresh); a
-  // connect saves unconditionally. Either way the lease is released.
+  // renewal saves only if the stored token is still the one it renewed from
+  // (compare-and-swap on updated_at, so the token never goes in a URL): a
+  // lapsed lease alone must not throw away a renewed token, and a renewal
+  // must never overwrite a newer one. A connect saves unconditionally.
+  // Either way the lease is released.
   const write = async () => {
-    const { data: existing, error: rErr } = await supabase.from("qb_tokens").select("id").limit(1).maybeSingle();
+    const { data: existing, error: rErr } = await supabase.from("qb_tokens").select("id, refresh_token, updated_at").limit(1).maybeSingle();
     if (rErr) return rErr.message;
     const row = { access_token: accessToken, refresh_token: refreshToken, expires_at: expiresAt, realm_id: realm, refresh_lock_until: null, refresh_lock_owner: null };
     if (!existing) {
       const { data, error } = await supabase.from("qb_tokens").insert(row).select("id");
       return error ? error.message : data?.length ? null : "no row written";
     }
-    let q = supabase.from("qb_tokens").update({ ...row, updated_at: new Date().toISOString() }).eq("id", (existing as any).id);
-    if (meta.leaseOwner) q = q.eq("refresh_lock_owner", meta.leaseOwner);
+    const ex = existing as any;
+    if (meta.expectRefreshToken && ex.refresh_token !== meta.expectRefreshToken) return "token changed";
+    let q = supabase.from("qb_tokens").update({ ...row, updated_at: new Date().toISOString() }).eq("id", ex.id);
+    if (meta.expectRefreshToken) q = q.eq("updated_at", ex.updated_at);
     const { data, error } = await q.select("id");
     if (error) return error.message;
-    if (!data?.length) return meta.leaseOwner ? "lease lost" : "no row written";
+    if (!data?.length) return meta.expectRefreshToken ? "token changed" : "no row written";
     return null;
   };
   let err = await write();
-  if (err && err !== "lease lost") err = await write();
+  if (err && err !== "token changed") err = await write();
   if (err) {
-    await logTokenEvent("save_failed", { old: meta.oldRefreshToken, new: refreshToken, detail: err, caller });
+    await logTokenEvent(err === "token changed" ? "save_conflict" : "save_failed", { old: meta.oldRefreshToken, new: refreshToken, detail: err, caller });
     throw new Error(`QuickBooks issued a new login token but OpsHub couldn't save it (${err}). Reconnect QuickBooks if calls start failing.`);
   }
   lastAlertAt = 0; // working again: the next disconnect alerts
-  await logTokenEvent(meta.event, { old: meta.oldRefreshToken, new: refreshToken, caller });
+  await logTokenEvent(meta.event, { old: meta.oldRefreshToken, new: refreshToken, caller, detail: meta.detail });
 }
 
 async function getTokens(): Promise<{
@@ -258,9 +263,10 @@ async function postRefresh(refreshToken: string): Promise<Response> {
 // overlapping at the 1:10am token rotation, and Intuit kills the connection
 // when a just-replaced token is renewed again. So a renewal first takes a
 // lease on the token row (a conditional update: free or lapsed), and only the
-// lease holder calls Intuit and saves. Everyone else waits and uses the token
-// the holder saves. The lease outlives the 20s Intuit timeout + the save.
-const LEASE_MS = 60_000;
+// lease holder calls Intuit. Everyone else waits and uses the token the
+// holder saves.
+// Outlasts the holder's worst case: two 20s Intuit calls plus reads and the save.
+const LEASE_MS = 90_000;
 const LEASE_WAIT_MS = 45_000;
 
 async function takeLease(id: string, owner: string): Promise<boolean> {
@@ -351,17 +357,19 @@ async function doRefresh(caller: string, rejected?: string): Promise<string> {
 
     if (!res.ok) {
       const text = await res.text();
-      await logTokenEvent("refresh_failed", { old: used, detail: `${res.status} ${text}`, caller });
+      await logTokenEvent("refresh_failed", { old: used, detail: `${res.status} ${text} intuit_tid=${res.headers.get("intuit_tid") || "?"}`, caller });
       if (text.includes("invalid_grant") && rereadOk) await alertDisconnected(`${res.status} ${text}`);
       throw new Error(`Token refresh failed: ${res.status} ${text}`);
     }
 
     const data = await res.json();
+    // Intuit's request id + the refresh token's remaining life, for support.
+    const detail = `intuit_tid=${res.headers.get("intuit_tid") || "?"} rt_expires_in=${data.x_refresh_token_expires_in ?? "?"}`;
     // saveTokens logs save_failed; this call still holds a valid token, so use
     // it. If QB had issued a NEW refresh token, the next renewal fails and the
     // disconnect alert fires then.
     try {
-      await saveTokens(data.access_token, data.refresh_token, data.expires_in, undefined, { event: "refresh", oldRefreshToken: used, caller, leaseOwner: owner });
+      await saveTokens(data.access_token, data.refresh_token, data.expires_in, undefined, { event: "refresh", oldRefreshToken: used, caller, expectRefreshToken: used, detail });
     } catch (e: any) {
       console.error("[QB token]", e?.message);
     }
