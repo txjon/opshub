@@ -205,6 +205,8 @@ export async function saveTokens(
       return error ? error.message : data?.length ? null : "no row written";
     }
     const ex = existing as any;
+    // Retry after a lost response: our first write already landed.
+    if (meta.expectRefreshToken && ex.refresh_token === refreshToken && refreshToken !== meta.expectRefreshToken) return null;
     if (meta.expectRefreshToken && ex.refresh_token !== meta.expectRefreshToken) return "token changed";
     let q = supabase.from("qb_tokens").update({ ...row, updated_at: new Date().toISOString() }).eq("id", ex.id);
     if (meta.expectRefreshToken) q = q.eq("updated_at", ex.updated_at);
