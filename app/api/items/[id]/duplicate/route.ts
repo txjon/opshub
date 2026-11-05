@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { logJobActivityServer } from "@/lib/notify-server";
+import { ensureVendorAssignments } from "@/lib/vendor-assignments";
 
 export const dynamic = "force-dynamic";
 
@@ -25,9 +26,13 @@ export const dynamic = "force-dynamic";
 //     files are shared assets)
 //   - costing_data.costProds entry rebound to the new item id, blank
 //     costs stripped so CostingTab rebuilds fresh
+//   - a CLEAN vendor assignment matching the costing vendor (vendor +
+//     decoration type only, via lib/vendor-assignments). Without it the copy
+//     sat under "Unassigned vendor" and never reached the vendor's portal
+//     (HPD-2611-002, Nov 2026).
 //
 // What does NOT get duplicated:
-//   - decorator_assignments (start clean)
+//   - the source's assignment state (stage, sent/completion dates, tracking)
 //   - pipeline_stage / blanks_order_number / tracking
 //   - drive_link (new folder will be created on first upload)
 
@@ -209,6 +214,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
         costing_data: { ...costing, costProds: nextProds, _savedAt: new Date().toISOString() },
         updated_at: new Date().toISOString(),
       }).eq("id", jobId);
+      try { await ensureVendorAssignments(db, [(newItem as any).id], nextProds); }
+      catch (e: any) { console.error("[item duplicate] vendor assignment failed:", e?.message || e); }
     }
 
     try {
