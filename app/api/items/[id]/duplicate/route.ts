@@ -210,12 +210,17 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       const nextProds = insertAt >= 0
         ? [...costProds.slice(0, insertAt + 1), dupCp, ...costProds.slice(insertAt + 1)]
         : [...costProds, dupCp];
-      await db.from("jobs").update({
+      const { error: costErr } = await db.from("jobs").update({
         costing_data: { ...costing, costProds: nextProds, _savedAt: new Date().toISOString() },
         updated_at: new Date().toISOString(),
       }).eq("id", jobId);
-      try { await ensureVendorAssignments(db, [(newItem as any).id], nextProds); }
-      catch (e: any) { console.error("[item duplicate] vendor assignment failed:", e?.message || e); }
+      // Assign the vendor only if costing now names it for the copy, so the
+      // two never disagree.
+      if (costErr) console.error("[item duplicate] costing write failed:", costErr.message);
+      else {
+        try { await ensureVendorAssignments(db, [(newItem as any).id], nextProds); }
+        catch (e: any) { console.error("[item duplicate] vendor assignment failed:", e?.message || e); }
+      }
     }
 
     try {
