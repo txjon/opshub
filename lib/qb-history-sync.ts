@@ -22,6 +22,7 @@ async function qbQuery(db: Db, query: string): Promise<any> {
   const realmId = (tok as any)?.realm_id || process.env.QB_REALM_ID;
   const res = await fetch(`${QB}/v3/company/${realmId}/query?query=${encodeURIComponent(query)}&minorversion=65`, {
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    cache: "no-store",
   });
   if (!res.ok) throw new Error(`QB ${res.status}: ${(await res.text()).slice(0, 300)}`);
   return res.json();

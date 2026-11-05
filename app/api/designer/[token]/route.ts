@@ -3,6 +3,9 @@ import { loadWorkOrderByToken, targetOf } from "@/lib/design-work-orders-server"
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Next 14 caches fetches forever in a GET-only force-dynamic route; this
+// route must always read live data.
+export const fetchCache = "force-no-store";
 
 // THE DESIGNER'S VIEW of one work order — resolved by magic link only. The
 // client's NAME rides along (Jon, Aug 26: it goes in the art, and it's how

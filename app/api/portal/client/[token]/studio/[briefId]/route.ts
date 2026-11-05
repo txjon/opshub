@@ -5,6 +5,9 @@ import { hubClientLookup } from "@/lib/hub-client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Next 14 caches fetches forever in a GET-only force-dynamic route; this
+// route must always read live data.
+export const fetchCache = "force-no-store";
 
 // One design, client-side: the merged timeline through the WALL — only
 // client-visible messages and shared files exist over here. The order ask

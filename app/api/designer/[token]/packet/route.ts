@@ -4,6 +4,9 @@ import { packetPdf, packetHtml, safeName } from "@/lib/design-work-orders-packet
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Next 14 caches fetches forever in a GET-only force-dynamic route; this
+// route must always read live data.
+export const fetchCache = "force-no-store";
 export const maxDuration = 60;
 
 // GET → brief.pdf alone (the design packet). ?html=1 previews the source.

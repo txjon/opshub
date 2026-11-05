@@ -5,6 +5,9 @@ import { productionNoteForItem } from "@/lib/design-work-orders-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Next 14 caches fetches forever in a GET-only force-dynamic route; this
+// route must always read live data.
+export const fetchCache = "force-no-store";
 
 // GET ?itemId= → the production note written from the item's proof spec.
 export async function GET(req: NextRequest) {

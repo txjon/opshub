@@ -9,10 +9,19 @@ const QB_BASE_URL = "https://quickbooks.api.intuit.com";
 const QB_AUTH_URL = "https://appcenter.intuit.com/connect/oauth2";
 const QB_TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
 
+// Every request here bypasses Next's fetch cache. In a GET-only route with
+// dynamic = "force-dynamic", Next 14 caches plain fetches FOREVER, POSTs
+// included. The nightly history-sync cron got a months-old QB token from the
+// cache and a replayed Intuit renewal reply, and wrote that dead token over
+// the live one (the Nov 2026 nightly disconnects). Token reads and renewals
+// must always be live, whoever calls them.
+const noStore: typeof fetch = (input, init) => fetch(input, { ...init, cache: "no-store" });
+
 function getSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { global: { fetch: noStore } }
   );
 }
 
@@ -83,6 +92,7 @@ export async function exchangeCode(code: string): Promise<{
 
   const res = await fetch(QB_TOKEN_URL, {
     method: "POST",
+    cache: "no-store",
     headers: {
       Authorization: `Basic ${auth}`,
       "Content-Type": "application/x-www-form-urlencoded",
@@ -246,6 +256,7 @@ async function postRefresh(refreshToken: string): Promise<Response> {
   ).toString("base64");
   return fetch(QB_TOKEN_URL, {
     method: "POST",
+    cache: "no-store",
     headers: {
       Authorization: `Basic ${auth}`,
       "Content-Type": "application/x-www-form-urlencoded",
@@ -421,6 +432,7 @@ async function qbFetch(
   try {
     res = await fetch(url, {
       method: options.method || "GET",
+      cache: "no-store",
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
@@ -446,6 +458,7 @@ async function qbFetch(
     const newToken = await refreshAccessToken(token);
     const retry = await fetch(url, {
       method: options.method || "GET",
+      cache: "no-store",
       headers: {
         Authorization: `Bearer ${newToken}`,
         "Content-Type": "application/json",

@@ -5,6 +5,9 @@ import { hubClientLookup } from "@/lib/hub-client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Next 14 caches fetches forever in a GET-only force-dynamic route; this
+// route must always read live data.
+export const fetchCache = "force-no-store";
 
 // THE CLIENT STUDIO feed (Phase 3 preview, Aug 4) — the Lab's client
 // experience on real briefs, token-scoped. The wall is absolute: only

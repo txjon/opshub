@@ -6,6 +6,9 @@ import { approvedMocksZipStream } from "@/lib/line-sheet-zip";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Next 14 caches fetches forever in a GET-only force-dynamic route; this
+// route must always read live data.
+export const fetchCache = "force-no-store";
 export const maxDuration = 300;
 
 // GET → every client-approved (thumbs-up) mockup on the sheet, full res, one ZIP.

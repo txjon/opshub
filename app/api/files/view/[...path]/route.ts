@@ -24,6 +24,9 @@ import { judgeFileRequest, ALL_PORTAL_COOKIES, isStaffOnlyFile } from "@/lib/fil
 export const runtime = "nodejs";
 export const maxDuration = 800;
 export const dynamic = "force-dynamic";
+// Next 14 caches fetches forever in a GET-only force-dynamic route; this
+// route must always read live data.
+export const fetchCache = "force-no-store";
 
 export async function GET(req: NextRequest, { params }: { params: { path: string[] } }) {
   return serve(req, params, false);

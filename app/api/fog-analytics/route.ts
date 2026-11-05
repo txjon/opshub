@@ -8,6 +8,9 @@ import { FOG_DASHBOARD_HTML } from "./dashboard-html.generated";
 // The HTML ships as a generated TS string so it bundles without fs tracing.
 
 export const dynamic = "force-dynamic";
+// Next 14 caches fetches forever in a GET-only force-dynamic route; this
+// route must always read live data.
+export const fetchCache = "force-no-store";
 
 export async function GET() {
   const supabase = await createClient();

@@ -3,6 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { deriveDateChain } from "@/lib/date-chain";
 
 export const dynamic = "force-dynamic";
+// Next 14 caches fetches forever in a GET-only force-dynamic route; this
+// route must always read live data.
+export const fetchCache = "force-no-store";
 
 // GET /api/item-etas?jobId=… | ?clientId=…
 //

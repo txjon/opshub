@@ -4,6 +4,9 @@ import { runQbHistorySync } from "@/lib/qb-history-sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Next 14 caches fetches forever in a GET-only force-dynamic route; this
+// route must always read live data.
+export const fetchCache = "force-no-store";
 export const maxDuration = 300; // full QB re-pull (~10k lines) + stamp pass
 
 // Nightly QB → history_sales sync (Jon, Jul 31 2026: "re-run the QB pull

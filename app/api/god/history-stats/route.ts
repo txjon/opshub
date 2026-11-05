@@ -4,6 +4,9 @@ import { createClient as createAdmin } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Next 14 caches fetches forever in a GET-only force-dynamic route; this
+// route must always read live data.
+export const fetchCache = "force-no-store";
 
 // God Mode V2 data feed — the six imported years, compacted for client-side
 // interactivity (one fetch, all filtering happens in the browser).

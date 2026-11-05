@@ -5,6 +5,9 @@ import { driveIdsInBrief } from "@/lib/design-work-orders";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Next 14 caches fetches forever in a GET-only force-dynamic route; this
+// route must always read live data.
+export const fetchCache = "force-no-store";
 
 // Token-scoped file proxy for the designer door: serves ONLY the Drive ids
 // that belong to this work order (its canvases, pins, extras, and thread
