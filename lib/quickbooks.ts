@@ -11,7 +11,7 @@ const QB_TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
 
 // Every request here bypasses Next's fetch cache. In a GET-only route with
 // dynamic = "force-dynamic", Next 14 caches plain fetches FOREVER, POSTs
-// included. The nightly history-sync cron got a months-old QB token from the
+// included. The nightly history-sync cron got a day-old QB token from the
 // cache and a replayed Intuit renewal reply, and wrote that dead token over
 // the live one (the Nov 2026 nightly disconnects). Token reads and renewals
 // must always be live, whoever calls them.

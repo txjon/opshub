@@ -4,6 +4,9 @@ import fs from "fs";
 import path from "path";
 
 export const runtime = "nodejs";
+// Next 14 caches fetches forever in a GET-only route until something marks it
+// dynamic; this route must always read live data.
+export const fetchCache = "force-no-store";
 export const dynamic = "force-dynamic";
 
 // GET /d/[token] — magic-link viewer for client-facing documents (doc_links,

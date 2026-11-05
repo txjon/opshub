@@ -1,4 +1,7 @@
 export const runtime = "nodejs";
+// Next 14 caches fetches forever in a GET-only route until something marks it
+// dynamic; this route must always read live data.
+export const fetchCache = "force-no-store";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";

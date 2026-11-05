@@ -1,4 +1,7 @@
 export const runtime = "nodejs";
+// Next 14 caches fetches forever in a GET-only route until something marks it
+// dynamic; this route must always read live data.
+export const fetchCache = "force-no-store";
 export const maxDuration = 120;
 
 import { NextRequest, NextResponse } from "next/server";
