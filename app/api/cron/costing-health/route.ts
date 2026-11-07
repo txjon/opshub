@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { resendForSlug } from "@/lib/resend-client";
 import { recalcJobPhase } from "@/lib/job-phase-recalc";
 import { refreshJobFinancials } from "@/lib/costing-summary";
+import { findCostProd } from "@/lib/cost-prod-match";
 import { scanFileHealth, missingFiles } from "@/lib/file-health";
 import { syncClientTaxFromQB } from "@/lib/client-tax-sync";
 
@@ -81,7 +82,7 @@ export async function GET(req: NextRequest) {
       let stamped = 0;
       for (const it of (j.items as any[]) || []) {
         if (!it.is_fleece) continue;
-        const cp = cps.find(c => c.id === it.id) || cps.find(c => (c.name || "").trim().toLowerCase() === (it.name || "").trim().toLowerCase());
+        const cp = findCostProd(cps, it, ((j.items as any[]) || []).map((x: any) => x.id));
         if (cp && !cp.isFleece) {
           // STAMP ON SIGHT for active jobs: creation paths write costProds
           // without isFleece/garment_type (Sep 27, five fleece-blind items).

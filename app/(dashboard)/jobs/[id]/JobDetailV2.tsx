@@ -58,6 +58,7 @@ import { PRODUCTION_STAGES, releaseFor, itemDrift } from "@/lib/po-release";
 import { SHIP_METHODS } from "@/lib/ship-methods";
 import { proofCounts, needsProof, proofPdfMissing, carriedApproved, carriedFrom, hasApprovedProof } from "@/lib/proof-gate";
 import { suggestPoField, poSuggestionsFor, type PoFieldKey } from "@/lib/po-suggest";
+import { findCostProd, findCostProdIndex } from "@/lib/cost-prod-match";
 
 // Single-source S3 (Sep 5 2026): quantities are NEVER persisted into
 // costing_data — buy_sheet_lines owns them and every money surface overlays
@@ -1522,8 +1523,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
   // rides on `job`. Fall back to the decorator assignment name. ──
   const poSentVendors: string[] = Array.isArray(tm.po_sent_vendors) ? tm.po_sent_vendors : [];
   const costProds: any[] = job?.costing_data?.costProds || [];
-  const cpFor = (item: any) => costProds.find(cp => cp.id === item.id)
-    || costProds.find(cp => (cp.name || "").trim().toLowerCase() === (item.name || "").trim().toLowerCase());
+  const cpFor = (item: any) => findCostProd(costProds, item, items.map((x: any) => x.id));
   // Blank estimate = THE costing math (lib/pricing blankCostTotals on the same
   // assembled costProd the Cost tab prices): per-size price × per-size qty,
   // raw and buffered. Never cost_per_unit × qty — that's a plain average across
@@ -1600,8 +1600,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
         const item = its.find((x: any) => x.id === id); if (!item) continue;
         const p = assembleNow(item);
         flushedById[id] = p;
-        let idx = cps.findIndex((c: any) => c.id === id);
-        if (idx < 0) idx = cps.findIndex((c: any) => (c.name || "").trim().toLowerCase() === (item.name || "").trim().toLowerCase());
+        const idx = findCostProdIndex(cps, item, its.map((x: any) => x.id));
         // Apply ONLY decoration fields from p; keep the DB's qtys/blankCosts/name
         // (those are owned by buy_sheet_lines / items — don't let a deco edit touch them).
         if (idx >= 0) cps[idx] = { ...cps[idx], ...p, qtys: cps[idx].qtys ?? p.qtys, blankCosts: cps[idx].blankCosts ?? p.blankCosts, name: cps[idx].name ?? p.name };
@@ -1832,8 +1831,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       const { data: fresh }: any = await supabase.from("jobs").select("costing_data").eq("id", job.id).single();
       const cd = fresh?.costing_data || job.costing_data || { costProds: [] };
       const cps = (Array.isArray(cd.costProds) ? cd.costProds : []).map((c: any) => ({ ...c }));
-      let idx = cps.findIndex((c: any) => c.id === item.id);
-      if (idx < 0) idx = cps.findIndex((c: any) => (c.name || "").trim().toLowerCase() === (item.name || "").trim().toLowerCase());
+      const idx = findCostProdIndex(cps, item, items.map((x: any) => x.id));
       if (idx >= 0) { if (override == null) delete cps[idx].sellOverride; else cps[idx].sellOverride = override; }
       await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: stripQtyCopies(cps), _savedAt: new Date().toISOString() } }).eq("id", job.id);
       await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);

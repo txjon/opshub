@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { logJobActivityServer } from "@/lib/notify-server";
 import { recalcJobPhase } from "@/lib/job-phase-recalc";
 import { isCostingLocked } from "@/lib/costing-lock";
+import { findCostProdIndex } from "@/lib/cost-prod-match";
 
 export const dynamic = "force-dynamic";
 
@@ -91,14 +92,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const destCostProds: any[] = Array.isArray(destCosting.costProds) ? destCosting.costProds : [];
 
     let migratedCostProd: any = null;
-    let migratedIdx = sourceCostProds.findIndex((cp: any) => cp.id === item.id);
-    if (migratedIdx < 0) {
-      // Name fallback — case-insensitive trim
-      const nameKey = (item.name || "").trim().toLowerCase();
-      if (nameKey) {
-        migratedIdx = sourceCostProds.findIndex((cp: any) => (cp.name || "").trim().toLowerCase() === nameKey);
-      }
-    }
+    // By id, or a legacy name-keyed entry no other item owns. A same-named
+    // sibling's entry must never be moved away from it.
+    const { data: sourceItems, error: siErr } = await db.from("items").select("id").eq("job_id", sourceJobId);
+    if (siErr) return NextResponse.json({ error: siErr.message }, { status: 500 });
+    const migratedIdx = findCostProdIndex(sourceCostProds, item, (sourceItems || []).map((x: any) => x.id));
     if (migratedIdx >= 0) {
       migratedCostProd = sourceCostProds[migratedIdx];
       sourceCostProds.splice(migratedIdx, 1);
