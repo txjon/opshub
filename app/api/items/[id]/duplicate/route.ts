@@ -8,6 +8,7 @@ import { createClient as createAdmin } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { logJobActivityServer } from "@/lib/notify-server";
 import { ensureVendorAssignments } from "@/lib/vendor-assignments";
+import { findCostProd } from "@/lib/cost-prod-match";
 
 export const dynamic = "force-dynamic";
 
@@ -199,11 +200,9 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     // pattern, blank costs cleared so it rebuilds from items row).
     const costing = ((job as any)?.costing_data || { costProds: [] }) as any;
     const costProds: any[] = Array.isArray(costing.costProds) ? costing.costProds : [];
-    let matched = costProds.find((cp: any) => cp.id === (srcItem as any).id);
-    if (!matched) {
-      const nameKey = ((srcItem as any).name || "").trim().toLowerCase();
-      matched = costProds.find((cp: any) => (cp.name || "").trim().toLowerCase() === nameKey);
-    }
+    // By id, or a legacy name-keyed entry no other item owns: never copy a
+    // same-named sibling's costing (its colorway cost would ride along).
+    const matched: any = findCostProd(costProds, srcItem as any, (siblings || []).map((s: any) => s.id));
     if (matched) {
       const dupCp = { ...matched, id: (newItem as any).id, name: (newItem as any).name, blankCosts: {}, blankCostPerUnit: 0 };
       const insertAt = costProds.findIndex((cp: any) => cp.id === (srcItem as any).id);

@@ -14,6 +14,7 @@ import { addDays } from "./dates";
 import { proofSatisfied } from "./proof-gate";
 import { allRows, allRowsIn } from "./all-rows";
 import { NON_GARMENT as NON_GARMENT_LIST } from "./pricing";
+import { findCostProd } from "./cost-prod-match";
 
 type Sb = any; // Supabase client (project convention: loose typing at the boundary)
 
@@ -681,7 +682,7 @@ function buildJobPhaseView(
   const phaseItems: PhaseItem[] = items.map(it => {
     const route = resolveRoute(it.shipping_route, job.shipping_route);
     const st = deriveItem({ ordered: orderedFrom(it.buy_sheet_lines || []), route, shipFinal: !!it.ship_final, movements: movesByItem.get(it.id) || [] });
-    const cp = costProds.find(c => c?.id === it.id) || costProds.find(c => c?.name === it.name);
+    const cp = findCostProd(costProds, it, items.map((x: any) => x.id));
     const da = (it.decorator_assignments || [])[0];
     const poSent = poSentToItem({ printVendor: cp?.printVendor, decoratorName: da?.decorators?.name, decoratorShortCode: da?.decorators?.short_code, poSentVendors });
     return { route, poSent, shippedTotal: st.shippedTotal, receivedTotal: st.receivedTotal, forwardedTotal: st.forwardedTotal, enteredTotal: st.enteredTotal, done: st.done };
@@ -1019,7 +1020,7 @@ export async function loadStagingBoard(sb: Sb): Promise<StagingItem[]> {
     if (st.availableToEnterTotal === 0 && (lastEnteredAt.get(item.id) || 0) < enteredCutoff) continue;   // entered long ago
     // color: costing cp.color (by id/name), else mockup_color
     const cps = (job.costing_data?.costProds || []) as any[];
-    const cp = cps.find(c => c?.id === item.id) || cps.find(c => c?.name === item.name);
+    const cp = findCostProd(cps, item, (items as any[]).filter((x: any) => x.job_id === item.job_id).map((x: any) => x.id));
     let color = (cp?.color || item.mockup_color || "").trim() || null;
     if (color && color.startsWith("#")) color = null;   // a raw hex mockup color isn't a real blank color name
     out.push({

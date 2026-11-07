@@ -9,6 +9,7 @@ import { scaleCurve, aggregateCurve, groupCurve, formatGroup } from "@/lib/size-
 import { carryProofFields } from "@/lib/proof-gate";
 import { isCostingLocked } from "@/lib/costing-lock";
 import { ensureVendorAssignments } from "@/lib/vendor-assignments";
+import { findCostProd } from "@/lib/cost-prod-match";
 
 type Db = any;
 // Phase 3 (Aug 24 2026): clients type ONE total — the curve is seeded from
@@ -282,7 +283,7 @@ export async function addItemsToJob(db: Db, opts: {
 
   const ids = Array.from(new Set(lines.map(l => l.itemId)));
   const { data: srcItems } = await db.from("items")
-    .select("*, buy_sheet_lines(size, qty_ordered), jobs!inner(id, client_id, job_number, title, qb_invoice_number, costing_data)")
+    .select("*, buy_sheet_lines(size, qty_ordered), jobs!inner(id, client_id, job_number, title, qb_invoice_number, costing_data, items(id))")
     .in("id", ids);
   const byId = new Map<string, any>((srcItems || []).map((it: any) => [it.id, it]));
   for (const id of ids) {
@@ -322,9 +323,10 @@ export async function addItemsToJob(db: Db, opts: {
     sort += 10;
     if (!newId) { fileErrors.push(`${src.name || "item"}: couldn't be created`); continue; }
     added.push({ srcId: src.id, newId, name: src.name || "Item", fromJob: src.jobs?.qb_invoice_number ? `#${src.jobs.qb_invoice_number}` : (src.jobs?.job_number || "") });
-    // Its costing line from the source job (id, else name), rebound to the copy.
+    // Its costing line from the source job (id, else a legacy name-keyed entry
+    // no other item owns), rebound to the copy.
     const cps: any[] = src.jobs?.costing_data?.costProds || [];
-    const cp = cps.find((c: any) => c?.id === src.id) || cps.find((c: any) => (c?.name || "").trim().toLowerCase() === (src.name || "").trim().toLowerCase());
+    const cp: any = findCostProd(cps, src, (src.jobs?.items || []).map((x: any) => x.id));
     if (cp) {
       const { qtys, totalQty, ...rest } = cp;
       newCostProds.push({ ...rest, id: newId, blankCosts: {}, blankCostPerUnit: 0 });

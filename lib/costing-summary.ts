@@ -27,7 +27,11 @@ type Sb = any;
 export function overlayCostProds(costProds: any[], items: any[]): any[] {
   if (!items?.length) return costProds; // legacy safety: no item rows → leave as-is
   const byId = new Map(items.map((it: any) => [it.id, it]));
-  const byName = new Map(items.map((it: any) => [(it.name || "").trim().toLowerCase(), it]));
+  // Name matching only reaches items with no entry of their own (same rule as
+  // lib/cost-prod-match): a legacy entry must not double-count an item that
+  // already has one, e.g. two same-named items.
+  const owned = new Set((costProds || []).map((p: any) => p?.id).filter((id: any) => byId.has(id)));
+  const byName = new Map(items.filter((it: any) => !owned.has(it.id)).map((it: any) => [(it.name || "").trim().toLowerCase(), it]));
   const out: { sort: number; p: any }[] = [];
   for (const p of costProds || []) {
     const it: any = byId.get(p.id) || byName.get((p.name || "").trim().toLowerCase());

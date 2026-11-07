@@ -1833,6 +1833,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
       const cps = (Array.isArray(cd.costProds) ? cd.costProds : []).map((c: any) => ({ ...c }));
       const idx = findCostProdIndex(cps, item, items.map((x: any) => x.id));
       if (idx >= 0) { if (override == null) delete cps[idx].sellOverride; else cps[idx].sellOverride = override; }
+      else if (override != null) cps.push({ ...assemble(item), sellOverride: override });   // first costing entry for this item
       await (supabase.from("jobs") as any).update({ costing_data: { ...cd, costProds: stripQtyCopies(cps), _savedAt: new Date().toISOString() } }).eq("id", job.id);
       await (supabase.from("items") as any).update({ sell_per_unit: sell }).eq("id", item.id);
       refreshFinancials();
