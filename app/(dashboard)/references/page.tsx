@@ -77,6 +77,11 @@ const SECTIONS: Section[] = [
         href: "/hpd-manufacturing-overview.html",
         pdf: "/hpd-manufacturing-overview.pdf",
       },
+      {
+        title: "Pick & Pack Rate Card",
+        description: "Fulfillment-only pricing for pick and pack clients, plus the Nevada sales tax setup. Share this link with prospects.",
+        href: "/d/pp-92cde50a69b72098b8aab80950e57ecd",
+      },
     ],
   },
 ];
