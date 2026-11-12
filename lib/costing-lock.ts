@@ -15,9 +15,12 @@ export function isCostingCommitted(job: any): boolean {
 
 export function isCostingLocked(job: any): boolean {
   if (!job) return false;
-  // Complete / cancelled jobs are historic records — always read-only.
-  if (job.phase === "complete" || job.phase === "cancelled") return true;
-  // Explicit revise override reopens a committed job.
+  // Cancelled jobs are dead records: always read-only.
+  if (job.phase === "cancelled") return true;
+  // Explicit revise override reopens a committed job, and a complete one too
+  // (Nov 2026: a closed, unpaid sample job needed a price fix before the
+  // invoice was re-pushed; the button flipped the flag but nothing unlocked).
   if (job.type_meta?.costing_unlocked) return false;
+  if (job.phase === "complete") return true;
   return isCostingCommitted(job);
 }
