@@ -1882,7 +1882,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
             const margin = rev > 0 ? profit / rev : 0;
             const marginColor = margin >= 0.30 ? T.green : margin >= 0.20 ? T.amber : T.red;
             const actualBlanks = items.reduce((a: number, it: any) => a + (Number(it.blanks_order_cost) || 0), 0);
-            const isCommitted = !!(job.quote_approved || job.type_meta?.quote_sent_at);
+            // complete jobs lock even when never quoted, so they need the button too
+            const isCommitted = !!(job.quote_approved || job.type_meta?.quote_sent_at || job.phase === "complete");
             const tog = (on: boolean, label: string, onClick: () => void) => (
               <button onClick={() => !locked && onClick()} disabled={locked} style={{ display: "flex", alignItems: "center", gap: 7, background: "none", border: "none", cursor: locked ? "default" : "pointer", fontFamily: font, opacity: locked ? 0.6 : 1 }}>
                 <span style={{ width: 30, height: 17, borderRadius: 9, background: on ? T.accent : T.card, border: `1px solid ${on ? T.accent : T.border}`, position: "relative" }}><span style={{ position: "absolute", top: 2, left: on ? 14 : 2, width: 11, height: 11, borderRadius: "50%", background: on ? T.bg : "#fff" }} /></span>
