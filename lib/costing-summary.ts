@@ -24,7 +24,11 @@ type Sb = any;
 //   blankCosts ← items.blank_costs (fallback: costProd blankCosts)
 // costProds matching NO item are dropped — the buy sheet owns which products
 // exist; a lingering costProd for a removed item must not inflate totals.
-export function overlayCostProds(costProds: any[], items: any[]): any[] {
+// includeUncosted: also price items that have NO costProd yet (a blank was
+// assigned, no decoration touched), from a bare entry, exactly like the job
+// page's assemble(). Only the summary writer asks for this: PO/vendor/billing
+// surfaces group by printVendor and must not grow an "Unassigned" line.
+export function overlayCostProds(costProds: any[], items: any[], opts?: { includeUncosted?: boolean }): any[] {
   if (!items?.length) return costProds; // legacy safety: no item rows → leave as-is
   const byId = new Map(items.map((it: any) => [it.id, it]));
   // Name matching only reaches items with no entry of their own (same rule as
@@ -33,9 +37,15 @@ export function overlayCostProds(costProds: any[], items: any[]): any[] {
   const owned = new Set((costProds || []).map((p: any) => p?.id).filter((id: any) => byId.has(id)));
   const byName = new Map(items.filter((it: any) => !owned.has(it.id)).map((it: any) => [(it.name || "").trim().toLowerCase(), it]));
   const out: { sort: number; p: any }[] = [];
-  for (const p of costProds || []) {
-    const it: any = byId.get(p.id) || byName.get((p.name || "").trim().toLowerCase());
+  const seen = new Set<string>();
+  const bare = opts?.includeUncosted
+    ? items.map((it: any) => ({ id: it.id, name: it.name, _uncosted: true }))
+    : [];
+  for (const p of [...(costProds || []), ...bare]) {
+    const it: any = p._uncosted ? byId.get(p.id) : (byId.get(p.id) || byName.get((p.name || "").trim().toLowerCase()));
     if (!it) continue;
+    if (p._uncosted && seen.has(it.id)) continue;
+    seen.add(it.id);
     const lines = it.buy_sheet_lines || [];
     const bslQtys = Object.fromEntries(lines.map((l: any) => [l.size, Number(l.qty_ordered) || 0]));
     const qtys = lines.length ? bslQtys : (p.qtys || {});
@@ -140,7 +150,10 @@ export async function refreshJobFinancials(sb: Sb, jobId: string): Promise<{ ok:
   const { data: decorators } = await sb.from("decorators").select("*");
   const printers = buildPrintersMap(decorators || []);
   const itemTruth = await loadItemTruth(sb, jobId);
-  const overlaid = { ...job.costing_data, costProds: overlayCostProds(job.costing_data.costProds, itemTruth) };
+  // Uncosted items count too: they carry a price (items.sell_per_unit) and the
+  // page shows them, so a summary without them reads low (HPD-2611-006, Nov
+  // 2026: a hat priced off its blank alone was left out, $698.50 short).
+  const overlaid = { ...job.costing_data, costProds: overlayCostProds(job.costing_data.costProds, itemTruth, { includeUncosted: true }) };
   const summary = computeCostingSummary(overlaid, job.type_meta?.invoice_extra_lines, printers);
   if (!summary) return { ok: true, reason: "no computable products" };
   const { error } = await sb.from("jobs").update({ costing_summary: summary }).eq("id", jobId);
