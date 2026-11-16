@@ -77,7 +77,7 @@ const money = (n: number) => "$" + Number(n || 0).toLocaleString("en-US", { mini
 // Tolerate "$7,627.20" / "7,627.20" pasted straight from an invoice.
 const parseAmount = (s: string) => parseFloat(String(s).replace(/[^0-9.]/g, "")) || 0;
 
-export default function ReconciliationClient({ companyId, billingOnly = false }: { companyId: string; billingOnly?: boolean }) {
+export default function ReconciliationClient({ companyId, billingOnly = false, initialView, initialWeek }: { companyId: string; billingOnly?: boolean; initialView?: string; initialWeek?: string }) {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [jobs, setJobs] = useState<JobLite[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -108,7 +108,11 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
   const [showByVendor, setShowByVendor] = useState(false);
   const [search, setSearch] = useState("");
   const [billVendorFilter, setBillVendorFilter] = useState(""); // vendor select for the bills list (189 rows and counting)
-  const [view, setView] = useState<"queue" | "history" | "variances" | "shipping" | "hours">("queue");
+  type View = "queue" | "history" | "variances" | "shipping" | "hours";
+  const [view, setView] = useState<View>(() => {
+    const ok: View[] = billingOnly ? ["queue", "history", "shipping", "hours"] : ["queue", "history", "shipping", "hours", "variances"];
+    return ok.includes(initialView as View) ? initialView as View : "queue";
+  });
   const [confirm, confirmEl] = useConfirm();
   // (inline bill entry removed — all bill creation goes through the New Bill form)
   // New Bill modal (QB-style entry, job-aware)
@@ -1255,7 +1259,7 @@ export default function ReconciliationClient({ companyId, billingOnly = false }:
         </div>
       )}
       {view === "shipping" && <ShippingView companyId={companyId} billingOnly={billingOnly} />}
-      {view === "hours" && <ContractorHoursView />}
+      {view === "hours" && <ContractorHoursView initialWeek={initialWeek} />}
       {!billingOnly && view === "variances" && (
         <VarianceView queue={queue} jobsRaw={jobsRaw} items={jobItems} printers={printers} freightEntries={freightEntries} />
       )}

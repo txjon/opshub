@@ -124,7 +124,7 @@ export default function HoursPage() {
   }
   const [confirmDlg, confirmEl] = useConfirm();
   async function emailSummary() {
-    if (!await confirmDlg({ title: "Submit this week's hours?", message: `${fmtMD(weekStart)}–${fmtMD(weekEnd)} · ${fmtHours(grandTotal)} hrs total. A breakdown is emailed to you.`, confirmLabel: "Submit hours", confirmColor: T.accent })) return;
+    if (!await confirmDlg({ title: "Submit this week's hours?", message: `${fmtMD(weekStart)}–${fmtMD(weekEnd)} · ${fmtHours(grandTotal)} hrs total. A breakdown is emailed to billing.`, confirmLabel: "Submit hours", confirmColor: T.accent })) return;
     setEmailing("sending");
     try {
       const res = await fetch("/api/hours/email", {

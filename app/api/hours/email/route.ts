@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { resendForSlug } from "@/lib/resend-client";
 import { renderBrandedEmail } from "@/lib/email-template";
 import { entryHours, fmtHours, fmtTime, weekSnapshot } from "@/lib/hours";
+import { urlForSlug } from "@/lib/tenants";
 
 function fmtDateShort(s: string) { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" , timeZone: "America/Los_Angeles" }); }
 function fmtMD(s: string) { const [, m, d] = s.split("-").map(Number); return `${m}/${d}`; }
@@ -14,8 +15,9 @@ export async function POST(req: NextRequest) {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    // Always to Jon, regardless of who submits.
-    const to = "jon@housepartydistro.com";
+    // Always to billing, regardless of who submits: the bookkeeper pushes the
+    // week to QB from /billing (Nov 2026, was Jon's inbox).
+    const to = process.env.EMAIL_BILLING || "billing@housepartydistro.com";
 
     const { weekStart, weekEnd } = await req.json();
     if (!weekStart || !weekEnd) return NextResponse.json({ error: "Missing week range" }, { status: 400 });
@@ -60,6 +62,8 @@ export async function POST(req: NextRequest) {
       eyebrow: "House Party Distro",
       heading: "Contractor hours",
       bodyHtml,
+      // Lands on Bills > Contractor Hours, on this week, where Push to QB lives.
+      cta: { label: "Open this week in Billing", url: `${urlForSlug("hpd")}/billing?view=hours&week=${weekStart}` },
       closing: "—\nHouse Party Distro",
     });
 

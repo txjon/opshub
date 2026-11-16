@@ -15,7 +15,11 @@ export default function LoginPage() {
     setError("");
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) { setError(error.message); setLoading(false); }
-    else window.location.href = "/house";
+    else {
+      // Back to the deep link that sent them here (internal paths only).
+      const next = new URLSearchParams(window.location.search).get("next") || "";
+      window.location.href = next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/house";
+    }
   };
 
   return (

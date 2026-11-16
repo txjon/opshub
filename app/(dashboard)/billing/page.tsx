@@ -12,7 +12,9 @@ import ReconciliationClient from "../reconciliation/ReconciliationClient";
 //                  per-line variance, no aggregate margin view
 // /reconciliation now redirects here; grants of either route reach both via
 // the V2 twin pair.
-export default async function BillsPage() {
+// ?view=hours&week=YYYY-MM-DD opens a tab on a given week (the hours
+// submission email links straight to the week to push to QB).
+export default async function BillsPage({ searchParams }: { searchParams?: { view?: string; week?: string } }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
@@ -25,5 +27,5 @@ export default async function BillsPage() {
       ? pageAccess!.includes("/reconciliation")
       : ["owner", "manager"].includes((profile as any)?.role || ""));
   const companyId = await getActiveCompanyId();
-  return <ReconciliationClient companyId={companyId} billingOnly={!fullPowers} />;
+  return <ReconciliationClient companyId={companyId} billingOnly={!fullPowers} initialView={searchParams?.view} initialWeek={searchParams?.week} />;
 }

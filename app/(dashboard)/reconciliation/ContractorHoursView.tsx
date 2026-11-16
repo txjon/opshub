@@ -21,9 +21,14 @@ const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart
 function mondayOf(d: Date) { const x = new Date(d); const day = (x.getDay() + 6) % 7; x.setDate(x.getDate() - day); x.setHours(0, 0, 0, 0); return x; }
 const shortDate = (s: string) => { const [y, m, d] = s.split("-"); return `${m}/${d}`; };
 
-export function ContractorHoursView() {
+export function ContractorHoursView({ initialWeek }: { initialWeek?: string } = {}) {
   const supabase = createClient();
-  const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
+  // initialWeek (YYYY-MM-DD, from the submission email link) opens that week;
+  // parsed as a local date, then snapped to its Monday.
+  const [weekStart, setWeekStart] = useState(() => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(initialWeek || "");
+    return mondayOf(m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date());
+  });
   const [contractors, setContractors] = useState<Contractor[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [pay, setPay] = useState<Record<string, Pay>>({});
