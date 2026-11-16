@@ -21,7 +21,7 @@ export default function LoginPage() {
       let dest = "/house";
       try {
         const next = new URLSearchParams(window.location.search).get("next");
-        if (next) { const u = new URL(next, window.location.origin); if (u.origin === window.location.origin) dest = u.pathname + u.search + u.hash; }
+        if (next) { const u = new URL(next, window.location.origin); if (u.origin === window.location.origin) dest = u.href; }  // absolute: "//x" paths can't re-read as a host
       } catch { /* malformed next → House */ }
       window.location.href = dest;
     }
