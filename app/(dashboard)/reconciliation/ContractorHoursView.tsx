@@ -18,6 +18,8 @@ type Run = { id: string; contractor_id: string; period_start: string; hours: num
 const money = (n: number) => `$${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const lbl = { fontSize: 9.5, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: T.faint } as const;
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+// Calendar-day steps: a fixed 7×24h step lands on Sunday 23:00 across fall-back DST.
+const addDays = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 function mondayOf(d: Date) { const x = new Date(d); const day = (x.getDay() + 6) % 7; x.setDate(x.getDate() - day); x.setHours(0, 0, 0, 0); return x; }
 const shortDate = (s: string) => { const [y, m, d] = s.split("-"); return `${m}/${d}`; };
 
@@ -43,7 +45,7 @@ export function ContractorHoursView({ initialWeek }: { initialWeek?: string } = 
   const [searching, setSearching] = useState(false);
 
   const periodStart = ymd(weekStart);
-  const periodEnd = ymd(new Date(weekStart.getTime() + 6 * 86400000));
+  const periodEnd = ymd(addDays(weekStart, 6));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -114,9 +116,9 @@ export function ContractorHoursView({ initialWeek }: { initialWeek?: string } = 
       {confirmEl}
       {/* Week selector */}
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 18 }}>
-        <button onClick={() => setWeekStart(new Date(weekStart.getTime() - 7 * 86400000))} style={navBtn}>← Prev</button>
+        <button onClick={() => setWeekStart(addDays(weekStart, -7))} style={navBtn}>← Prev</button>
         <div style={{ fontSize: 14, fontWeight: 800, color: T.text, fontFamily: mono }}>{shortDate(periodStart)} – {shortDate(periodEnd)}</div>
-        <button onClick={() => setWeekStart(new Date(weekStart.getTime() + 7 * 86400000))} style={navBtn}>Next →</button>
+        <button onClick={() => setWeekStart(addDays(weekStart, 7))} style={navBtn}>Next →</button>
         <button onClick={() => setWeekStart(mondayOf(new Date()))} style={{ ...navBtn, color: T.muted }}>This week</button>
         <span style={{ marginLeft: "auto", fontSize: 12, color: T.muted }}>week total <strong style={{ fontFamily: mono, color: T.text }}>{money(totalAmount)}</strong></span>
       </div>

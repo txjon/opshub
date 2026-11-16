@@ -17,8 +17,13 @@ export default function LoginPage() {
     if (error) { setError(error.message); setLoading(false); }
     else {
       // Back to the deep link that sent them here (internal paths only).
-      const next = new URLSearchParams(window.location.search).get("next") || "";
-      window.location.href = next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/house";
+      // Resolved against our origin, so tricks like "/%09/evil.com" can't leave the site.
+      let dest = "/house";
+      try {
+        const next = new URLSearchParams(window.location.search).get("next");
+        if (next) { const u = new URL(next, window.location.origin); if (u.origin === window.location.origin) dest = u.pathname + u.search + u.hash; }
+      } catch { /* malformed next → House */ }
+      window.location.href = dest;
     }
   };
 
