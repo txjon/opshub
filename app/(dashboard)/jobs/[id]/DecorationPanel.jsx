@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { T, font, mono } from "@/lib/theme";
-import { calcDecorationLines } from "@/lib/pricing";
+import { calcDecorationLines, pricesCustomCostsOnly } from "@/lib/pricing";
 import { useIsMobile } from "@/lib/useIsMobile";
 
 const LOCATION_PRESETS = ["Front","Back","Left Sleeve","Right Sleeve","Left Chest","Right Chest","Neck","Hood","Pocket"];
@@ -33,6 +33,10 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
   })();
   const activeLocs = activeLocsDeduped;
   const allPrintCount = activeLocs + (p.tagPrint?1:0);
+  // Costing ignores print, tag, packaging and setup on this item (non-garment
+  // type with custom cost lines). Say so, and grey out those prices, so the
+  // panel never shows money the total does not count.
+  const notPriced = pricesCustomCostsOnly(p) && (activeLocsRaw > 0 || !!p.tagPrint);
 
   // Shared qty calculation for a location (counts multiple shared locs on same item)
   const getSharedQty = (shareGroup) => {
@@ -294,6 +298,12 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
       {/* Full pricing panel — only when vendor has pricing data */}
       {p.printVendor && pr.qtys?.length > 0 && <>
 
+      {notPriced && (
+        <div style={{fontSize:12,fontWeight:600,color:T.amber,fontFamily:font,lineHeight:1.5}}>
+          Not counted in the price: this item's type is {p.garment_type || "a non-garment"}, so only its custom cost lines are priced. Print locations, tag, packaging and setup below are ignored. If it's a garment, set its type in Build.
+        </div>
+      )}
+
       {/* Print Location Cards */}
       <div style={{display:"flex",flexDirection:"column",gap:6}}>
         {(()=>{
@@ -434,7 +444,8 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
                       Minimum not met
                     </span>
                   ) : (
-                    <span style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:mono}}>
+                    <span title={notPriced?"Not counted in this item's price":undefined}
+                      style={{fontSize:14,fontWeight:700,color:notPriced?T.faint:T.text,textDecoration:notPriced?"line-through":"none",fontFamily:mono}}>
                       ${unitCost>0?unitCost.toFixed(2):"—"}
                     </span>
                   )}
@@ -597,7 +608,8 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
                           {TAG_SHARE_GROUPS.map(g=><option key={g} value={g}>Group {g}</option>)}
                         </select>
                       )}
-                      <span style={{fontSize:11,color:T.muted,fontFamily:mono,fontWeight:600}}>
+                      <span title={notPriced?"Not counted in this item's price":undefined}
+                        style={{fontSize:11,color:notPriced?T.faint:T.muted,textDecoration:notPriced?"line-through":"none",fontFamily:mono,fontWeight:600}}>
                         ${p.printVendor ? (lookupTagPrice(p.printVendor, p.tagShareGroup ? getTagSharedQty() : (p.totalQty||0)) || 0).toFixed(2) : "—"}
                       </span>
                     </div>

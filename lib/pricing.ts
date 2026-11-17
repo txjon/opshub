@@ -98,25 +98,32 @@ export function blankCostTotals(p: any): { raw: number; buffered: number; buffer
   return { raw, buffered: raw * blankBuffer, buffer: blankBuffer };
 }
 
-export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclCC: boolean, allProds: any[], printers: Record<string, any>) {
-  const qty = p.totalQty || 0; if (qty === 0) return null;
-  const isNonGarment = NON_GARMENT.includes(p.garment_type);
-  const blankCost = blankCostTotals(p).buffered;
-
-  // Non-garment items historically price decoration through CUSTOM COST lines
-  // only (no blank, print, finishing, or setup) — the location grid on them was
-  // spec for the PSD/proof, not money. That silently zeroed real screen-print
-  // pricing on bags/totes built the new way (HPD-2606-027 candy bag, Jul 29).
-  // GATED CHANGE (Jon): a non-garment item with REAL print locations and NO
-  // custom cost lines falls through to the normal decoration engine (vendor
-  // rates, screens, share groups) — blank cost stays 0 (isNonGarment above).
-  // The gate protects the back catalog: legacy accessories carry customCosts
-  // AND PSD-seeded ghost locations, and must never double-count.
+// Non-garment items historically price decoration through CUSTOM COST lines
+// only (no blank, print, finishing, or setup) — the location grid on them was
+// spec for the PSD/proof, not money. That silently zeroed real screen-print
+// pricing on bags/totes built the new way (HPD-2606-027 candy bag, Jul 29).
+// GATED CHANGE (Jon): a non-garment item with REAL print locations and NO
+// custom cost lines falls through to the normal decoration engine (vendor
+// rates, screens, share groups) — blank cost stays 0 (blankCostTotals).
+// The gate protects the back catalog: legacy accessories carry customCosts
+// AND PSD-seeded ghost locations, and must never double-count.
+// THE gate: the decoration panel reads it too, so it can say its print, tag
+// and packaging prices are not counted (HPD-2610-030: a tee typed "custom"
+// showed $0.65 per location while costing ignored them).
+export function pricesCustomCostsOnly(p: any): boolean {
+  if (!NON_GARMENT.includes(p?.garment_type)) return false;
   const hasPricedLocations = Object.values(p.printLocations || {}).some(
     (l: any) => l && l.location && (parseFloat(l.screens) || 0) > 0 && (l.printer || p.printVendor)
   );
   const hasCustomCosts = (p.customCosts || []).some((c: any) => (parseFloat(c.perUnit || c.amount) || 0) !== 0);
-  if (isNonGarment && !(hasPricedLocations && !hasCustomCosts)) {
+  return !(hasPricedLocations && !hasCustomCosts);
+}
+
+export function calcCostProduct(p: any, margin: string, inclShip: boolean, inclCC: boolean, allProds: any[], printers: Record<string, any>) {
+  const qty = p.totalQty || 0; if (qty === 0) return null;
+  const blankCost = blankCostTotals(p).buffered;
+
+  if (pricesCustomCostsOnly(p)) {
     const customTotal = (p.customCosts || []).reduce((a: number, c: any) => {
       const v = parseFloat(c.perUnit || c.amount) || 0;
       const isFlat = c.flat === true || c.flat === "true";
