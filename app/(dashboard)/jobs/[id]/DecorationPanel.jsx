@@ -109,8 +109,9 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
     const fmtMoney = n => `$${(n || 0).toFixed(2)}`;
     const perUnit = n => qty > 0 ? n / qty : 0;
 
-    const LineRow = ({ left, right, sublabel }) => (
-      <div style={{display:"flex",alignItems:"baseline",gap:8,fontSize:12,padding:"5px 0",borderBottom:`1px solid ${T.border}33`}}>
+    const LineRow = ({ left, right, sublabel, struck = false }) => (
+      <div title={struck?"Not counted in this item's price":undefined}
+        style={{display:"flex",alignItems:"baseline",gap:8,fontSize:12,padding:"5px 0",borderBottom:`1px solid ${T.border}33`,...(struck?{opacity:0.45,textDecoration:"line-through"}:{})}}>
         <span style={{color:T.text,fontWeight:500,flex:1,minWidth:0}}>
           {left}
           {sublabel && <span style={{fontSize:11,color:T.faint,marginLeft:6}}>{sublabel}</span>}
@@ -126,7 +127,19 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
       </div>
     );
 
-    const decorationTotal = sumLines(lines);
+    // Custom-cost-only items: costing counts the custom cost lines alone, so
+    // rows come from sources, not label matching (a custom cost can be named
+    // "Packaging" or "Front"). Ignored = every line the item emits with its
+    // custom costs removed; counted = its custom costs, same rule and sum as
+    // calcCostProduct.
+    const customOnly = pricesCustomCostsOnly(p);
+    const ignoredLines = customOnly ? (calcDecorationLines({ ...p, customCosts: [] }, costProds, PRINTERS) || []) : [];
+    const countedCustom = customOnly ? (p.customCosts || []).map(c => {
+      const v = parseFloat(c.perUnit || c.amount) || 0;
+      const isFlat = c.flat === true || c.flat === "true";
+      return { label: c.desc || c.label || "Custom", rate: v, isFlat, total: isFlat ? v : v * qty };
+    }).filter(c => c.rate !== 0) : [];
+    const decorationTotal = customOnly ? sumLines(countedCustom) : sumLines(lines);
 
     return (
       <div style={{display:"flex",flexDirection:"column",gap:0,paddingLeft:isMobile?0:20}}>
@@ -147,7 +160,21 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
           {fleecePresent && headerRow("Fleece", "Yes")}
         </div>
 
-        {/* Flat line list — every cost in one read, no section chrome */}
+        {customOnly && ignoredLines.length > 0 && (
+          <div style={{fontSize:12,fontWeight:600,color:T.amber,fontFamily:font,lineHeight:1.5,marginBottom:8}}>
+            Not counted in the price: this item's type is {p.garment_type || "a non-garment"}, so only its custom cost lines are priced. The struck lines below are ignored.
+          </div>
+        )}
+
+        {customOnly ? (
+          <div style={{display:"flex",flexDirection:"column",marginBottom:6}}>
+            {ignoredLines.map((ln, idx) => <LineRow key={"ign"+idx} left={ln.label} right={fmtMoney(ln.total)} struck />)}
+            {countedCustom.map((ln, idx) => (
+              <LineRow key={"cust"+idx} left={ln.label} sublabel={ln.isFlat ? "flat" : `${fmtMoney(ln.rate)} / unit`} right={fmtMoney(ln.total)} />
+            ))}
+          </div>
+        ) : (
+        /* Flat line list — every cost in one read, no section chrome */
         <div style={{display:"flex",flexDirection:"column",marginBottom:6}}>
           {locLines.map((ln, idx) => {
             const matchingLoc = Object.values(p.printLocations || {}).find(l => l?.location === ln.label);
@@ -167,6 +194,7 @@ export function DecorationPanel({ p, i, costProds, PRINTERS, decoratorRecords = 
             <LineRow key={"cust"+idx} left={ln.label} sublabel={ln.isFlat ? "flat" : `${fmtMoney(ln.rate)} / unit`} right={fmtMoney(ln.total)} />
           ))}
         </div>
+        )}
 
         {/* Grand total */}
         <div style={{marginTop:6,paddingTop:10,borderTop:`2px solid ${T.text}`,display:"flex",alignItems:"baseline",justifyContent:"space-between"}}>
