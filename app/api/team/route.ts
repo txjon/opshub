@@ -25,6 +25,8 @@ export async function POST(req: NextRequest) {
 
     const validRoles = ["owner", "manager", "ops", "warehouse", "viewer"];
     const assignedRole = validRoles.includes(role) ? role : "viewer";
+    // Only an owner makes an owner. Otherwise "manager" is owner on demand.
+    if (assignedRole === "owner" && profile?.role !== "owner") return NextResponse.json({ error: "Only an owner can invite an owner" }, { status: 403 });
 
     // Derive departments from role. Owner gets the Owner tab + everything;
     // manager gets everything except the Owner tab; ops/staff get the
@@ -88,6 +90,14 @@ export async function PATCH(req: NextRequest) {
 
     const { profileId, role, fullName } = await req.json();
     if (!profileId) return NextResponse.json({ error: "Missing profileId" }, { status: 400 });
+
+    // Only an owner makes an owner or edits one. Managers manage everyone else.
+    if (profile?.role !== "owner") {
+      if (role === "owner") return NextResponse.json({ error: "Only an owner can make someone an owner" }, { status: 403 });
+      const { data: target } = await createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+        .from("profiles").select("role").eq("id", profileId).single();
+      if (!target || target.role === "owner") return NextResponse.json({ error: "Only an owner can change an owner" }, { status: 403 });
+    }
 
     const ROLE_DEPARTMENTS: Record<string, string[]> = {
       owner: ["owner", "labs", "distro", "ecomm", "contacts", "settings"],
