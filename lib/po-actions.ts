@@ -174,7 +174,7 @@ export async function shipItemFromDecorator(supabase: any, item: any, opts?: { w
   // delivery state — NOT just pipeline_stage="shipped" (which for a ship_through
   // item is the inbound vendor→HPD leg, not delivery). Only a drop_ship ship
   // can be a final delivery, so this check lives in the drop_ship branch;
-  // ship_through completion is checked in forwardItems.
+  // ship_through/stage completion is recalcJobPhase's job (lib/job-phase-recalc).
   if (route === "drop_ship") {
     const jr = (jobRow as any)?.shipping_route || "ship_through";
     const { data: jobItems } = await supabase.from("items").select("id, pipeline_stage, shipping_route, forwarded_at, webstore_entered_at").eq("job_id", item.job_id);

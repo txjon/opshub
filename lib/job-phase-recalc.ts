@@ -1,17 +1,16 @@
 // Recalculate the LEGACY jobs.phase after a v2 warehouse write.
 //
 // Why this exists: the v2 boards (loadReceivingBoard / loadShippingBoard /
-// loadStagingBoard) and ~35 other consumers still key off jobs.phase. The legacy
-// warehouse flow (use-warehouse.recalcJobPhase) advanced phase after every
-// action; the v2 write libs (production2-ship / receiving2-receive /
-// shipping2-forward / staging-enter) did not — so a job shipped via v2 would stay
-// at "production" and vanish from the receiving/shipping boards (which filter by
-// phase). This is the shared, server-capable recalc the v2 paths call.
+// loadStagingBoard) and ~35 other consumers still key off jobs.phase. The v2
+// write libs (production2-ship / receiving2-receive / shipping2-forward /
+// staging-enter) don't advance it themselves, so without this a job shipped via
+// v2 would stay at "production" and vanish from the receiving/shipping boards
+// (which filter by phase). This is the shared, server-capable recalc they call.
 //
 // It reads the flat legacy item fields (pipeline_stage, ship_tracking,
 // received_at_hpd, forwarded_at, webstore_entered_at) — which the ledger bridge
 // (recomputeItemFromLedger) + production2-ship keep current — and runs the legacy
-// calculatePhase engine, mirroring use-warehouse exactly so both flows agree.
+// calculatePhase engine, the same as the job page's recalc.
 
 import { calculatePhase, isClosedOut } from "./lifecycle";
 import { poSentToItem } from "./item-status";
@@ -20,7 +19,7 @@ import { allRowsIn } from "./all-rows";
 import { needsProof } from "./proof-gate";
 
 // Ledger truth per item for calculatePhase. EVERY caller that stores a phase
-// passes pulled_out from here, or the job page and the warehouse flip a job
+// passes pulled_out from here, or the job page flips a job
 // back after the recalc completes it. Same for ledger_open. Throws on a failed
 // read: callers skip the phase write rather than store a phase computed from
 // partial data.

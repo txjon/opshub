@@ -2,9 +2,8 @@
 //
 // One write path for the handoff spine:
 //   shipments / shipment_lines — created when production marks items shipped
-//     (shipItemFromDecorator), received by the warehouse. group_key mirrors
-//     lib/use-shipments shipmentGroupKey EXACTLY so the legacy derived grouping
-//     and these rows can never disagree during the dual-write transition.
+//     (shipItemFromDecorator), received by the warehouse. group_key is
+//     lib/box-key shipmentGroupKey.
 //   pull_requests — production asks the warehouse to hold units back
 //     (pre-declared on /production or the job page) OR the warehouse logs one
 //     ad-hoc at receive/forward time. Fulfilling a pull keeps writing the

@@ -59,7 +59,7 @@ const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABA
       .eq("job_id", j.id);
     if (!items || items.length === 0) continue;
 
-    // Effective route resolver — same logic as useWarehouse loader.
+    // Effective route resolver: item override, else job route.
     const candidates = items.filter(it => {
       const effective = it.shipping_route || j.shipping_route;
       return effective === "stage"

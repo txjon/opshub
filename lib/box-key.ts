@@ -1,9 +1,8 @@
 // Box identity — pure helpers shared by the browser boards AND server routes
-// (vendor portal mark-shipped, tracking cron). They used to live in
-// lib/use-shipments.ts, which is "use client": importing that from a server
-// route hands back client-reference proxies, so shipmentGroupKey "was not a
-// function" and every vendor-portal ship failed to create a box (found Sep 17
-// 2026 on the Silencer split). Nothing here touches React or the browser.
+// (vendor portal mark-shipped, tracking cron). Nothing here touches React or
+// the browser: a "use client" module imported from a server route hands back
+// client-reference proxies, so shipmentGroupKey "was not a function" and every
+// vendor-portal ship failed to create a box (Sep 17 2026, Silencer split).
 
 // A local pickup has no carrier tracking — stamp it with vendor + date so the
 // shipment still has a concrete, referenceable identity ("Pickup · OSM · Jul 10")

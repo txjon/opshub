@@ -245,9 +245,8 @@ export async function POST(req: NextRequest) {
       // to HPD; ignoring them lets a mixed-route stage job satisfy the
       // gate. Without this filter, even one drop_ship-overridden item
       // would block the email forever because its received_at_hpd never
-      // flips. Callers (useWarehouse, warehouse page) check against an
-      // in-memory items list that's pre-filtered to only-shipped-or-
-      // received items, so we re-check against the full set here.
+      // flips. Re-check against the job's full item set here, not the
+      // caller's view of it.
       const { data: allJobItems } = await sb
         .from("items")
         .select("id, pipeline_stage, received_at_hpd, garment_type, shipping_route")
