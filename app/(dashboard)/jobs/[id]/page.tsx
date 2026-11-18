@@ -608,9 +608,10 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     if (!job || job.phase === "on_hold" || job.phase === "cancelled") return;
     const costProds = (job as any).costing_data?.costProds || [];
     const poSentVendors = (job as any).type_meta?.po_sent_vendors || [];
-    let pulledOut: Record<string, boolean>;
-    try { ({ pulledOut } = await loadLedgerFlags(supabase, items as any[], (job as any).shipping_route)); }
+    let flags: Awaited<ReturnType<typeof loadLedgerFlags>>;
+    try { flags = await loadLedgerFlags(supabase, items as any[], (job as any).shipping_route); }
     catch (e) { console.error("[recalcPhase] ledger read failed, phase not recalculated:", job.id, e); return; }
+    const { ledgerOpen, pulledOut } = flags;
     const result = calculatePhase({
       job: {
         job_type: job.job_type,
@@ -640,6 +641,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         webstore_entered_at: (it as any).webstore_entered_at || null,
         forwarded_at: (it as any).forwarded_at || null,
         archived_at: (it as any).archived_at || null,
+        ledger_open: ledgerOpen[it.id] || false,
         pulled_out: pulledOut[it.id] || false,
       })),
       payments: payments.map(p => ({ amount: p.amount, status: p.status })),

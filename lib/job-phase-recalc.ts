@@ -21,9 +21,9 @@ import { needsProof } from "./proof-gate";
 
 // Ledger truth per item for calculatePhase. EVERY caller that stores a phase
 // passes pulled_out from here, or the job page and the warehouse flip a job
-// back after the recalc completes it. (ledger_open is still passed by
-// recalcJobPhase only.) Throws on a failed read: callers skip the phase write
-// rather than store a phase computed from partial data.
+// back after the recalc completes it. Same for ledger_open. Throws on a failed
+// read: callers skip the phase write rather than store a phase computed from
+// partial data.
 //  - ledgerOpen: shipped something, not closed, units still owed at the
 //    decorator (an open partial wave; see lifecycle.ts ledger_open).
 //  - pulledOut: every received unit was pulled (lib/item-derivation pulledOut).

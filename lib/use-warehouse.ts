@@ -337,12 +337,13 @@ export function useWarehouse() {
       const proofs = (proofFiles || []).filter(f => f.item_id === it.id);
       proofStatus[it.id] = { allApproved: manualApproved || (proofs.length > 0 && proofs.every(f => f.approval === "approved")) };
     }
-    let pulledOut: Record<string, boolean>;
-    try { ({ pulledOut } = await loadLedgerFlags(supabase, jobItems || [], jobData.shipping_route)); }
+    let flags: Awaited<ReturnType<typeof loadLedgerFlags>>;
+    try { flags = await loadLedgerFlags(supabase, jobItems || [], jobData.shipping_route); }
     catch (e) { console.error("[recalcJobPhase] ledger read failed, phase not recalculated:", jobId, e); return; }
+    const { ledgerOpen, pulledOut } = flags;
     const result = calculatePhase({
       job: { job_type: jobData.job_type, shipping_route: jobData.shipping_route || "ship_through", payment_terms: jobData.payment_terms, quote_approved: jobData.quote_approved || false, phase: jobData.phase || "", fulfillment_status: jobData.fulfillment_status || null, closed_out: isClosedOut(jobData as any) },
-      items: (jobItems || []).map(it => ({ id: it.id, pipeline_stage: it.pipeline_stage, po_sent: poSentToItem({ printVendor: (cd.costProds || []).find((cp: any) => cp.id === it.id)?.printVendor, poSentVendors: tm.po_sent_vendors }), blanks_order_number: it.blanks_order_number, blanks_order_cost: (it as any).blanks_order_cost ?? null, ship_tracking: it.ship_tracking, received_at_hpd: it.received_at_hpd || false, artwork_status: it.artwork_status, garment_type: it.garment_type, shipping_route: (it as any).shipping_route || null, webstore_entered_at: (it as any).webstore_entered_at || null, forwarded_at: (it as any).forwarded_at || null, archived_at: (it as any).archived_at || null, pulled_out: pulledOut[it.id] || false })),
+      items: (jobItems || []).map(it => ({ id: it.id, pipeline_stage: it.pipeline_stage, po_sent: poSentToItem({ printVendor: (cd.costProds || []).find((cp: any) => cp.id === it.id)?.printVendor, poSentVendors: tm.po_sent_vendors }), blanks_order_number: it.blanks_order_number, blanks_order_cost: (it as any).blanks_order_cost ?? null, ship_tracking: it.ship_tracking, received_at_hpd: it.received_at_hpd || false, artwork_status: it.artwork_status, garment_type: it.garment_type, shipping_route: (it as any).shipping_route || null, webstore_entered_at: (it as any).webstore_entered_at || null, forwarded_at: (it as any).forwarded_at || null, archived_at: (it as any).archived_at || null, ledger_open: ledgerOpen[it.id] || false, pulled_out: pulledOut[it.id] || false })),
       payments: (payments || []).map(p => ({ amount: p.amount ?? 0, status: p.status ?? "" })),
       proofStatus,
       poSentVendors: tm.po_sent_vendors || [],
@@ -460,8 +461,14 @@ export function useWarehouse() {
     // isn't done just because its ship_through items are forwarded.
     const { data: jr } = await supabase.from("jobs").select("shipping_route").eq("id", jobId).single();
     const jobRoute = (jr as any)?.shipping_route || "ship_through";
-    const { data: allItems } = await supabase.from("items").select("id, pipeline_stage, shipping_route, forwarded_at, webstore_entered_at").eq("job_id", jobId);
+    const { data: allItems } = await supabase.from("items").select("id, pipeline_stage, shipping_route, forwarded_at, webstore_entered_at, archived_at").eq("job_id", jobId);
+    // Same handoff rules as lib/lifecycle: an archived item never holds a job,
+    // and a fully pulled item has nothing left to forward or enter.
+    let pulledOut: Record<string, boolean> = {};
+    try { ({ pulledOut } = await loadLedgerFlags(supabase, (allItems || []) as any[], jobRoute)); }
+    catch (e) { console.error("[forwardItems] ledger read failed, job left open:", jobId, e); return false; }
     const delivered = (x: any) => {
+      if (x.archived_at || pulledOut[x.id]) return true;
       const r = x.shipping_route || jobRoute;
       if (r === "ship_through") return !!x.forwarded_at;
       if (r === "stage") return !!x.webstore_entered_at;
