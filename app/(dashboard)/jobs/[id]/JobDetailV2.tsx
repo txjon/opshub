@@ -740,7 +740,15 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     try {
       const { error } = await (createClient().from("jobs") as any).update({ phase }).eq("id", job.id);
       if (error) { setJob((j: any) => ({ ...j, phase: prev })); failed("Phase change failed — not saved", error); }
-      else logJobActivity(job.id, `Phase → ${phase}`);
+      else {
+        logJobActivity(job.id, `Phase → ${phase}`);
+        // Reopening a closed-out job releases the lock for good (lib/lifecycle
+        // isClosedOut), or it would silently re-lock the next time it completes.
+        if (prev === "complete" && phase !== "complete" && job.type_meta?.closed_out) {
+          const r = await patchJobTypeMeta(createClient(), job.id, tm => { const { closed_out, ...rest } = tm; return rest; });
+          if (!r.ok) failed("Phase changed, but the closed-out mark was not cleared", r.error);
+        }
+      }
     } catch (e) { setJob((j: any) => ({ ...j, phase: prev })); failed("Phase change failed — not saved", e); }
     setMenuOpen(false);
   };

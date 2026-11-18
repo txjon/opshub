@@ -14,6 +14,8 @@ export type LifecycleInput = {
     quote_approved: boolean;
     phase: string;
     fulfillment_status: string | null;
+    // isClosedOut(job): complete, and closed outside the ledger. Stays complete.
+    closed_out?: boolean;
   };
   items: {
     id: string;
@@ -53,6 +55,10 @@ export type LifecycleInput = {
     // moved to another job). Archived items never gate a phase; a job whose
     // every item is archived is complete, not intake (HPD-2606-047, 2026-08-24).
     archived_at?: string | null;
+    // Ledger truth (loadLedgerFlags): every received unit was pulled (samples),
+    // so nothing is left to forward or enter. Counts as handed off on any route
+    // that comes to HPD, or the item holds the job open forever (HPD-2608-004).
+    pulled_out?: boolean;
   }[];
   payments: {
     amount: number;
@@ -68,12 +74,25 @@ export type LifecycleResult = {
   itemProgress: string;
 };
 
+// A complete job closed out by hand (type_meta.closed_out). Jobs finished
+// before box tracking have gaps in their ledger (receipts partly logged, no
+// forwards), which the rules read as open work, so every recalc flipped them
+// back to shipping/receiving (HPD-2603-011 and four others, Nov 2026). Like
+// on_hold/cancelled, no engine moves a closed-out job. Every phase writer and
+// the derived view check this.
+export function isClosedOut(job: { phase?: string | null; type_meta?: any } | null | undefined): boolean {
+  return job?.phase === "complete" && !!job?.type_meta?.closed_out;
+}
+
 export function calculatePhase(input: LifecycleInput): LifecycleResult {
   const { job, items: allItems, payments, proofStatus, poSentVendors, costingVendors } = input;
 
   // Manual locks
   if (job.phase === "on_hold" || job.phase === "cancelled") {
     return { phase: job.phase, itemProgress: "" };
+  }
+  if (job.phase === "complete" && job.closed_out) {
+    return { phase: "complete", itemProgress: "Closed out" };
   }
 
   // Archived items are closed out — they never hold a job in an earlier phase.
@@ -119,14 +138,11 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
   const blanksOrdered = apparelItems.filter(it => it.blanks_order_cost != null).length;
   const allProofsApproved = items.every(it => proofSatisfied(it, proofStatus[it.id]));
 
-  // Stage-route "done" requires both received AND webstore_entered on
-  // every to-HPD item. The webstore handoff is the OpsHub completion
-  // event for stage — once items are keyed into Shopify, ShipStation
-  // owns the rest. Without this check, stage jobs piled up forever in
-  // the "fulfillment" phase. drop_ship + ship_through ignore this flag.
-  const allStageWebstoreEntered = route !== "stage"
-    || toHpdItems.length === 0
-    || toHpdItems.every(it => !!it.webstore_entered_at);
+  // Each item's handoff: a stage item is done once keyed into Shopify
+  // (ShipStation owns the rest), a ship_through item once forwarded. A fully
+  // pulled item has nothing left to hand off on either route.
+  const entered = (it: any) => !!it.webstore_entered_at || !!it.pulled_out;
+  const forwarded = (it: any) => !!it.forwarded_at || !!it.pulled_out;
 
   // ── COMPLETE — every item satisfies ITS OWN route's completion event:
   //  - drop_ship: shipped from decorator.
@@ -138,8 +154,8 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
   const stItems = toHpdItems.filter(it => effectiveRoute(it) === "ship_through");
   const stageItems = toHpdItems.filter(it => effectiveRoute(it) === "stage");
   const dropShipDone = dropShipItems.length === 0 || dropShipShipped === dropShipItems.length;
-  const stDone = stItems.length === 0 || stItems.every(it => !!it.forwarded_at);
-  const stageDone = stageItems.length === 0 || stageItems.every(it => it.received_at_hpd && !!it.webstore_entered_at);
+  const stDone = stItems.length === 0 || stItems.every(forwarded);
+  const stageDone = stageItems.length === 0 || stageItems.every(it => it.received_at_hpd && entered(it));
   const toHpdDone = toHpdItems.length === 0 || (stDone && stageDone);
   if (dropShipDone && toHpdDone && (dropShipItems.length + toHpdItems.length) > 0) {
     return { phase: "complete", itemProgress: `${total}/${total} complete` };
@@ -151,16 +167,25 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
   //   2. All entered, awaiting ShipStation fulfillment — out of OpsHub scope
   //      (shouldn't happen now that we auto-complete on entry, but kept
   //      for safety in case the user hasn't run migration 078 yet).
+  //  A stale fulfillment_status "shipped" (an earlier ship-out on the same job)
+  //  never hides units still waiting for Shopify: HPD-2605-047's pre-order
+  //  landed after its samples shipped out, dropped to "production", and so
+  //  never reached the staging board (Nov 2026).
   if (route === "stage"
       && toHpdItems.length > 0
-      && receivedAtHpd === toHpdItems.length
-      && job.fulfillment_status !== "shipped") {
-    if (!allStageWebstoreEntered) {
-      const entered = toHpdItems.filter(it => !!it.webstore_entered_at).length;
-      return { phase: "fulfillment", itemProgress: `${entered}/${toHpdItems.length} entered in Shopify` };
+      && receivedAtHpd === toHpdItems.length) {
+    // Over STAGE items only: a ship_through override on a stage job finishes
+    // by being forwarded, never entered, and belongs to the shipping branch.
+    if (!stageItems.every(entered)) {
+      const enteredCount = stageItems.filter(entered).length;
+      return { phase: "fulfillment", itemProgress: `${enteredCount}/${stageItems.length} entered in Shopify` };
     }
-    const status = job.fulfillment_status || "staged";
-    return { phase: "fulfillment", itemProgress: status };
+    // ...and only once nothing is left to forward: an unforwarded ship_through
+    // override belongs to the shipping branch below.
+    if (job.fulfillment_status !== "shipped" && stItems.every(forwarded)) {
+      const status = job.fulfillment_status || "staged";
+      return { phase: "fulfillment", itemProgress: status };
+    }
   }
 
   // ── SHIPPING (wave-based) — any ship_through item has landed (received) and
@@ -169,7 +194,7 @@ export function calculatePhase(input: LifecycleInput): LifecycleResult {
   // in transit; "ship what's landed" while the rest catch up.
   if (stItems.length > 0) {
     const stReceived = stItems.filter(it => it.received_at_hpd).length;
-    const stForwarded = stItems.filter(it => !!it.forwarded_at).length;
+    const stForwarded = stItems.filter(forwarded).length;
     if (stReceived > 0 && stForwarded < stItems.length) {
       const awaiting = stItems.length - stReceived;
       return { phase: "shipping", itemProgress: awaiting > 0 ? `${stForwarded}/${stItems.length} forwarded · ${awaiting} awaiting` : `${stForwarded}/${stItems.length} forwarded` };

@@ -231,11 +231,14 @@ export async function recomputeItemFromLedger(supabase: Sb, itemId: string): Pro
     received_at_hpd_at: receivedAtHpd ? (item.received_at_hpd_at || nowIso) : null,
   };
   // forwarded_at / webstore_entered_at are MONOTONIC (advance-only) — see note above.
-  if (route === "ship_through" && ds.done) {
+  // endpointReached, not done: a fully PULLED item is done but was never
+  // forwarded or entered, and these stamps never clear (a returned pull would
+  // leave a false stamp behind).
+  if (route === "ship_through" && ds.endpointReached) {
     update.forwarded_at = (item as any).forwarded_at || nowIso;
     if (latestForwardTracking) update.forward_tracking = latestForwardTracking;
   }
-  if (route === "stage" && ds.done) {
+  if (route === "stage" && ds.endpointReached) {
     update.webstore_entered_at = (item as any).webstore_entered_at || nowIso;
   }
   await supabase.from("items").update(update).eq("id", itemId);

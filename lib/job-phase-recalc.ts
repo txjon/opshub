@@ -13,10 +13,47 @@
 // (recomputeItemFromLedger) + production2-ship keep current — and runs the legacy
 // calculatePhase engine, mirroring use-warehouse exactly so both flows agree.
 
-import { calculatePhase } from "./lifecycle";
+import { calculatePhase, isClosedOut } from "./lifecycle";
 import { poSentToItem } from "./item-status";
 import { deriveItem } from "./item-derivation";
+import { allRowsIn } from "./all-rows";
 import { needsProof } from "./proof-gate";
+
+// Ledger truth per item for calculatePhase. EVERY caller that stores a phase
+// passes pulled_out from here, or the job page and the warehouse flip a job
+// back after the recalc completes it. (ledger_open is still passed by
+// recalcJobPhase only.) Throws on a failed read: callers skip the phase write
+// rather than store a phase computed from partial data.
+//  - ledgerOpen: shipped something, not closed, units still owed at the
+//    decorator (an open partial wave; see lifecycle.ts ledger_open).
+//  - pulledOut: every received unit was pulled (lib/item-derivation pulledOut).
+export async function loadLedgerFlags(sb: any, items: { id: string; shipping_route?: string | null }[], jobRoute: string | null | undefined): Promise<{ ledgerOpen: Record<string, boolean>; pulledOut: Record<string, boolean> }> {
+  const ledgerOpen: Record<string, boolean> = {};
+  const pulledOut: Record<string, boolean> = {};
+  const ids = items.map(it => it.id);
+  if (!ids.length) return { ledgerOpen, pulledOut };
+  // Paged (1,000-row cap): a truncated movements read could drop receives but
+  // keep pulls and falsely mark an item pulled out, completing the job.
+  const allMoves = await allRowsIn(ids, (c, f, t) => sb.from("movements")
+    .select("item_id, type, qtys, reverses_id, id").in("item_id", c).order("id").range(f, t));
+  const bsl = await allRowsIn(ids, (c, f, t) => sb.from("buy_sheet_lines")
+    .select("id, item_id, size, qty_ordered").in("item_id", c).order("id").range(f, t));
+  const finals = await allRowsIn(ids, (c, f, t) => sb.from("items").select("id, ship_final").in("id", c).order("id").range(f, t));
+  const finalById = new Map<string, boolean>((finals || []).map((f: any) => [f.id, !!f.ship_final]));
+  for (const it of items) {
+    const ordered: Record<string, number> = {};
+    for (const l of (bsl || []).filter((b: any) => b.item_id === it.id)) ordered[l.size] = (ordered[l.size] || 0) + (Number(l.qty_ordered) || 0);
+    const st = deriveItem({
+      ordered,
+      route: (it.shipping_route || jobRoute || "ship_through") as any,
+      shipFinal: finalById.get(it.id) || false,
+      movements: (allMoves || []).filter((m: any) => m.item_id === it.id).map((m: any) => ({ type: m.type, qtys: m.qtys || {}, reversesId: m.reverses_id, id: m.id })),
+    });
+    ledgerOpen[it.id] = st.shippedTotal > 0 && !st.closed && st.owedTotal > 0;
+    pulledOut[it.id] = st.pulledOut;
+  }
+  return { ledgerOpen, pulledOut };
+}
 
 export async function recalcJobPhase(sb: any, jobId: string, opts?: { commit?: boolean }): Promise<{ phase: string; stored: string; changed: boolean } | null> {
   const { data: jobData } = await sb.from("jobs").select("*, clients(name)").eq("id", jobId).single();
@@ -25,26 +62,13 @@ export async function recalcJobPhase(sb: any, jobId: string, opts?: { commit?: b
     .select("id, pipeline_stage, blanks_order_number, blanks_order_cost, ship_tracking, received_at_hpd, artwork_status, garment_type, shipping_route, webstore_entered_at, forwarded_at, archived_at, decorator_assignments(decorators(name, short_code))")
     .eq("job_id", jobId);
   const { data: payments } = await sb.from("payment_records").select("amount, status").eq("job_id", jobId);
-  // Ledger-derived open-wave signal per item (see lifecycle.ts ledger_open):
-  // shipped something, not closed, units still owed at the decorator.
-  const { data: allMoves } = await sb.from("movements")
-    .select("item_id, type, qtys, reverses_id, id").in("item_id", (jobItems || []).map((it: any) => it.id));
-  const { data: bsl } = await sb.from("buy_sheet_lines")
-    .select("item_id, size, qty_ordered").in("item_id", (jobItems || []).map((it: any) => it.id));
-  const { data: finals } = await sb.from("items").select("id, ship_final").in("id", (jobItems || []).map((it: any) => it.id));
-  const finalById = new Map<string, boolean>((finals || []).map((f: any) => [f.id, !!f.ship_final]));
-  const ledgerOpen: Record<string, boolean> = {};
-  for (const it of (jobItems || [])) {
-    const ordered: Record<string, number> = {};
-    for (const l of (bsl || []).filter((b: any) => b.item_id === it.id)) ordered[l.size] = (ordered[l.size] || 0) + (Number(l.qty_ordered) || 0);
-    const st = deriveItem({
-      ordered,
-      route: (it.shipping_route || jobData.shipping_route || "ship_through") as any,
-      shipFinal: finalById.get(it.id) || false,
-      movements: (allMoves || []).filter((m: any) => m.item_id === it.id).map((m: any) => ({ type: m.type, qtys: m.qtys || {}, reversesId: m.reverses_id, id: m.id })),
-    });
-    ledgerOpen[it.id] = st.shippedTotal > 0 && !st.closed && st.owedTotal > 0;
-  }
+  // A failed ledger read skips the recalc (returns null) instead of throwing:
+  // callers run this AFTER their own write is committed, and an error there
+  // would tell staff a saved forward/entry failed, inviting a double retry.
+  let flags: Awaited<ReturnType<typeof loadLedgerFlags>>;
+  try { flags = await loadLedgerFlags(sb, jobItems || [], jobData.shipping_route); }
+  catch (e) { console.error("[recalcJobPhase] ledger read failed, phase not recalculated:", jobId, e); return null; }
+  const { ledgerOpen, pulledOut } = flags;
   const { data: proofFiles } = await sb.from("item_files").select("item_id, approval")
     .eq("stage", "proof").is("superseded_at", null).in("item_id", (jobItems || []).map((it: any) => it.id));
   const proofStatus: Record<string, { allApproved: boolean }> = {};
@@ -56,7 +80,7 @@ export async function recalcJobPhase(sb: any, jobId: string, opts?: { commit?: b
   const costProds = (jobData.costing_data?.costProds || []) as any[];
   const poSentVendors = (jobData.type_meta?.po_sent_vendors || []) as string[];
   const result = calculatePhase({
-    job: { job_type: jobData.job_type, shipping_route: jobData.shipping_route || "ship_through", payment_terms: jobData.payment_terms, quote_approved: jobData.quote_approved || false, phase: jobData.phase, fulfillment_status: jobData.fulfillment_status || null },
+    job: { job_type: jobData.job_type, shipping_route: jobData.shipping_route || "ship_through", payment_terms: jobData.payment_terms, quote_approved: jobData.quote_approved || false, phase: jobData.phase, fulfillment_status: jobData.fulfillment_status || null, closed_out: isClosedOut(jobData) },
     items: (jobItems || []).map((it: any) => ({
       id: it.id,
       pipeline_stage: it.pipeline_stage,
@@ -79,6 +103,7 @@ export async function recalcJobPhase(sb: any, jobId: string, opts?: { commit?: b
       webstore_entered_at: it.webstore_entered_at || null,
       forwarded_at: it.forwarded_at || null,
       ledger_open: ledgerOpen[it.id] || false,
+      pulled_out: pulledOut[it.id] || false,
       archived_at: it.archived_at || null,
     })),
     payments: (payments || []).map((p: any) => ({ amount: p.amount, status: p.status })),

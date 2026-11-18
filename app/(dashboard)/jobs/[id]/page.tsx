@@ -9,7 +9,8 @@ import { JobDetailV2 } from "./JobDetailV2";
 import { T, mono, sortSizes } from "@/lib/theme";
 import { Skeleton } from "@/components/Skeleton";
 import { JobActivityPanel, logJobActivity, notifyTeam } from "@/components/JobActivityPanel";
-import { calculatePhase } from "@/lib/lifecycle";
+import { calculatePhase, isClosedOut } from "@/lib/lifecycle";
+import { loadLedgerFlags } from "@/lib/job-phase-recalc";
 import { loadJobPhase, type JobPhaseView } from "@/lib/item-state";
 import { poSentToItem } from "@/lib/item-status";
 
@@ -607,6 +608,9 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
     if (!job || job.phase === "on_hold" || job.phase === "cancelled") return;
     const costProds = (job as any).costing_data?.costProds || [];
     const poSentVendors = (job as any).type_meta?.po_sent_vendors || [];
+    let pulledOut: Record<string, boolean>;
+    try { ({ pulledOut } = await loadLedgerFlags(supabase, items as any[], (job as any).shipping_route)); }
+    catch (e) { console.error("[recalcPhase] ledger read failed, phase not recalculated:", job.id, e); return; }
     const result = calculatePhase({
       job: {
         job_type: job.job_type,
@@ -615,6 +619,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         quote_approved: (job as any).quote_approved || false,
         phase: job.phase,
         fulfillment_status: (job as any).fulfillment_status || null,
+        closed_out: isClosedOut(job as any),
       },
       items: items.map(it => ({
         id: it.id,
@@ -635,6 +640,7 @@ export default function JobDetailPage({ params }: { params: { id: string } }) {
         webstore_entered_at: (it as any).webstore_entered_at || null,
         forwarded_at: (it as any).forwarded_at || null,
         archived_at: (it as any).archived_at || null,
+        pulled_out: pulledOut[it.id] || false,
       })),
       payments: payments.map(p => ({ amount: p.amount, status: p.status })),
       proofStatus,

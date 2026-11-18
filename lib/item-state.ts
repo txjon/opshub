@@ -7,6 +7,7 @@
 
 import { deriveItem, type ItemState, type Movement, type Route, type SizeQtys } from "./item-derivation";
 import { resolveJobShipTo, itemDestinations, sentByLocation, owedToLocation, allocateForward, splitTag, type LocationRow } from "./destinations";
+import { isClosedOut } from "./lifecycle";
 import { computePhase, paymentGateMet, type PhaseItem, type PhaseGate, type PhaseResult } from "./phase-model";
 import { poSentToItem } from "./item-status";
 import { transitDaysFor } from "./date-chain";
@@ -693,7 +694,11 @@ function buildJobPhaseView(
     proofsApproved: items.every(it => { const pr = proofByItem.get(it.id); return proofSatisfied(it, pr?.any ? pr : undefined); }),
   };
   const noticeSent = Array.isArray(job.type_meta?.shipping_notifications) && job.type_meta.shipping_notifications.length > 0;
-  const result = computePhase({ gate, items: phaseItems, noticeSent });
+  const computed = computePhase({ gate, items: phaseItems, noticeSent });
+  // Closed out by hand (lib/lifecycle isClosedOut): complete, whatever the ledger says.
+  const result: PhaseResult = isClosedOut(job)
+    ? { ...computed, job: { key: "complete", label: "Complete" }, fulfillment: { out: phaseItems.length, total: phaseItems.length } }
+    : computed;
   return { phase: result.job.label, detail: result.job.detail, clientLabel: result.client, fulfillment: result.fulfillment, result };
 }
 
