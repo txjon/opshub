@@ -2489,7 +2489,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                   const ordered = item.blanks_order_cost != null && item.blanks_order_cost !== "";
                   const actual = ordered ? Number(item.blanks_order_cost) : null;
                   const sel = selectedIds.has(item.id);
-                  const sizes = sortSizes(Object.keys(item.qtys || {})).filter(sz => (item.qtys?.[sz] || 0) > 0);
+                  // Every size on the item, zeros included (greyed): a run that
+                  // starts at M read as starting at S, and S got bought instead
+                  // of M (Drake, Nov 2026).
+                  const sizes = sortSizes(Object.keys(item.qtys || {}));
                   const stateClr = !ordered ? T.amber : (actual! > calc + 0.005 ? T.red : T.green);
                   const stateTxt = !ordered ? "not logged" : Math.abs(actual! - calc) < 0.005 ? "logged ✓" : actual! > calc ? `+${fmtMoney(actual! - calc)} over` : `−${fmtMoney(calc - actual!)} under`;
                   const cushion = calc - bc.raw;
@@ -2511,9 +2514,10 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                           </span>
                         </div>
                         {sizes.length > 0 && (
-                          <div style={{ fontFamily: mono, fontSize: 12, color: T.muted, marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {sizes.map(sz => <span key={sz}><span style={{ color: T.faint, fontSize: 10 }}>{sz} </span><b style={{ color: T.text }}>{item.qtys[sz]}</b>{"   "}</span>)}
-                            <span style={{ color: T.muted }}>= {qtyOf(item).toLocaleString()} u</span>
+                          <div style={{ fontFamily: mono, fontSize: 15, color: T.muted, marginTop: 6, display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: 16, rowGap: 4 }}>
+                            {/* Wraps, never clips: a clipped run hides its top sizes. */}
+                            {sizes.map(sz => { const n = Number(item.qtys[sz]) || 0; return <span key={sz} style={{ whiteSpace: "nowrap", ...(n ? {} : { opacity: 0.6 }) }}><span style={{ color: T.muted, fontSize: 12, fontWeight: 700 }}>{sz} </span><b style={{ color: n ? T.text : T.faint, fontWeight: n ? 800 : 400 }}>{n}</b></span>; })}
+                            <span style={{ color: T.muted, fontSize: 13, whiteSpace: "nowrap" }}>= <b style={{ color: T.text, fontSize: 15 }}>{qtyOf(item).toLocaleString()}</b> total</span>
                           </div>
                         )}
                         {(() => { const ro = repOrderFor(item.id); return ro ? (
