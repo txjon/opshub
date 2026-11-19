@@ -6,10 +6,10 @@
 // View only — logic in lib/blank-rep-order.ts.
 
 import React, { useEffect, useMemo, useState } from "react";
-import { T, font, mono } from "@/lib/theme";
+import { T, font, mono, sortSizes } from "@/lib/theme";
 import { createClient } from "@/lib/supabase/client";
 import { ModalShell } from "@/components/board-kit";
-import { draftBlankOrderEmail, loadShipToOptions, loadSupplierContact, sendBlankRepOrder, sizesLine, suggestSupplier, supplierChoices, type RepOrderItem, type ShipToOption } from "@/lib/blank-rep-order";
+import { draftBlankOrderEmail, loadShipToOptions, loadSupplierContact, sendBlankRepOrder, suggestSupplier, supplierChoices, type RepOrderItem, type ShipToOption } from "@/lib/blank-rep-order";
 
 const LBL: React.CSSProperties = { fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: T.faint };
 const INPUT: React.CSSProperties = { padding: "8px 10px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 13, fontFamily: font, outline: "none", boxSizing: "border-box", width: "100%", colorScheme: "dark" };
@@ -98,7 +98,13 @@ export function BlankRepOrderModal({ jobId, jobNumber, clientName, invoiceNumber
                 <span style={{ fontWeight: 700 }}>{[it.style, it.color].filter(Boolean).join(" · ") || it.name}</span>
                 <span style={{ color: T.muted }}>{it.name}</span>
                 <span style={{ flex: 1 }} />
-                <span style={{ fontFamily: mono, color: T.muted }}>{sizesLine(it.qtys)}</span>
+                {/* Every size, zeros in amber, same as the job page's blanks list:
+                    a run starting at M must not read as starting at S. */}
+                <span style={{ fontFamily: mono, fontWeight: 800, display: "inline-flex", flexWrap: "wrap", columnGap: 12 }}>
+                  {sortSizes(Object.keys(it.qtys || {})).map(sz => { const n = Number(it.qtys[sz]) || 0; return (
+                    <span key={sz} style={{ whiteSpace: "nowrap" }}><span style={{ color: n ? T.blue : T.amber }}>{sz} </span><span style={{ color: n ? T.text : T.amber }}>{n}</span></span>
+                  ); })}
+                </span>
               </div>
             ))}
           </div>
