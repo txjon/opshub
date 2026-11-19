@@ -2489,7 +2489,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                   const ordered = item.blanks_order_cost != null && item.blanks_order_cost !== "";
                   const actual = ordered ? Number(item.blanks_order_cost) : null;
                   const sel = selectedIds.has(item.id);
-                  // Every size on the item, zeros included (greyed): a run that
+                  // Every size on the item, zeros included (amber): a run that
                   // starts at M read as starting at S, and S got bought instead
                   // of M (Drake, Nov 2026).
                   const sizes = sortSizes(Object.keys(item.qtys || {}));
@@ -2516,7 +2516,8 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
                         {sizes.length > 0 && (
                           <div style={{ fontFamily: mono, fontSize: 15, color: T.muted, marginTop: 6, display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: 16, rowGap: 4 }}>
                             {/* Wraps, never clips: a clipped run hides its top sizes. */}
-                            {sizes.map(sz => { const n = Number(item.qtys[sz]) || 0; return <span key={sz} style={{ whiteSpace: "nowrap", ...(n ? {} : { opacity: 0.6 }) }}><span style={{ color: T.muted, fontSize: 12, fontWeight: 700 }}>{sz} </span><b style={{ color: n ? T.text : T.faint, fontWeight: n ? 800 : 400 }}>{n}</b></span>; })}
+                            {/* Size in HPD blue, qty in white; a zero size is all amber so it reads as "skip this one". */}
+                            {sizes.map(sz => { const n = Number(item.qtys[sz]) || 0; return <span key={sz} style={{ whiteSpace: "nowrap", fontWeight: 800 }}><span style={{ color: n ? T.blue : T.amber }}>{sz} </span><span style={{ color: n ? T.text : T.amber }}>{n}</span></span>; })}
                             <span style={{ color: T.muted, fontSize: 13, whiteSpace: "nowrap" }}>= <b style={{ color: T.text, fontSize: 15 }}>{qtyOf(item).toLocaleString()}</b> total</span>
                           </div>
                         )}
