@@ -62,8 +62,20 @@ export const canonicalSize = (s: string): string => {
   return SIZE_ALIASES[key] || s;
 };
 
+// Short pant sizes: waist + one length letter, "32 R" / "32 L" (HPD-2611-017).
+// THE parse: lib/size-grid builds its waist × length grid from it too.
+export const PANT_LENGTHS = ["S", "R", "L", "T"] as const;
+export const PANT_LENGTH_NAMES: Record<string, string> = { S: "Short", R: "Regular", L: "Long", T: "Tall" };
+export const shortPantSize = (s: string): { waist: number; waistLabel: string; length: string } | null => {
+  const m = /^(\d+(?:\.\d+)?)\s+([SRLT])$/i.exec(String(s).trim());
+  return m ? { waist: parseFloat(m[1]), waistLabel: m[1], length: m[2].toUpperCase() } : null;
+};
+
 export const sortSizes = (sizes: string[]) =>
   [...sizes].sort((a, b) => {
+    // "32 R" before "32 L" before "34 R": waist, then S/R/L/T.
+    const pa = shortPantSize(a), pb = shortPantSize(b);
+    if (pa && pb) return pa.waist - pb.waist || PANT_LENGTHS.indexOf(pa.length as any) - PANT_LENGTHS.indexOf(pb.length as any);
     // Case-insensitive: Shopify gives lowercase sizes ("s","m","2xl"); SIZE_ORDER
     // is uppercase. Without this they miss the order and alpha-sort to a scramble.
     const ai = SIZE_ORDER.indexOf(String(a).toUpperCase()), bi = SIZE_ORDER.indexOf(String(b).toUpperCase());

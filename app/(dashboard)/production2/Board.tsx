@@ -12,7 +12,7 @@ import { TrackingLink } from "@/components/TrackingModal";
 import { shipFromProduction, findDuplicateShipHits, type DuplicateShipHit } from "@/lib/production2-ship";
 import { createPullRequest, PULL_KINDS } from "@/lib/handoff";
 import { closeShort } from "@/lib/production2-close";
-import { parseSizeMatrix } from "@/lib/size-grid";
+import { parseSizeMatrix, sizeLabelLookup } from "@/lib/size-grid";
 // @ts-ignore — plain JS component
 import { NotifyShipmentDialog } from "@/components/NotifyShipmentDialog";
 // @ts-ignore — plain JS helper
@@ -460,10 +460,11 @@ function PullModal({ item, onClose, onDone }: { item: SelItem; onClose: () => vo
 // pivot into the apparel-standard cut-ticket matrix — one small table per fit,
 // waist down the side, inseam across the top — instead of a 50-box wrapping wall.
 // 1-D sizes (S/M/L) keep the inline row. Cells map back to the exact size label
-// (reconstructed by re-joining on " / ", the same separator the parser split on),
-// so reads/writes hit the same qtys[label] keys as the flat list.
+// through lib/size-grid sizeLabelLookup (the parser's own split), so reads/writes
+// hit the same qtys[label] keys as the flat list.
 function VariantGrid({ sizes, itemId, value, setQ }: { sizes: string[]; itemId: string; value: Record<string, number>; setQ: (itemId: string, sz: string, v: string) => void }) {
   const matrix = parseSizeMatrix(sizes, null);
+  const labelOf = sizeLabelLookup(sizes);
   const input = (label: string, w = 44) => (
     <input inputMode="numeric" value={value[label] ?? 0} onChange={e => setQ(itemId, label, e.target.value)} onFocus={e => e.target.select()}
       style={{ width: w, boxSizing: "border-box", textAlign: "center", fontFamily: mono, fontSize: 12, fontWeight: 600, padding: "4px 3px", borderRadius: 5, border: `1px solid ${T.border}`, background: T.card }} />
@@ -497,8 +498,8 @@ function VariantGrid({ sizes, itemId, value, setQ }: { sizes: string[]; itemId: 
                   <td style={rh}>{row.label}</td>
                   {g.cols.map((c, ci) => {
                     if (row.cells[ci] == null) return <td key={c} style={{ padding: 2 }}><div style={{ width: 44, height: 26 }} /></td>;
-                    const label = [g.name, row.label, c].filter(Boolean).join(" / ");
-                    return <td key={c} style={{ padding: 2 }}>{input(label)}</td>;
+                    const label = labelOf[`${g.name ?? ""}~${row.label}~${c}`];
+                    return <td key={c} style={{ padding: 2 }}>{label ? input(label) : null}</td>;
                   })}
                 </tr>
               ))}

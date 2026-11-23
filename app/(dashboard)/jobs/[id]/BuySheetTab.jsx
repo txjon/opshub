@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { T, font, mono, sortSizes } from "@/lib/theme";
+import { T, font, mono, sortSizes, shortPantSize } from "@/lib/theme";
 export const DEFAULT_CURVE = {S:5.13,M:20.57,L:38.14,XL:25.90,"2XL":7.69,"3XL":2.56};
 // Waist × Inseam sell-through curve, derived from real Ridgeline sales (units
 // sold per "{waist} / {inseam}" combo, summed across fits). Keys match the
@@ -16,6 +16,18 @@ export const WAIST_INSEAM_CURVE = {
   "40 / 34 (Long)":17, "40 / 36 (Tall)":9, "42 / 30 (Short)":14, "42 / 32 (Regular)":36,
   "42 / 34 (Long)":7, "42 / 36 (Tall)":5,
 };
+
+// The curve for a pants size list: short-form "32 R" / "32 L" read the same
+// waist × inseam weight as "32 / 32 (Regular)" / "32 / 34 (Long)".
+const SHORT_PANT_INSEAM = { S: "30 (Short)", R: "32 (Regular)", L: "34 (Long)", T: "36 (Tall)" };
+export function waistInseamCurveFor(sizes) {
+  const out = { ...WAIST_INSEAM_CURVE };
+  for (const sz of sizes) {
+    const p = shortPantSize(sz);
+    if (p) out[sz] = WAIST_INSEAM_CURVE[`${p.waistLabel} / ${SHORT_PANT_INSEAM[p.length]}`] || 0;
+  }
+  return out;
+}
 
 // Auto-detect QB garment_type from supplier category + item name
 export function detectGarmentType(category, name) {

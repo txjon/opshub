@@ -4,7 +4,7 @@
 // + set qtys on an item without re-running the blank picker.
 import React, { useState, useEffect } from "react";
 import { T, font, mono, SIZE_ORDER } from "@/lib/theme";
-import { distribute, DEFAULT_CURVE, WAIST_INSEAM_CURVE } from "./BuySheetTab";
+import { distribute, DEFAULT_CURVE, waistInseamCurveFor } from "./BuySheetTab";
 import SizeGridInput from "@/components/SizeGridInput";
 import { parseSizeMatrix } from "@/lib/size-grid";
 
@@ -66,7 +66,7 @@ export function EditSizesModal({ item, onClose, onSave, zIndex = 110 }) {
     if (!Number.isFinite(total) || total <= 0 || sizes.length === 0) return;
     // Dimensional (waist × inseam) sizes distribute on the real WxL sell-through
     // curve; letter sizes use the item's curve / the default tee curve.
-    const curve = parseSizeMatrix(sizes, null) ? WAIST_INSEAM_CURVE : (item.curve || DEFAULT_CURVE);
+    const curve = parseSizeMatrix(sizes, null) ? waistInseamCurveFor(sizes) : (item.curve || DEFAULT_CURVE);
     const next = distribute(total, sizes, curve);
     setQtys(next);
     setDistTotal("");

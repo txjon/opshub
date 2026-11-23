@@ -10,7 +10,7 @@
 // <SizeGrid/> (ecomm card, vendor portal) and the PO PDF HTML builder both call
 // parseSizeMatrix. 1-D sizes (S/M/L) return null → callers keep the inline list.
 
-import { SIZE_ORDER } from "./theme";
+import { SIZE_ORDER, PANT_LENGTHS, PANT_LENGTH_NAMES, shortPantSize } from "./theme";
 
 export type SizeMatrixGroup = {
   name: string | null;                 // the fit (3-D labels); null for 2-D
@@ -26,8 +26,11 @@ const leadingNum = (s: string): number | null => {
   return m ? parseFloat(m[1]) : null;
 };
 
-// Sort size keys: numeric-first (28,30,32…), then known S/M/L order, then alpha.
+// Sort size keys: pant lengths S/R/L/T in that order, numeric-first (28,30,32…),
+// then known S/M/L order, then alpha.
 const cmpSize = (a: string, b: string): number => {
+  const la = PANT_LENGTHS.indexOf(a as any), lb = PANT_LENGTHS.indexOf(b as any);
+  if (la !== -1 && lb !== -1) return la - lb;
   const na = leadingNum(a), nb = leadingNum(b);
   if (na != null && nb != null) return na - nb || a.localeCompare(b);
   const ia = SIZE_ORDER.indexOf(String(a).toUpperCase()), ib = SIZE_ORDER.indexOf(String(b).toUpperCase()); // case-insensitive: Shopify sizes are lowercase
@@ -39,7 +42,27 @@ const cmpSize = (a: string, b: string): number => {
   return a.localeCompare(b);
 };
 
-const splitParts = (label: string): string[] => label.split(" / ").map((s) => s.trim());
+// A size label's grid parts: "Relaxed / 32 / 34 (Long)" → [fit, waist, inseam],
+// "32 / 34 (Long)" → [waist, inseam], and the short pant form "32 R" → ["32", "R"].
+// Every grid that maps a cell back to its size label uses this, not its own split.
+export function sizeParts(label: string): string[] {
+  const p = shortPantSize(label);
+  if (p) return [p.waistLabel, p.length];
+  return String(label).split(" / ").map((s) => s.trim());
+}
+
+// Cell → original size label, keyed `${fit}~${waist}~${inseam}` (fit "" for 2-D).
+export function sizeLabelLookup(labels: string[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const sz of labels) {
+    const p = sizeParts(sz);
+    if (p.length >= 3) out[`${p[0]}~${p[1]}~${p.slice(2).join(" / ")}`] = sz;
+    else if (p.length === 2) out[`~${p[0]}~${p[1]}`] = sz;
+  }
+  return out;
+}
+
+const splitParts = sizeParts;
 
 const SEP = "|";
 
@@ -112,7 +135,10 @@ export function parseSizeMatrix(
 
 // Split "30 (Short)" → ["30", "Short"] so a column header can stack the number
 // over the small length name. Anything without parens returns [label, ""].
-export function splitColHead(label: string): [string, string] {
+// Pant length letters (R → "Regular") are named only when EVERY column of the
+// grid is one: an apparel grid with an "S" or "L" column must never read "Short".
+export function splitColHead(label: string, cols?: string[]): [string, string] {
+  if (cols && cols.length && cols.every((c) => Object.hasOwn(PANT_LENGTH_NAMES, c))) return [label, PANT_LENGTH_NAMES[label]];
   const m = label.match(/^(.*?)\s*\((.+)\)\s*$/);
   return m ? [m[1].trim(), m[2].trim()] : [label, ""];
 }
@@ -141,7 +167,7 @@ export function sizeMatrixHtml(
 
   const groupHtml = matrix.groups.map((g) => {
     const head = g.cols.map((c) => {
-      const [n, sub] = splitColHead(c);
+      const [n, sub] = splitColHead(c, g.cols);
       return `<th style="${th}">${n}${sub ? `<div style="font-size:6px;font-weight:600;color:#c4c4c4;letter-spacing:0">${sub}</div>` : ""}</th>`;
     }).join("");
     const body = g.rows.map((r) => {

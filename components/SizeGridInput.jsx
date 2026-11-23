@@ -1,6 +1,6 @@
 "use client";
 import { useRef } from "react";
-import { parseSizeMatrix, splitColHead } from "@/lib/size-grid";
+import { parseSizeMatrix, splitColHead, sizeLabelLookup } from "@/lib/size-grid";
 import { T, mono } from "@/lib/theme";
 
 // Editable cut-ticket grid for size/qty ENTRY. Same waist x inseam pivot as the
@@ -18,12 +18,7 @@ export default function SizeGridInput({ sizes, getValue, onChange, onCommit, dis
   if (!matrix) return null;
 
   // (group||"") ~ waist ~ inseam  ->  original size label
-  const labelLookup = {};
-  for (const sz of sizes) {
-    const p = String(sz).split(" / ").map((s) => s.trim());
-    if (p.length >= 3) labelLookup[`${p[0]}~${p[1]}~${p.slice(2).join(" / ")}`] = sz;
-    else if (p.length === 2) labelLookup[`~${p[0]}~${p[1]}`] = sz;
-  }
+  const labelLookup = sizeLabelLookup(sizes);
   const num = (label) => { const n = parseInt(getValue(label), 10); return isNaN(n) ? 0 : n; };
   const focus = (gi, ri, ci) => { const el = refs.current[`${gi}-${ri}-${ci}`]; if (el) { el.focus(); el.select?.(); } };
 
@@ -55,7 +50,7 @@ export default function SizeGridInput({ sizes, getValue, onChange, onCommit, dis
                 <tr>
                   <th style={{ ...th, textAlign: "left" }}>Waist</th>
                   {g.cols.map((c, ci) => {
-                    const [n, sub] = splitColHead(c);
+                    const [n, sub] = splitColHead(c, g.cols);
                     return (
                       <th key={ci} style={th}>
                         {n}

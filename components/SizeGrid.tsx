@@ -66,7 +66,7 @@ export default function SizeGrid({
               <tr>
                 <th style={{ ...th, textAlign: "left", color: palette.faint }}>Waist</th>
                 {g.cols.map((c, ci) => {
-                  const [n, sub] = splitColHead(c);
+                  const [n, sub] = splitColHead(c, g.cols);
                   return (
                     <th key={ci} style={th}>
                       {n}
