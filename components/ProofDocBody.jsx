@@ -5,6 +5,7 @@
 // interactive/measured piece — the mockup crop widget — is injected as
 // `mockupSlot` (interactive MockupFrame on web; a static <img> in the PDF).
 import React from "react";
+import { sortSizes } from "@/lib/theme";
 
 const LBL = { fontSize: 8.5, fontWeight: 700, color: "#a0a0ad", textTransform: "uppercase", letterSpacing: "0.05em" };
 const SEC = { fontSize: 9, fontWeight: 800, color: "#a0a0ad", textTransform: "uppercase", letterSpacing: "0.06em" };
@@ -13,31 +14,43 @@ const isTag = (pl) => { const t = String(pl || "").toLowerCase().trim(); return 
 // ink. Read-only, the old render labeled them "Colors" and drew white ink as a
 // white square on white paper, so a client saw empty checkboxes and no ink
 // (HPD-2610-033, Nov 2026). Now: a Sizes line plus a named Ink line.
-const INK_NAMES = { "#000000": "Black", "#222222": "Black", "#7a7a82": "Grey", "#ffffff": "White" };
-const inkName = (hex) => INK_NAMES[String(hex || "").toLowerCase()] || String(hex || "").toUpperCase();
+// PSD-pulled inks are pixel averages (#fcfcfc, #76777b), so name by nearest
+// neutral; a real color (saturated) keeps its hex.
+const inkName = (hex) => {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || "").trim());
+  if (!m) return String(hex || "").toUpperCase();
+  const n = parseInt(m[1], 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+  const hi = Math.max(r, g, b), lo = Math.min(r, g, b);
+  if (hi - lo > 28) return "#" + m[1].toUpperCase();
+  return hi >= 225 ? "White" : hi <= 60 ? "Black" : "Grey";
+};
 const InkSwatch = ({ hex }) => <span style={{ width: 11, height: 11, borderRadius: 3, background: hex, border: "1px solid #9a9aa6", flexShrink: 0 }} />;
 function TagSizesInk({ colors }) {
+  const sizes = sortSizes(colors.map(c => c.name).filter(Boolean));
+  const order = (n) => sizes.indexOf(n);
   const groups = [];
   for (const c of colors) {
-    const hex = c.hex || null;
-    const g = groups.find(x => x.hex === hex);
-    if (g) g.sizes.push(c.name); else groups.push({ hex, sizes: [c.name] });
+    if (!c.hex) continue;
+    const ink = inkName(c.hex);
+    const g = groups.find(x => x.ink === ink);
+    if (g) { if (c.name) g.sizes.push(c.name); } else groups.push({ ink, hex: c.hex, sizes: c.name ? [c.name] : [] });
   }
+  groups.forEach(g => g.sizes.sort((x, y) => order(x) - order(y)));
   return (
     <>
       <div>
         <div style={LBL}>Sizes</div>
-        <div style={{ fontSize: 12.5, marginTop: 4 }}>{colors.map(c => c.name).filter(Boolean).join(" · ") || "—"}</div>
+        <div style={{ fontSize: 12.5, marginTop: 4 }}>{sizes.join(" · ") || "—"}</div>
       </div>
       <div>
         <div style={LBL}>Ink</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 4 }}>
-          {groups.filter(g => g.hex).map((g, k) => (
+          {groups.map((g, k) => (
             <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5 }}>
-              <InkSwatch hex={g.hex} />{inkName(g.hex)}{groups.length > 1 ? <span style={{ color: "#8a8a96" }}> ({g.sizes.join(", ")})</span> : null}
+              <InkSwatch hex={g.hex} />{g.ink}{groups.length > 1 && g.sizes.length ? <span style={{ color: "#8a8a96" }}> ({g.sizes.join(", ")})</span> : null}
             </span>
           ))}
-          {groups.every(g => !g.hex) && <span style={{ fontSize: 12.5, color: "#a0a0ad" }}>—</span>}
+          {!groups.length && <span style={{ fontSize: 12.5, color: "#a0a0ad" }}>—</span>}
         </div>
       </div>
     </>
@@ -188,7 +201,7 @@ export default function ProofDocBody({
                     {rowLabel("Print size", <Ed value={p.sizeText} onChange={E?.updateLocation ? (v) => E.updateLocation(i, { sizeText: v }) : null} placeholder='W" × H"' style={{ fontFamily: mono, fontSize: 12.5 }} widthCh={E ? 10 : undefined} />)}
                     {tag && !E && (p.colors || []).length > 0 ? <TagSizesInk colors={p.colors} /> : (
                     <div>
-                      <div style={LBL}>{tag ? "Sizes · ink" : "Colors"}</div>
+                      <div style={LBL}>{tag ? (E ? "Sizes · ink" : "Sizes") : "Colors"}</div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", alignItems: "center", marginTop: 4 }}>
                         {(p.colors || []).length > 0
                           ? (p.colors || []).map((c, j) => (
