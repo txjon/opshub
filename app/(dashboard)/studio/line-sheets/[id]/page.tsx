@@ -27,6 +27,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const [publishNote, setPublishNote] = useState("");
   const [queue, setQueue] = useState<QFile[]>([]);
   const [confirm, confirmEl] = useConfirm();
+  const [menuOpen, setMenuOpen] = useState(false);   // ⋯ Archive / Delete
   const fileIn = useRef<HTMLInputElement | null>(null);
   const dataRef = useRef<any>(null);
   const queueRef = useRef<QFile[]>([]);
@@ -108,7 +109,6 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   async function patchSheet(body: any) { setBusy(true); try { const r = await fetch(`/api/studio/line-sheets/${params.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(x => x.json()); if (r.error) setErr(r.error); await load(); return r; } finally { setBusy(false); } }
   // Archive (mig 211): off the Studio list and out of the client's hub, data
   // kept. Delete: gone, with its versions and the client's thumbs.
-  const [menuOpen, setMenuOpen] = useState(false);
   async function toggleArchive() {
     setMenuOpen(false);
     const sh = dataRef.current?.sheet;
