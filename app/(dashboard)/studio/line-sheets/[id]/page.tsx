@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { H, primaryBtn, ghostBtn, inp, lbl, tag, fmtStamp } from "@/lib/studio-theme";
+import { T } from "@/lib/theme";   // T.accent = the confirm dialog's dark-text button
 import { useConfirm } from "@/components/useConfirm";
 // @ts-ignore — plain-JS lib, no declarations
 import { uploadToDrive } from "@/lib/drive-upload-client";
@@ -113,7 +114,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     setMenuOpen(false);
     const sh = dataRef.current?.sheet;
     if (!sh) return;
-    if (!sh.archived_at && !await confirm({ title: "Archive this line sheet?", message: "It leaves your Line sheets list and the client's hub. Items, versions and their thumbs are kept; Unarchive brings it all back.", confirmLabel: "Archive", confirmColor: H.blue })) return;
+    if (!sh.archived_at && !await confirm({ title: "Archive this line sheet?", message: "It leaves your Line sheets list and the client's hub. Items, versions and their thumbs are kept; Unarchive brings it all back.", confirmLabel: "Archive", confirmColor: T.accent })) return;
     const r = await patchSheet(sh.archived_at ? { unarchive: true } : { archive: true });
     if (r?.ok && !sh.archived_at) window.location.href = "/studio/line-sheets";
   }

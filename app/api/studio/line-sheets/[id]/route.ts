@@ -69,6 +69,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   // ── PUBLISH: new uploads become visible as v(n+1). Organizing is already
   // live (lib/line-sheets clientSheetView); the snapshot is history. ────────
+  if (b.publish && (sheet as any).archived_at) return NextResponse.json({ error: "Unarchive the sheet before publishing" }, { status: 409 });
   if (b.publish) {
     const n = ((sheet as any).current_version || 0) + 1;
     const { data: items } = await db.from("line_sheet_items").select("*").eq("sheet_id", params.id).order("sort");
