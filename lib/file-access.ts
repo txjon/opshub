@@ -200,7 +200,8 @@ async function allowsOwner(db: any, who: Audience, owner: Owner): Promise<{ ok: 
 
   if (owner.kind === "line_sheet_item") {
     if (who.kind !== "client") return { ok: false, reason: `line-sheet-wrong-audience:${who.kind}` };
-    const { data: sheet } = await db.from("line_sheets").select("client_id").eq("id", owner.sheetId).maybeSingle();
+    const { data: sheet } = await db.from("line_sheets").select("client_id, archived_at").eq("id", owner.sheetId).maybeSingle();
+    if ((sheet as any)?.archived_at) return { ok: false, reason: "line-sheet-archived" };   // mig 211: out of the hub
     return (sheet as any)?.client_id === who.clientId
       ? { ok: true, reason: "own-line-sheet" }
       : { ok: false, reason: "other-client-line-sheet" };

@@ -113,7 +113,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     setMenuOpen(false);
     const sh = dataRef.current?.sheet;
     if (!sh) return;
-    if (!sh.archived_at && !await confirm({ title: "Archive this line sheet?", message: "It leaves your Line sheets list and the client's hub. Items, versions and their thumbs are kept; Unarchive brings it all back.", confirmLabel: "Archive" })) return;
+    if (!sh.archived_at && !await confirm({ title: "Archive this line sheet?", message: "It leaves your Line sheets list and the client's hub. Items, versions and their thumbs are kept; Unarchive brings it all back.", confirmLabel: "Archive", confirmColor: H.blue })) return;
     const r = await patchSheet(sh.archived_at ? { unarchive: true } : { archive: true });
     if (r?.ok && !sh.archived_at) window.location.href = "/studio/line-sheets";
   }
@@ -264,7 +264,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
       {/* Not-published alert (Jon, Oct 1): organizing is live in their hub,
           but new uploads aren't — say so up top until they're published.
           DESIGN.md: 3px accent rail, no color wash. */}
-      {unpublished > 0 && (
+      {unpublished > 0 && !sheet.archived_at && (
         <div role="status" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", borderLeft: `3px solid ${H.amber}`, background: H.panel, borderRadius: "0 10px 10px 0", padding: "11px 14px", marginBottom: 16 }}>
           <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.amber }}>Not published</span>
           <span style={{ fontSize: 12.5, color: H.text }}>
@@ -286,15 +286,15 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>{sheet.clients?.name}</span>
         {sheet.releases && <a href="/drops" style={{ fontSize: 10.5, fontFamily: H.mono, color: H.dim, textDecoration: "none", borderBottom: "1px dotted rgba(255,255,255,.3)" }}>Release · {sheet.releases.title}</a>}
         {sheet.archived_at && <span style={tag(H.faint, 9.5)}>Archived · hidden from their hub</span>}
-        <span style={tag(sheet.current_version ? H.blue : H.amber, 9.5)}>{sheet.current_version ? `v${sheet.current_version} live in their hub` : "Draft · never published"}</span>
-        {sheet.current_version > 0 && sheet.clients?.portal_token && <a href={`/portal/client/${sheet.clients.portal_token}/releases/${sheet.release_id}/line-sheet`} target="_blank" rel="noreferrer" style={{ ...tag(H.text, 9.5), textDecoration: "none", border: `1px solid ${H.line}`, borderRadius: 8, padding: "4px 9px" }}>View as client ↗</a>}
-        {sheet.current_version > 0 && sheet.clients?.portal_token && <CopyLink url={`${window.location.origin}/portal/client/${sheet.clients.portal_token}/releases/${sheet.release_id}/line-sheet`} />}
+        {!sheet.archived_at && <span style={tag(sheet.current_version ? H.blue : H.amber, 9.5)}>{sheet.current_version ? `v${sheet.current_version} live in their hub` : "Draft · never published"}</span>}
+        {!sheet.archived_at && sheet.current_version > 0 && sheet.clients?.portal_token && <a href={`/portal/client/${sheet.clients.portal_token}/releases/${sheet.release_id}/line-sheet`} target="_blank" rel="noreferrer" style={{ ...tag(H.text, 9.5), textDecoration: "none", border: `1px solid ${H.line}`, borderRadius: 8, padding: "4px 9px" }}>View as client ↗</a>}
+        {!sheet.archived_at && sheet.current_version > 0 && sheet.clients?.portal_token && <CopyLink url={`${window.location.origin}/portal/client/${sheet.clients.portal_token}/releases/${sheet.release_id}/line-sheet`} />}
         {versions.length > 0 && <span style={{ fontSize: 10, fontFamily: H.mono, color: H.faint }}>last publish {fmtStamp(versions[versions.length - 1].published_at)}</span>}
         <span style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "center" }}>
           <input ref={fileIn} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { if (e.target.files?.length) enqueue(e.target.files); if (fileIn.current) fileIn.current.value = ""; }} />
           {approvedN > 0 && <a href={`/api/studio/line-sheets/${params.id}/approved-zip`} download title="Every thumbs-up mockup, full res, in one ZIP" style={{ ...ghostBtn, textDecoration: "none" }}>↓ Approved ({approvedN})</a>}
           <button onClick={() => fileIn.current?.click()} style={ghostBtn}>+ Add mockups</button>
-          <button disabled={busy} onClick={() => setPublishOpen(true)} style={{ ...primaryBtn, padding: "11px 20px" }}>Publish {sheet.current_version ? `v${sheet.current_version + 1}` : "v1"} →</button>
+          {!sheet.archived_at && <button disabled={busy} onClick={() => setPublishOpen(true)} style={{ ...primaryBtn, padding: "11px 20px" }}>Publish {sheet.current_version ? `v${sheet.current_version + 1}` : "v1"} →</button>}
           <span style={{ position: "relative" }}>
             <button disabled={busy} onClick={() => setMenuOpen(o => !o)} title="More" style={{ ...ghostBtn, padding: "9px 13px" }}>⋯</button>
             {menuOpen && (<>
