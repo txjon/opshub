@@ -31,10 +31,13 @@ export type DriveProxyOpts = {
 // to Drive's thumbnail (too big, fetch failed, decode failed).
 const ALPHA_MIMES = new Set(["image/png", "image/webp", "image/gif"]);
 const MAX_ALPHA_SOURCE = 40 * 1024 * 1024;
-async function whiteBackedThumb(fileId: string, token: string, size: number): Promise<Buffer | null> {
+async function whiteBackedThumb(fileId: string, token: string, size: number, knownBytes?: number): Promise<Buffer | null> {
+  // Drive's metadata size, checked BEFORE downloading: alt=media omits
+  // content-length on some files, which would buffer the whole thing first.
+  if (Number(knownBytes) > MAX_ALPHA_SOURCE) return null;
   try {
     const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
-    if (!res.ok) return null;
+    if (!res.ok) { res.body?.cancel().catch(() => {}); return null; }
     const len = Number(res.headers.get("content-length") || 0);
     if (len > MAX_ALPHA_SOURCE) { res.body?.cancel().catch(() => {}); return null; }
     const src = Buffer.from(await res.arrayBuffer());
@@ -61,7 +64,7 @@ export async function proxyDriveFile(fileId: string, opts: DriveProxyOpts = {}):
   const token = await getAccessToken();
 
   const metaRes = await fetch(
-    `https://www.googleapis.com/drive/v3/files/${fileId}?fields=name,mimeType,thumbnailLink,hasThumbnail`,
+    `https://www.googleapis.com/drive/v3/files/${fileId}?fields=name,mimeType,thumbnailLink,hasThumbnail,size`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
   const meta = metaRes.ok ? await metaRes.json() : null;
@@ -72,7 +75,7 @@ export async function proxyDriveFile(fileId: string, opts: DriveProxyOpts = {}):
   const shouldServeThumbnail = !forceDownload && (useThumbnail || mustUseThumbnail) && meta?.thumbnailLink;
 
   if (shouldServeThumbnail && ALPHA_MIMES.has(mimeType)) {
-    const own = await whiteBackedThumb(fileId, token, sizeHint || 220);
+    const own = await whiteBackedThumb(fileId, token, sizeHint || 220, meta?.size);
     if (own) {
       return new Response(new Uint8Array(own), {
         headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=86400" },   // private: see below
@@ -162,13 +165,13 @@ export async function driveImageDataUri(fileId: string, size = 300): Promise<str
   try {
     const token = await getAccessToken();
     const metaRes = await fetch(
-      `https://www.googleapis.com/drive/v3/files/${fileId}?fields=mimeType,thumbnailLink,hasThumbnail`,
+      `https://www.googleapis.com/drive/v3/files/${fileId}?fields=mimeType,thumbnailLink,hasThumbnail,size`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
     if (!metaRes.ok) return null;
     const meta = await metaRes.json();
     if (ALPHA_MIMES.has(meta?.mimeType)) {
-      const own = await whiteBackedThumb(fileId, token, Math.min(Math.max(size, 32), 1600));
+      const own = await whiteBackedThumb(fileId, token, Math.min(Math.max(size, 32), 1600), meta?.size);
       if (own) return `data:image/jpeg;base64,${own.toString("base64")}`;
     }
     if (!meta?.thumbnailLink) return null;
