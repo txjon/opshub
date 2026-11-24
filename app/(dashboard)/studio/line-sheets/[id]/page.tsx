@@ -96,7 +96,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
 
   if (!data) return <div style={{ padding: 40, color: "rgba(255,255,255,.4)", background: H.ink, minHeight: "100vh", fontFamily: H.font }}>Opening the sheet…</div>;
   const { sheet, sections, versions } = data;
-  const items: any[] = data.items.filter((i: any) => !i.dropped).sort((a: any, b: any) => (a.sort || 0) - (b.sort || 0));
+  const items: any[] = data.items.filter((i: any) => !i.dropped).sort((a: any, b: any) => ((a.sort || 0) - (b.sort || 0)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));   // id tie-break = shelfNumbering
   const dropped: any[] = data.items.filter((i: any) => i.dropped);
   // Client thumbs-down = "Not approved" (Jon, Oct 1): still on the line, shown
   // in its own bucket below the shelves here AND in the hub. section_id is

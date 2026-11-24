@@ -106,7 +106,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       const nums = shelfNumbering((sections || []) as any[], (fresh || []) as any[], true);
       for (const it of (fresh || []) as any[]) {
         it.item_no = nums[it.id] ?? null;
-        if (it.item_no != null) await db.from("line_sheet_items").update({ item_no: it.item_no } as never).eq("id", it.id);
+        if (it.item_no == null) continue;
+        const { error: sErr } = await db.from("line_sheet_items").update({ item_no: it.item_no } as never).eq("id", it.id);
+        // v1 isn't written yet, so a retry clears and restamps cleanly
+        if (sErr) return NextResponse.json({ error: `Numbering failed, publish again: ${sErr.message}` }, { status: 500 });
       }
     }
     let nextNo = Math.max(0, ...((fresh || []) as any[]).map(i => i.item_no || 0)) + 1;

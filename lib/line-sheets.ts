@@ -22,7 +22,8 @@ export function shelfNumbering(
   includeTray = false,
 ): Record<string, number> {
   const live = items.filter(i => !i.dropped);
-  const bySort = (a: { sort: number }, b: { sort: number }) => (a.sort || 0) - (b.sort || 0);
+  // id breaks ties (legacy equal sorts) so builder and publish agree
+  const bySort = (a: { id: string; sort: number }, b: { id: string; sort: number }) => ((a.sort || 0) - (b.sort || 0)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   const known = new Set(sections.map(s => s.id));
   const order = [...sections].sort(bySort).flatMap(sec => live.filter(i => i.section_id === sec.id).sort(bySort));
   if (includeTray) order.push(...live.filter(i => !i.section_id || !known.has(i.section_id)).sort(bySort));
