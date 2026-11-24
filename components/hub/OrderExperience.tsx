@@ -34,7 +34,10 @@ const mockupOf = (it: any) => {
   // A proof entry with no mockup id is not a picture: emitting it produced
   // <img src="…id=null">, a broken image inside the proof a client is being
   // asked to approve. Two live versions are in that state.
-  const frozen = proofs.find(f => f.stage === "proof" && f.driveFileId);
+  // Frozen = a version entry (versionId), whose driveFileId IS a mockup image.
+  // A legacy baked proof row is the proof PDF itself: picking it drew a proof
+  // inside the proof (HPD-2610-033, Nov 2026), so those rank below the mockup.
+  const frozen = proofs.find(f => f.versionId && f.driveFileId);
   if (frozen) return frozen;
   return proofs.find(f => f.stage === "mockup" && f.driveFileId)
     || proofs.find(f => f.stage === "proof" && f.driveFileId)
