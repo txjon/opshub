@@ -65,6 +65,7 @@ import { findCostProd, findCostProdIndex } from "@/lib/cost-prod-match";
 // from there (a stored copy frozen at write time was the 2608-023 drift
 // class). Stored blankCosts remain (fallback-only) until their retirement.
 const stripQtyCopies = (cps: any[]) => (cps || []).map(({ qtys, totalQty, ...rest }: any) => rest);
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const DecorationPanel: any = DecorationPanelRaw; // .jsx — bypass narrow inferred prop types
 const ProofModal: any = ProofModalRaw;           // .jsx — same
@@ -995,19 +996,29 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     flatContacts.forEach((c: any) => { sel[c.email] = routed.has(String(c.email).toLowerCase()); });
     setRecips(sel); setManualEmails([]); setManualInput(""); setActErr(""); setClientAction(kind);
   };
-  const selectedEmails = () => [
-    ...flatContacts.filter((c: any) => recips[c.email]).map((c: any) => c.email),
-    ...manualEmails,
-  ];
+  // An address typed in the box but never Added still counts on Send. Before
+  // this it was dropped silently: two invoices went out without the client's
+  // AP contact on them (Nov 2026). Returns null when the box holds a non-email.
+  const typedEmails = (): string[] | null => {
+    const v = manualInput.trim().toLowerCase();
+    if (!v) return manualEmails;
+    if (!EMAIL_RE.test(v)) return null;
+    return manualEmails.includes(v) ? manualEmails : [...manualEmails, v];
+  };
+  const selectedEmails = (): string[] | null => {
+    const typed = typedEmails();
+    if (!typed) { setActErr("The email in the box isn't a valid address. Fix it or clear it."); return null; }
+    return [...flatContacts.filter((c: any) => recips[c.email]).map((c: any) => c.email), ...typed];
+  };
   const addManualEmail = () => {
     const v = manualInput.trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) { setActErr("That doesn't look like an email address."); return; }
+    if (!EMAIL_RE.test(v)) { setActErr("That doesn't look like an email address."); return; }
     if (!manualEmails.includes(v)) setManualEmails(m => [...m, v]);
     setManualInput(""); setActErr("");
   };
   const refetchTypeMeta = async () => { const { data }: any = await createClient().from("jobs").select("type_meta, qb_invoice_number, qb_invoice_id, quote_approved, quote_approved_at").eq("id", job.id).single(); if (data) setJob((j: any) => ({ ...j, quote_approved: data.quote_approved, quote_approved_at: data.quote_approved_at, type_meta: { ...j.type_meta, ...data.type_meta } })); };
   const doSendQuote = async () => {
-    const emails = selectedEmails(); if (!emails.length) { setActErr("Select a recipient."); return; }
+    const emails = selectedEmails(); if (!emails) return; if (!emails.length) { setActErr("Select a recipient."); return; }
     setActBusy(true); setActErr("");
     try {
       const [to, ...cc] = emails;
@@ -1059,7 +1070,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     } catch (e: any) { setActErr(e.message || "Send failed"); } finally { setActBusy(false); }
   };
   const doSendInvoice = async (pushOpts: { qbCustomerId?: string; forceCreate?: boolean } = {}) => {
-    const emails = selectedEmails(); if (!emails.length) { setActErr("Select a recipient."); return; }
+    const emails = selectedEmails(); if (!emails) return; if (!emails.length) { setActErr("Select a recipient."); return; }
     setActBusy(true); setActErr("");
     try {
       // Ambiguous QB customer match (409) → chooser; its action re-runs this
@@ -1449,9 +1460,11 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
     // A typed address counts as a recipient: sending a PO to a vendor's one-off
     // contact, or to ourselves to check it, must not require editing the
     // decorator's contact list (Jon, Sep 2026).
+    const typed = typedEmails();
+    if (!typed) { setActErr("The email in the box isn't a valid address. Fix it or clear it."); return; }
     const emails = [
       ...cl.filter((c: any) => c.email && recips[c.email]).map((c: any) => c.email),
-      ...manualEmails,
+      ...typed,
     ];
     if (!emails.length) { setActErr("Select a recipient, or type an email address below."); return; }
     if (!poShipDate) { setActErr("Set a ship date."); return; }
@@ -3420,7 +3433,7 @@ export function JobDetailV2({ job: jobProp, items: itemsProp = [], payments: pay
               {actErr && <div style={{ color: T.red, fontSize: 12, marginTop: 10 }}>{actErr}</div>}
               <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
                 {(() => {
-                  const noRecipient = cl.filter((c: any) => c.email && recips[c.email]).length === 0 && manualEmails.length === 0;
+                  const noRecipient = cl.filter((c: any) => c.email && recips[c.email]).length === 0 && manualEmails.length === 0 && !manualInput.trim();
                   return (
                     <button disabled={actBusy || noRecipient} onClick={doSendPO}
                       style={{ ...actBtn, opacity: actBusy || noRecipient ? 0.6 : 1 }}>{actBusy ? "Sending…" : "Send PO"}</button>
