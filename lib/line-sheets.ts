@@ -12,6 +12,25 @@ export type SheetItem = {
   client_thumb_note: string | null;   // optional why on a thumbs-down (mig 195)
 };
 export type SheetSection = { id: string; sheet_id: string; name: string; sort: number };
+// Item numbers before the FIRST publish follow the shelves (Jon, Nov 2026):
+// shelf order, then position on the shelf, then the tray. Nobody outside has
+// seen a number yet, so they can track the layout; the first publish stamps
+// them for good (route.ts publish) and from then on they never move.
+export function shelfNumbering(
+  sections: { id: string; sort: number }[],
+  items: { id: string; section_id: string | null; sort: number; dropped?: boolean }[],
+  includeTray = false,
+): Record<string, number> {
+  const live = items.filter(i => !i.dropped);
+  const bySort = (a: { sort: number }, b: { sort: number }) => (a.sort || 0) - (b.sort || 0);
+  const known = new Set(sections.map(s => s.id));
+  const order = [...sections].sort(bySort).flatMap(sec => live.filter(i => i.section_id === sec.id).sort(bySort));
+  if (includeTray) order.push(...live.filter(i => !i.section_id || !known.has(i.section_id)).sort(bySort));
+  const out: Record<string, number> = {};
+  order.forEach((it, k) => { out[it.id] = k + 1; });
+  return out;
+}
+
 export type LineSheet = {
   id: string; client_id: string; release_id: string; title: string; season: string | null;
   status: "working" | "final"; current_version: number;

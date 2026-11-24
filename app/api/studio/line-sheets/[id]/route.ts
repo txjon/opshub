@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { studioUser } from "@/lib/studio-access";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { publishedImageIds } from "@/lib/line-sheets";
+import { publishedImageIds, shelfNumbering } from "@/lib/line-sheets";
 import { getActiveCompanyId } from "@/lib/company";
 
 export const runtime = "nodejs";
@@ -97,6 +97,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     // anything still unnumbered gets its permanent number now — the client
     // never sees an untitled item, the number IS the default name
     let { data: fresh } = await db.from("line_sheet_items").select("*").eq("sheet_id", params.id).order("sort");
+    if (n === 1) {
+      // FIRST publish: stamp numbers in shelf order (what the builder showed),
+      // replacing the landing-order numbers nobody outside has seen. Cleared
+      // first: (sheet_id, item_no) is unique.
+      const { error: cErr } = await db.from("line_sheet_items").update({ item_no: null } as never).eq("sheet_id", params.id);
+      if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
+      const nums = shelfNumbering((sections || []) as any[], (fresh || []) as any[], true);
+      for (const it of (fresh || []) as any[]) {
+        it.item_no = nums[it.id] ?? null;
+        if (it.item_no != null) await db.from("line_sheet_items").update({ item_no: it.item_no } as never).eq("id", it.id);
+      }
+    }
     let nextNo = Math.max(0, ...((fresh || []) as any[]).map(i => i.item_no || 0)) + 1;
     for (const it of ((fresh || []) as any[]).filter(i => !i.dropped && i.item_no == null)) {
       await db.from("line_sheet_items").update({ item_no: nextNo } as never).eq("id", it.id);

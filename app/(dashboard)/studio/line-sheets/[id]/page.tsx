@@ -5,6 +5,7 @@ import { T } from "@/lib/theme";   // T.accent = the confirm dialog's dark-text 
 import { useConfirm } from "@/components/useConfirm";
 // @ts-ignore — plain-JS lib, no declarations
 import { uploadToDrive } from "@/lib/drive-upload-client";
+import { shelfNumbering } from "@/lib/line-sheets";
 
 // THE LINE SHEET BUILDER (mig 190, selection-first rework Oct 1).
 // No dragging. Tap cards to select; a sticky action bar does the rest:
@@ -105,7 +106,10 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const tray = items.filter(i => !i.section_id && i.client_thumb !== "down");
   // Organizing is live in their hub; only never-published uploads wait (Oct 1 2026).
   const unpublished = items.filter(i => !i.dropped && i.added_in == null).length;
-  const noOf = (it: any) => it.item_no ? String(it.item_no).padStart(2, "0") : null;
+  // Never published → numbers follow the shelves (lib/line-sheets shelfNumbering);
+  // once published, the stamped item_no is permanent.
+  const draftNo = sheet.current_version ? null : shelfNumbering(sections, data.items);
+  const noOf = (it: any) => { const n = draftNo ? draftNo[it.id] : it.item_no; return n ? String(n).padStart(2, "0") : null; };
 
   async function patchSheet(body: any) { setBusy(true); try { const r = await fetch(`/api/studio/line-sheets/${params.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(x => x.json()); if (r.error) setErr(r.error); await load(); return r; } finally { setBusy(false); } }
   // Archive (mig 211): off the Studio list and out of the client's hub, data
