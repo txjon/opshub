@@ -68,7 +68,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     const sheetByRelease: Record<string, any> = {};
     if (ids.length) {
       const { data: sheets } = await db.from("line_sheets")
-        .select("id, release_id, current_version").in("release_id", ids).gt("current_version", 0);
+        .select("id, release_id, current_version").in("release_id", ids).gt("current_version", 0).is("archived_at", null);
       for (const sh of (sheets || []) as any[]) {
         const view = await clientSheetView(db, sh);
         const secSort: Record<string, number> = {};
@@ -83,6 +83,16 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         };
       }
     }
+    // An archived sheet (mig 211) takes its release with it when the sheet
+    // was all the release held (still building, no lines, no job): otherwise
+    // the client sees an empty card for a line we shelved.
+    const archivedOn = new Set<string>();
+    if (ids.length) {
+      const { data: arch } = await db.from("line_sheets").select("release_id").in("release_id", ids).not("archived_at", "is", null);
+      for (const a of (arch || []) as any[]) archivedOn.add(a.release_id);
+    }
+    const shown = (releases || []).filter((r: any) =>
+      !(archivedOn.has(r.id) && r.status === "building" && !r.job_id && !(slotsByRelease[r.id] || []).length));
     // Payable for cut drops — read the born job's invoice state (same
     // gating as the order surfaces: nothing shows until the invoice is
     // actually sent or a non-draft payment record exists).
@@ -123,7 +133,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     }
     return NextResponse.json({
       committedBriefIds: Array.from(committed),
-      drops: (releases || []).map((r: any) => ({
+      drops: shown.map((r: any) => ({
         ...r,
         slots: slotsByRelease[r.id] || [],
         lineSheet: sheetByRelease[r.id] || null,

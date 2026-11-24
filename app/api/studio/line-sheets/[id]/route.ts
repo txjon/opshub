@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { studioUser } from "@/lib/studio-access";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { publishedImageIds } from "@/lib/line-sheets";
+import { getActiveCompanyId } from "@/lib/company";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +13,11 @@ export const dynamic = "force-dynamic";
 // PATCH  → { title?, season? } meta edits
 //          { publish: true, note? } → stamp the next version (see below)
 //          { finalize: true } / { reopen: true } → status
+//          { archive: true } / { unarchive: true } → archived_at (mig 211):
+//          off the Studio list and out of the client hub, data kept
 // DELETE → remove the sheet outright (confirmed in UI; drafts and dead ends).
+//          Its release goes too when the sheet was all it held.
+// Every verb is scoped to the request's company (the sheet's client).
 const admin = () => createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 async function me() {
   const supabase = await createClient();
@@ -32,8 +37,15 @@ async function loadFull(db: any, id: string) {
   return { sheet, sections: sections || [], items: items || [], versions: versions || [] };
 }
 
+// A sheet belongs to this request's company through its client.
+async function ownSheet(db: any, id: string): Promise<boolean> {
+  const { data } = await db.from("line_sheets").select("id, clients!inner(company_id)").eq("id", id).maybeSingle();
+  return !!data && (data as any).clients?.company_id === await getActiveCompanyId();
+}
+
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   if (!(await me())) return NextResponse.json({ error: "Sign in" }, { status: 401 });
+  if (!(await ownSheet(admin(), params.id))) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const full = await loadFull(admin(), params.id);
   if (!full) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(full);
@@ -44,9 +56,16 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (!who) return NextResponse.json({ error: "Sign in" }, { status: 401 });
   const b = await req.json().catch(() => ({} as any));
   const db = admin();
+  if (!(await ownSheet(db, params.id))) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const { data: sheet } = await db.from("line_sheets").select("*").eq("id", params.id).maybeSingle();
   if (!sheet) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const now = new Date().toISOString();
+
+  if (b.archive || b.unarchive) {
+    const { error } = await db.from("line_sheets").update({ archived_at: b.archive ? now : null } as never).eq("id", params.id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
 
   // ── PUBLISH: new uploads become visible as v(n+1). Organizing is already
   // live (lib/line-sheets clientSheetView); the snapshot is history. ────────
@@ -116,7 +135,22 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   if (!(await me())) return NextResponse.json({ error: "Sign in" }, { status: 401 });
-  const { error } = await admin().from("line_sheets").delete().eq("id", params.id);
+  const db = admin();
+  if (!(await ownSheet(db, params.id))) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const { data: sheet } = await db.from("line_sheets").select("release_id").eq("id", params.id).maybeSingle();
+  const { error } = await db.from("line_sheets").delete().eq("id", params.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // A release born with the sheet (still building, no lines, no job) would be
+  // left as an empty card in the client's hub. Anything more and it stays.
+  const releaseId = (sheet as any)?.release_id;
+  if (releaseId) {
+    const [{ data: rel }, { count: slots }] = await Promise.all([
+      db.from("releases").select("status, job_id").eq("id", releaseId).maybeSingle(),
+      db.from("release_slots").select("id", { count: "exact", head: true }).eq("release_id", releaseId),
+    ]);
+    if (rel && (rel as any).status === "building" && !(rel as any).job_id && slots === 0) {
+      await db.from("releases").delete().eq("id", releaseId);
+    }
+  }
   return NextResponse.json({ ok: true });
 }

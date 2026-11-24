@@ -106,6 +106,30 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const noOf = (it: any) => it.item_no ? String(it.item_no).padStart(2, "0") : null;
 
   async function patchSheet(body: any) { setBusy(true); try { const r = await fetch(`/api/studio/line-sheets/${params.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(x => x.json()); if (r.error) setErr(r.error); await load(); return r; } finally { setBusy(false); } }
+  // Archive (mig 211): off the Studio list and out of the client's hub, data
+  // kept. Delete: gone, with its versions and the client's thumbs.
+  const [menuOpen, setMenuOpen] = useState(false);
+  async function toggleArchive() {
+    setMenuOpen(false);
+    const sh = dataRef.current?.sheet;
+    if (!sh) return;
+    if (!sh.archived_at && !await confirm({ title: "Archive this line sheet?", message: "It leaves your Line sheets list and the client's hub. Items, versions and their thumbs are kept; Unarchive brings it all back.", confirmLabel: "Archive" })) return;
+    const r = await patchSheet(sh.archived_at ? { unarchive: true } : { archive: true });
+    if (r?.ok && !sh.archived_at) window.location.href = "/studio/line-sheets";
+  }
+  async function deleteSheet() {
+    setMenuOpen(false);
+    const sh = dataRef.current?.sheet;
+    if (!sh) return;
+    const n = (dataRef.current?.items || []).length;
+    if (!await confirm({ title: `Delete "${sh.title}" for good?`, message: `This removes ${n} item${n === 1 ? "" : "s"}, every version, and the client's thumbs, and takes it out of their hub. It can't be undone. To just put it away, use Archive.`, confirmLabel: "Delete", confirmColor: H.red })) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/studio/line-sheets/${params.id}`, { method: "DELETE" }).then(x => x.json()).catch(() => ({ error: "Delete failed" }));
+      if (r.error) { setErr(r.error); return; }
+      window.location.href = "/studio/line-sheets";
+    } finally { setBusy(false); }
+  }
   async function patchItem(body: any) { const r = await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(x => x.json()); if (r.error) setErr(r.error); }
 
   const visualOrder = [...tray, ...sections.flatMap((s: any) => items.filter(i => i.section_id === s.id && i.client_thumb !== "down")), ...notApproved].map(i => i.id);
@@ -261,6 +285,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
       <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", marginBottom: 24 }}>
         <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>{sheet.clients?.name}</span>
         {sheet.releases && <a href="/drops" style={{ fontSize: 10.5, fontFamily: H.mono, color: H.dim, textDecoration: "none", borderBottom: "1px dotted rgba(255,255,255,.3)" }}>Release · {sheet.releases.title}</a>}
+        {sheet.archived_at && <span style={tag(H.faint, 9.5)}>Archived · hidden from their hub</span>}
         <span style={tag(sheet.current_version ? H.blue : H.amber, 9.5)}>{sheet.current_version ? `v${sheet.current_version} live in their hub` : "Draft · never published"}</span>
         {sheet.current_version > 0 && sheet.clients?.portal_token && <a href={`/portal/client/${sheet.clients.portal_token}/releases/${sheet.release_id}/line-sheet`} target="_blank" rel="noreferrer" style={{ ...tag(H.text, 9.5), textDecoration: "none", border: `1px solid ${H.line}`, borderRadius: 8, padding: "4px 9px" }}>View as client ↗</a>}
         {sheet.current_version > 0 && sheet.clients?.portal_token && <CopyLink url={`${window.location.origin}/portal/client/${sheet.clients.portal_token}/releases/${sheet.release_id}/line-sheet`} />}
@@ -270,6 +295,16 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
           {approvedN > 0 && <a href={`/api/studio/line-sheets/${params.id}/approved-zip`} download title="Every thumbs-up mockup, full res, in one ZIP" style={{ ...ghostBtn, textDecoration: "none" }}>↓ Approved ({approvedN})</a>}
           <button onClick={() => fileIn.current?.click()} style={ghostBtn}>+ Add mockups</button>
           <button disabled={busy} onClick={() => setPublishOpen(true)} style={{ ...primaryBtn, padding: "11px 20px" }}>Publish {sheet.current_version ? `v${sheet.current_version + 1}` : "v1"} →</button>
+          <span style={{ position: "relative" }}>
+            <button disabled={busy} onClick={() => setMenuOpen(o => !o)} title="More" style={{ ...ghostBtn, padding: "9px 13px" }}>⋯</button>
+            {menuOpen && (<>
+              <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+              <div style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 41, background: "#161616", border: `1px solid ${H.line}`, borderRadius: 10, padding: 5, minWidth: 170 }}>
+                <button onClick={toggleArchive} style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", color: H.text, fontSize: 13, fontFamily: H.font, padding: "9px 11px", cursor: "pointer", borderRadius: 7 }}>{sheet.archived_at ? "Unarchive" : "Archive"}</button>
+                <button onClick={deleteSheet} style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", color: H.red, fontSize: 13, fontFamily: H.font, padding: "9px 11px", cursor: "pointer", borderRadius: 7 }}>Delete…</button>
+              </div>
+            </>)}
+          </span>
         </span>
       </div>
       {err && <div style={{ color: H.red, fontSize: 12, marginBottom: 12 }}>{err}</div>}

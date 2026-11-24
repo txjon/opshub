@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 
 // LINE SHEETS (mig 190) — the index.
 // GET  → the company's sheets (client, release, version, counts), newest first.
+//        Archived sheets (mig 211) only with ?archived=1, and then only those.
 //        ?client=<id> → instead, that client's building releases with no
 //        sheet yet (the New-sheet picker).
 // POST → start one: { clientId, title, season?, releaseId? }. A sheet is the
@@ -35,10 +36,12 @@ export async function GET(req: NextRequest) {
     const used = new Set(((taken || []) as any[]).map(t => t.release_id));
     return NextResponse.json({ releases: ((rels || []) as any[]).filter(r => !used.has(r.id)) });
   }
-  const { data } = await db.from("line_sheets")
+  const archived = req.nextUrl.searchParams.get("archived") === "1";
+  let q = db.from("line_sheets")
     .select("*, clients!inner(id, name, company_id), releases(id, title)")
-    .eq("clients.company_id", company.id)
-    .order("updated_at", { ascending: false });
+    .eq("clients.company_id", company.id);
+  q = archived ? q.not("archived_at", "is", null) : q.is("archived_at", null);
+  const { data } = await q.order("updated_at", { ascending: false });
   const sheets = ((data || []) as any[]);
   const ids = sheets.map(s => s.id);
   const counts: Record<string, { items: number; thumbsUp: number; thumbsDown: number }> = {};

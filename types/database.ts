@@ -3647,6 +3647,7 @@ export type Database = {
           created_at: string;
           updated_at: string;
           release_id: string;
+          archived_at: string | null;
         };
         Insert: {
           id?: string;
@@ -3659,6 +3660,7 @@ export type Database = {
           created_at?: string;
           updated_at?: string;
           release_id: string;
+          archived_at?: string | null;
         };
         Update: {
           id?: string;
@@ -3671,6 +3673,7 @@ export type Database = {
           created_at?: string;
           updated_at?: string;
           release_id?: string;
+          archived_at?: string | null;
         };
         Relationships: [
           { foreignKeyName: "line_sheets_client_id_fkey"; columns: ["client_id"]; isOneToOne: false; referencedRelation: "clients"; referencedColumns: ["id"] },
@@ -4624,6 +4627,7 @@ export type Database = {
           host: string | null;
           caller: string | null;
           detail: string | null;
+          instance: string | null;
         };
         Insert: {
           id?: string;
@@ -4634,6 +4638,7 @@ export type Database = {
           host?: string | null;
           caller?: string | null;
           detail?: string | null;
+          instance?: string | null;
         };
         Update: {
           id?: string;
@@ -4644,6 +4649,7 @@ export type Database = {
           host?: string | null;
           caller?: string | null;
           detail?: string | null;
+          instance?: string | null;
         };
         Relationships: [
 
@@ -4659,6 +4665,8 @@ export type Database = {
           created_at: string | null;
           updated_at: string | null;
           company_id: string;
+          refresh_lock_until: string | null;
+          refresh_lock_owner: string | null;
         };
         Insert: {
           id?: string;
@@ -4669,6 +4677,8 @@ export type Database = {
           created_at?: string | null;
           updated_at?: string | null;
           company_id: string;
+          refresh_lock_until?: string | null;
+          refresh_lock_owner?: string | null;
         };
         Update: {
           id?: string;
@@ -4679,6 +4689,8 @@ export type Database = {
           created_at?: string | null;
           updated_at?: string | null;
           company_id?: string;
+          refresh_lock_until?: string | null;
+          refresh_lock_owner?: string | null;
         };
         Relationships: [
           { foreignKeyName: "qb_tokens_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] }

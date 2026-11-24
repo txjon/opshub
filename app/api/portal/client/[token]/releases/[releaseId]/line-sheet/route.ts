@@ -18,7 +18,7 @@ async function sheetFor(db: any, token: string, releaseId: string) {
   const { data: client } = await hubClientLookup(db, token, "id, name, portal_features");
   if (!client) return null;
   if (!Array.isArray((client as any).portal_features) || !(client as any).portal_features.includes("releases")) return null;
-  const { data: sheet } = await db.from("line_sheets").select("*, releases!inner(id, title)").eq("release_id", releaseId).eq("client_id", (client as any).id).gt("current_version", 0).maybeSingle();
+  const { data: sheet } = await db.from("line_sheets").select("*, releases!inner(id, title)").eq("release_id", releaseId).eq("client_id", (client as any).id).gt("current_version", 0).is("archived_at", null).maybeSingle();
   return sheet ? { client, sheet } : null;
 }
 

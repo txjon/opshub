@@ -7,16 +7,22 @@ import { H, primaryBtn, ghostBtn, inp, lbl, tag, fmtStamp } from "@/lib/studio-t
 export default function LineSheetsPage() {
   const [sheets, setSheets] = useState<any[]>([]);
   const [showNew, setShowNew] = useState(false);
-  const load = async () => { const j = await fetch("/api/studio/line-sheets").then(r => r.json()).catch(() => ({})); setSheets(j.sheets || []); };
-  useEffect(() => { load(); }, []);
+  const [archived, setArchived] = useState(false);   // mig 211: archived sheets only, on demand
+  useEffect(() => {
+    setSheets([]);
+    fetch(`/api/studio/line-sheets${archived ? "?archived=1" : ""}`).then(r => r.json()).then(j => setSheets(j.sheets || [])).catch(() => {});
+  }, [archived]);
   return (
     <div style={{ maxWidth: 1240, margin: "0 auto", padding: "26px 20px 90px", background: H.ink, minHeight: "100vh", color: H.text, fontFamily: H.font }}>
       <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint }}><a href="/studio" style={{ color: H.faint, textDecoration: "none" }}>‹ The studio</a></div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 16, flexWrap: "wrap", margin: "6px 0 26px" }}>
         <h1 style={{ fontSize: "clamp(34px,5vw,60px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: 0 }}>Line sheets.</h1>
         <button onClick={() => setShowNew(true)} style={{ ...primaryBtn, padding: "12px 22px" }}>+ New line sheet</button>
+        <button onClick={() => setArchived(a => !a)} style={{ ...ghostBtn, marginLeft: "auto" }}>{archived ? "‹ Active sheets" : "Show archived"}</button>
       </div>
-      {sheets.length === 0 && <div style={{ color: H.faint, fontSize: 13 }}>Nothing yet. A line sheet is a client&rsquo;s whole product line — sections, items, versions — presented like a webstore.</div>}
+      {archived && <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginBottom: 12 }}>Archived · open one to unarchive</div>}
+      {archived && sheets.length === 0 && <div style={{ color: H.faint, fontSize: 13 }}>No archived sheets.</div>}
+      {!archived && sheets.length === 0 && <div style={{ color: H.faint, fontSize: 13 }}>Nothing yet. A line sheet is a client&rsquo;s whole product line — sections, items, versions — presented like a webstore.</div>}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 14 }}>
         {sheets.map(s => (
           <a key={s.id} href={`/studio/line-sheets/${s.id}`} style={{ background: H.panel, border: `1px solid ${H.line}`, borderRadius: 14, padding: "16px 18px", color: H.text, textDecoration: "none" }}>
