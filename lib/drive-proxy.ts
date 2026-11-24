@@ -25,6 +25,31 @@ export type DriveProxyOpts = {
   size?: number;      // thumbnail size hint (longest edge, capped 1600)
 };
 
+// Drive's thumbnail for a transparent image is a JPEG with the clear areas
+// BLACK (line sheet mockups, Nov 2026). For alpha-capable images we build the
+// preview ourselves from the original, flattened onto white. Null = fall back
+// to Drive's thumbnail (too big, fetch failed, decode failed).
+const ALPHA_MIMES = new Set(["image/png", "image/webp", "image/gif"]);
+const MAX_ALPHA_SOURCE = 40 * 1024 * 1024;
+async function whiteBackedThumb(fileId: string, token: string, size: number): Promise<Buffer | null> {
+  try {
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return null;
+    const len = Number(res.headers.get("content-length") || 0);
+    if (len > MAX_ALPHA_SOURCE) { res.body?.cancel().catch(() => {}); return null; }
+    const src = Buffer.from(await res.arrayBuffer());
+    if (src.length > MAX_ALPHA_SOURCE) return null;
+    const sharp = (await import("sharp")).default;
+    return await sharp(src, { animated: false })
+      .resize(size, size, { fit: "inside", withoutEnlargement: true })
+      .flatten({ background: "#ffffff" })
+      .jpeg({ quality: 85 })
+      .toBuffer();
+  } catch {
+    return null;
+  }
+}
+
 // Returns a Response streaming the requested Drive file. Callers own auth /
 // authorization BEFORE calling this — it always serves whatever fileId it's
 // given via the service account.
@@ -46,6 +71,14 @@ export async function proxyDriveFile(fileId: string, opts: DriveProxyOpts = {}):
   const mustUseThumbnail = !isBrowserRenderable(mimeType);
   const shouldServeThumbnail = !forceDownload && (useThumbnail || mustUseThumbnail) && meta?.thumbnailLink;
 
+  if (shouldServeThumbnail && ALPHA_MIMES.has(mimeType)) {
+    const own = await whiteBackedThumb(fileId, token, sizeHint || 220);
+    if (own) {
+      return new Response(new Uint8Array(own), {
+        headers: { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=86400" },   // private: see below
+      });
+    }
+  }
   if (shouldServeThumbnail) {
     let thumbUrl: string = meta.thumbnailLink;
     if (sizeHint > 0) {
@@ -134,6 +167,10 @@ export async function driveImageDataUri(fileId: string, size = 300): Promise<str
     );
     if (!metaRes.ok) return null;
     const meta = await metaRes.json();
+    if (ALPHA_MIMES.has(meta?.mimeType)) {
+      const own = await whiteBackedThumb(fileId, token, Math.min(Math.max(size, 32), 1600));
+      if (own) return `data:image/jpeg;base64,${own.toString("base64")}`;
+    }
     if (!meta?.thumbnailLink) return null;
     const url = String(meta.thumbnailLink).replace(/=s\d+(-c)?$/, `=s${Math.min(Math.max(size, 32), 1600)}`);
     const res = await fetch(url);
