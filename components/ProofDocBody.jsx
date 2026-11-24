@@ -9,6 +9,40 @@ import React from "react";
 const LBL = { fontSize: 8.5, fontWeight: 700, color: "#a0a0ad", textTransform: "uppercase", letterSpacing: "0.05em" };
 const SEC = { fontSize: 9, fontWeight: 800, color: "#a0a0ad", textTransform: "uppercase", letterSpacing: "0.06em" };
 const isTag = (pl) => { const t = String(pl || "").toLowerCase().trim(); return t === "tag" || t === "tags"; };
+// A tag row's chips are SIZES (one tag print per size); each chip's hex is the
+// ink. Read-only, the old render labeled them "Colors" and drew white ink as a
+// white square on white paper, so a client saw empty checkboxes and no ink
+// (HPD-2610-033, Nov 2026). Now: a Sizes line plus a named Ink line.
+const INK_NAMES = { "#000000": "Black", "#222222": "Black", "#7a7a82": "Grey", "#ffffff": "White" };
+const inkName = (hex) => INK_NAMES[String(hex || "").toLowerCase()] || String(hex || "").toUpperCase();
+const InkSwatch = ({ hex }) => <span style={{ width: 11, height: 11, borderRadius: 3, background: hex, border: "1px solid #9a9aa6", flexShrink: 0 }} />;
+function TagSizesInk({ colors }) {
+  const groups = [];
+  for (const c of colors) {
+    const hex = c.hex || null;
+    const g = groups.find(x => x.hex === hex);
+    if (g) g.sizes.push(c.name); else groups.push({ hex, sizes: [c.name] });
+  }
+  return (
+    <>
+      <div>
+        <div style={LBL}>Sizes</div>
+        <div style={{ fontSize: 12.5, marginTop: 4 }}>{colors.map(c => c.name).filter(Boolean).join(" · ") || "—"}</div>
+      </div>
+      <div>
+        <div style={LBL}>Ink</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 4 }}>
+          {groups.filter(g => g.hex).map((g, k) => (
+            <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5 }}>
+              <InkSwatch hex={g.hex} />{inkName(g.hex)}{groups.length > 1 ? <span style={{ color: "#8a8a96" }}> ({g.sizes.join(", ")})</span> : null}
+            </span>
+          ))}
+          {groups.every(g => !g.hex) && <span style={{ fontSize: 12.5, color: "#a0a0ad" }}>—</span>}
+        </div>
+      </div>
+    </>
+  );
+}
 
 // Inline text field that looks like the doc text until you focus it. Read-only
 // (no onChange) → plain span identical to the old render.
@@ -152,8 +186,9 @@ export default function ProofDocBody({
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
                     {rowLabel("Print size", <Ed value={p.sizeText} onChange={E?.updateLocation ? (v) => E.updateLocation(i, { sizeText: v }) : null} placeholder='W" × H"' style={{ fontFamily: mono, fontSize: 12.5 }} widthCh={E ? 10 : undefined} />)}
+                    {tag && !E && (p.colors || []).length > 0 ? <TagSizesInk colors={p.colors} /> : (
                     <div>
-                      <div style={LBL}>Colors</div>
+                      <div style={LBL}>{tag ? "Sizes · ink" : "Colors"}</div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", alignItems: "center", marginTop: 4 }}>
                         {(p.colors || []).length > 0
                           ? (p.colors || []).map((c, j) => (
@@ -187,6 +222,7 @@ export default function ProofDocBody({
                         </div>
                       )}
                     </div>
+                    )}
                     {(p.callout || E?.updateLocation) && rowLabel("Placement", <Ed value={p.callout} onChange={E?.updateLocation ? (v) => E.updateLocation(i, { callout: v }) : null} placeholder="Placement callout…" style={{ fontSize: 12.5 }} multiline />)}
                     {E?.toggleSpecialty && (E.addOnOptions || []).length > 0 ? (
                       <div>
