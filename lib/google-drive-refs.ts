@@ -39,6 +39,27 @@ const REF_TABLES: RefTable[] = [
   { table: "proof_versions", column: "mockup_drive_file_id" },
 ];
 
+// Line sheets keep their images inside jsonb: the working sheet
+// (line_sheet_items.images[].driveId) and every published version's snapshot.
+// An order made from a sheet points its item_files at the SAME Drive ids, so
+// without these a replaced order mockup trashed the client's line sheet image
+// (Nov 2026 review). Any lookup error counts as a reference.
+async function lineSheetRefs(db: any, driveFileId: string): Promise<{ table: string; column: string; id: string }[]> {
+  const hits: { table: string; column: string; id: string }[] = [];
+  const checks: [string, string, string][] = [
+    ["line_sheet_items", "images", JSON.stringify([{ driveId: driveFileId }])],
+    ["line_sheet_versions", "snapshot", JSON.stringify({ items: [{ images: [{ driveId: driveFileId }] }] })],
+  ];
+  for (const [table, column, needle] of checks) {
+    try {
+      const { data, error } = await db.from(table).select("id").filter(column, "cs", needle).limit(5);
+      if (error) { hits.push({ table, column, id: `error:${error.message.slice(0, 60)}` }); continue; }
+      for (const r of (data || [])) hits.push({ table, column, id: (r as any).id });
+    } catch { hits.push({ table, column, id: "error" }); }
+  }
+  return hits;
+}
+
 /** Where else (outside item_files) does this Drive file id appear? */
 export async function otherRefsToDriveFile(
   db: any,
@@ -78,6 +99,7 @@ export async function otherRefsToDriveFile(
     if (error) hits.push({ table: "products", column: "spec.mockup_drive_file_id", id: `error:${error.message.slice(0, 60)}` });
     for (const r of (data || [])) hits.push({ table: "products", column: "spec.mockup_drive_file_id", id: (r as any).id });
   } catch (e: any) { hits.push({ table: "products", column: "spec.mockup_drive_file_id", id: "error" }); }
+  hits.push(...await lineSheetRefs(db, driveFileId));
   return hits;
 }
 
@@ -131,6 +153,14 @@ export async function referencedDriveFileIds(
     const { data: prods, error: prodErr } = await db.from("products").select("spec").in("spec->>mockup_drive_file_id", slice);
     if (prodErr) keepAll();
     else for (const r of (prods || [])) { const v = (r as any)?.spec?.mockup_drive_file_id; if (v) referenced.add(v); }
+  }
+  // Line sheet jsonb can't take an IN list: check what's still unclaimed, one
+  // id at a time, ten in flight.
+  const open = ids.filter(id => !referenced.has(id));
+  for (let i = 0; i < open.length; i += 10) {
+    const chunk = open.slice(i, i + 10);
+    const res = await Promise.all(chunk.map(id => lineSheetRefs(db, id)));
+    res.forEach((hits, k) => { if (hits.length) referenced.add(chunk[k]); });
   }
   return referenced;
 }
