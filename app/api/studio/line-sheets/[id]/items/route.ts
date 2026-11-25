@@ -76,6 +76,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   if (!(await authed(params.id))) return NextResponse.json({ error: "Sign in" }, { status: 401 });
   const b = await req.json().catch(() => ({} as any));
+  // Drag-to-reorder: { reorder: [{id, sort}] } — one shelf's new order.
+  if (Array.isArray(b.reorder)) {
+    const db = admin();
+    for (const r of (b.reorder as any[]).slice(0, 500)) {
+      if (!r?.id) continue;
+      const { error } = await db.from("line_sheet_items").update({ sort: Number(r.sort) || 0 } as never).eq("id", r.id).eq("sheet_id", params.id);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true });
+  }
   if (!b.id) return NextResponse.json({ error: "id required" }, { status: 400 });
   const db = admin();
   const { data: item } = await db.from("line_sheet_items").select("*").eq("id", b.id).eq("sheet_id", params.id).maybeSingle();

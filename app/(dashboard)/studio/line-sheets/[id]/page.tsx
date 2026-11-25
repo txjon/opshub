@@ -1,5 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { DndContext, DragOverlay, MouseSensor, TouchSensor, closestCorners, useDroppable, useSensor, useSensors, type DragEndEvent, type DragOverEvent, type DragStartEvent } from "@dnd-kit/core";
+import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { H, primaryBtn, ghostBtn, inp, lbl, tag, fmtStamp } from "@/lib/studio-theme";
 import { T } from "@/lib/theme";   // T.accent = the confirm dialog's dark-text button
 import { useConfirm } from "@/components/useConfirm";
@@ -8,7 +11,7 @@ import { uploadToDrive } from "@/lib/drive-upload-client";
 import { shelfNumbering } from "@/lib/line-sheets";
 
 // THE LINE SHEET BUILDER (mig 190, selection-first rework Oct 1).
-// No dragging. Tap cards to select; a sticky action bar does the rest:
+// Tap cards to select; a sticky action bar does the rest:
 // Pair (2 selected → one product), Add to shelf (existing or named right
 // there), Drop. Mockups auto-number on arrival (01, 02…). Uploads are
 // bulletproof: 3-at-a-time, each file registers the moment it lands (a crash
@@ -31,6 +34,18 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const [confirm, confirmEl] = useConfirm();
   const [menuOpen, setMenuOpen] = useState(false);   // ⋯ Archive / Delete
   const [dragging, setDragging] = useState(false);   // files over the page → drop overlay
+  // DRAG TO REORDER (Nov 2026). Reorder ONLY: a card dropped on a card never
+  // merges (that's what killed drag in the Oct 1 rework); pairing stays in the
+  // selection bar. Drag starts after 8px of movement (mouse) or a 250ms hold
+  // (touch), by the picture only, so clicks still select and the name box is
+  // never a handle. Pointer-based, so it can't collide with file drops.
+  const [dragId, setDragId] = useState<string | null>(null);
+  const dragFrom = useRef<string | null>(null);      // container the card started in
+  const justDragged = useRef(false);                 // swallow the click a drop can fire
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 6 } }),
+  );
   // Line sheet → order (api/.../order): the sheet's job, and thumbs-ups not on it yet.
   const [order, setOrder] = useState<{ job: { id: string; job_number: string } | null; pending: number } | null>(null);
   const loadOrder = () => fetch(`/api/studio/line-sheets/${params.id}/order`).then(r => r.json()).then(j => { if (!j.error) setOrder(j); }).catch(() => {});
@@ -204,20 +219,6 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     const r = await fetch(`/api/studio/line-sheets/${params.id}/sections`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newShelfName.trim() }) }).then(x => x.json());
     if (r.section?.id) await addSelectedToShelf(r.section.id);
   }
-  async function moveSelected(dir: -1 | 1) {
-    if (selected.length !== 1) return;
-    const it = items.find(i => i.id === selected[0]); if (!it) return;
-    const peers = items.filter(i => (i.section_id || null) === (it.section_id || null));
-    const idx = peers.findIndex(i => i.id === it.id);
-    const swap = peers[idx + dir]; if (!swap) return;
-    const aS = it.sort, bS = swap.sort;
-    if (aS === bS) { // legacy equal sorts: reindex the shelf once, then retry
-      for (let k = 0; k < peers.length; k++) await patchItem({ id: peers[k].id, sort: k * 2 });
-      await load(); return;
-    }
-    setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, sort: bS } : x.id === swap.id ? { ...x, sort: aS } : x) }));
-    await Promise.all([patchItem({ id: it.id, sort: bS }), patchItem({ id: swap.id, sort: aS })]);
-  }
   async function dropSelected() {
     if (!await confirm({ title: `Remove ${selected.length} item${selected.length === 1 ? "" : "s"}?`, message: "Never-published items delete outright; published ones drop (kept in history).", confirmLabel: "Remove" })) return;
     setBusy(true);
@@ -239,15 +240,65 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     await load();
   }
 
-  const card = (it: any) => {
+  // Containers: "tray" or a shelf id. Thumbs-down items keep their shelf id
+  // but live in Not approved, so they're never in a drag list.
+  const shelfIds = new Set<string>(sections.map((x: any) => x.id));
+  const boxOf = (it: any) => (it.section_id && shelfIds.has(it.section_id) ? it.section_id : "tray");
+  const listOf = (box: string) => items.filter(i => i.client_thumb !== "down" && boxOf(i) === box);
+  const isBox = (id: string) => id === "tray" || shelfIds.has(id);
+  function onDragStart(e: DragStartEvent) {
+    const it = items.find(i => i.id === e.active.id); if (!it) return;
+    dragFrom.current = boxOf(it); setDragId(String(e.active.id));
+  }
+  // Crossing into another shelf moves the card there live (local only) so the
+  // gap opens where it will land.
+  function onDragOver(e: DragOverEvent) {
+    const { active, over } = e; if (!over) return;
+    const it = items.find(i => i.id === active.id); if (!it) return;
+    const overId = String(over.id);
+    const to = isBox(overId) ? overId : (() => { const o = items.find(i => i.id === overId); return o ? boxOf(o) : null; })();
+    if (!to || to === boxOf(it)) return;
+    const overItem = isBox(overId) ? null : items.find(i => i.id === overId);
+    const sort = overItem ? (overItem.sort || 0) - 0.5 : Math.max(0, ...listOf(to).map(i => i.sort || 0)) + 1;
+    setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, section_id: to === "tray" ? null : to, sort } : x) }));
+  }
+  async function onDragEnd(e: DragEndEvent) {
+    const { active, over } = e;
+    setDragId(null);
+    justDragged.current = true; setTimeout(() => { justDragged.current = false; }, 0);
+    const from = dragFrom.current; dragFrom.current = null;
+    const it = items.find(i => i.id === active.id);
+    if (!over || !it) { await load(); return; }
+    const box = boxOf(it);
+    const ids = listOf(box).map(i => i.id);
+    const oldIdx = ids.indexOf(it.id);
+    const overId = String(over.id);
+    const newIdx = isBox(overId) ? ids.length - 1 : ids.indexOf(overId);
+    const next = newIdx >= 0 && oldIdx >= 0 ? arrayMove(ids, oldIdx, newIdx) : ids;
+    const sortOf: Record<string, number> = {};
+    next.forEach((id, k) => { sortOf[id] = (k + 1) * 10; });
+    const moved = from !== box;
+    if (!moved && oldIdx === newIdx) return;
+    setData((d: any) => ({ ...d, items: d.items.map((x: any) => sortOf[x.id] != null ? { ...x, sort: sortOf[x.id] } : x) }));
+    setBusy(true);
+    try {
+      // A shelf change goes through the normal path (it stamps a number when
+      // a published sheet's item first lands on a shelf); then one batch sort.
+      if (moved) await patchItem({ id: it.id, sectionId: box === "tray" ? null : box });
+      const r = await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reorder: next.map(id => ({ id, sort: sortOf[id] })) }) }).then(x => x.json()).catch(() => ({ error: "Couldn't save the new order" }));
+      if (r.error) setErr(r.error);
+    } finally { setBusy(false); await load(); }
+  }
+
+  const card = (it: any, handle?: { listeners?: any; attributes?: any }) => {
     const imgs = it.images || [];
     const selIdx = selected.indexOf(it.id);
     const on = selIdx >= 0;
     return (
-      <div key={it.id} onClick={e => toggleSel(it.id, e.shiftKey)}
+      <div key={it.id} onClick={e => { if (!justDragged.current) toggleSel(it.id, e.shiftKey); }}
         style={{ background: H.panel, border: `1px solid ${on ? H.blue : H.line}`, outline: on ? `2px solid ${H.blue}` : "none", outlineOffset: -1, borderRadius: 12, padding: 10, width: 172, cursor: "pointer", position: "relative", userSelect: "none" }}>
         {/* tight pair render: front left, back tucked right — the PDF look */}
-        <div style={{ position: "relative", height: 122, background: "#fff", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div {...(handle?.attributes || {})} {...(handle?.listeners || {})} style={{ position: "relative", height: 122, background: "#fff", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", cursor: handle ? "grab" : "pointer", touchAction: handle ? "manipulation" : undefined }}>
           {imgs.length > 1 ? (
             <>
               <img src={thumbUrl(imgs[0].driveId, 400)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" draggable={false} style={{ width: "62%", height: "94%", objectFit: "contain", marginRight: "-14%", zIndex: 2, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
@@ -373,13 +424,18 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
       </div>
       {err && <div style={{ color: H.red, fontSize: 12, marginBottom: 12 }}>{err}</div>}
 
+      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={() => { setDragId(null); dragFrom.current = null; load(); }}>
       {/* THE TRAY */}
       <section style={{ border: `2px dashed ${tray.length ? H.line : H.line2}`, borderRadius: 14, padding: 14, marginBottom: 26 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: tray.length ? 12 : 0 }}>
           <span style={tag(H.amber, 9.5)}>The tray · {tray.length ? `${tray.length} to sort` : "drop mockups anywhere on this page"}</span>
-          <span style={{ fontSize: 10.5, color: H.faint }}>tap two → Pair · shift-tap = select the run · Add to shelf</span>
+          <span style={{ fontSize: 10.5, color: H.faint }}>drag a picture to reorder or move shelves · tap two → Pair · shift-tap = select the run</span>
         </div>
-        {tray.length > 0 && <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>{tray.map(card)}</div>}
+        <DropBox id="tray" style={{ display: "flex", gap: 12, flexWrap: "wrap", minHeight: dragId ? 60 : 0 }}>
+          <SortableContext items={tray.map(i => i.id)} strategy={rectSortingStrategy}>
+            {tray.map(it => <SortableCard key={it.id} id={it.id}>{h => card(it, h)}</SortableCard>)}
+          </SortableContext>
+        </DropBox>
       </section>
 
       {/* THE SHELVES */}
@@ -397,12 +453,18 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
                 <button onClick={async () => { if (await confirm({ title: `Remove the "${s.name}" shelf?`, message: "Its items go back to the tray.", confirmLabel: "Remove shelf" })) { await fetch(`/api/studio/line-sheets/${params.id}/sections`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: s.id }) }); await load(); } }} style={{ background: "none", border: "none", color: H.faint, fontSize: 14, cursor: "pointer" }}>×</button>
               </span>
             </div>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", minHeight: 40, borderLeft: `2px solid ${H.line2}`, paddingLeft: 12 }}>
-              {inSection.length ? inSection.map(card) : <span style={{ fontSize: 11, color: H.faint, alignSelf: "center" }}>select items → Add to shelf</span>}
-            </div>
+            <DropBox id={s.id} style={{ display: "flex", gap: 12, flexWrap: "wrap", minHeight: 40, borderLeft: `2px solid ${H.line2}`, paddingLeft: 12 }}>
+              <SortableContext items={inSection.map(i => i.id)} strategy={rectSortingStrategy}>
+                {inSection.length ? inSection.map(it => <SortableCard key={it.id} id={it.id}>{h => card(it, h)}</SortableCard>) : <span style={{ fontSize: 11, color: H.faint, alignSelf: "center" }}>drag cards here, or select → Add to shelf</span>}
+              </SortableContext>
+            </DropBox>
           </section>
         );
       })}
+      <DragOverlay dropAnimation={null}>
+        {dragId ? (() => { const it = items.find(i => i.id === dragId); return it ? <div style={{ boxShadow: "0 12px 30px rgba(0,0,0,.55)", borderRadius: 12, cursor: "grabbing" }}>{card(it)}</div> : null; })() : null}
+      </DragOverlay>
+      </DndContext>
       {notApproved.length > 0 && (
         <section style={{ marginBottom: 26 }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
@@ -435,17 +497,6 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
       {selected.length > 0 && (
         <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 250, background: "rgba(10,10,10,.97)", borderTop: `1px solid ${H.line}`, padding: "12px 18px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", justifyContent: "center" }}>
           <span style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em" }}>{selected.length} selected</span>
-          {selected.length === 1 && (() => {
-            const it = items.find(i => i.id === selected[0]); if (!it) return null;
-            const peers = items.filter(i => (i.section_id || null) === (it.section_id || null));
-            const idx = peers.findIndex(i => i.id === it.id);
-            return (
-              <span style={{ display: "flex", gap: 6 }}>
-                <button disabled={busy || idx <= 0} onClick={() => moveSelected(-1)} title="Move left" style={{ ...ghostBtn, padding: "9px 13px", opacity: idx <= 0 ? 0.35 : 1 }}>◀</button>
-                <button disabled={busy || idx >= peers.length - 1} onClick={() => moveSelected(1)} title="Move right" style={{ ...ghostBtn, padding: "9px 13px", opacity: idx >= peers.length - 1 ? 0.35 : 1 }}>▶</button>
-              </span>
-            );
-          })()}
           {selected.length === 1 && (items.find(i => i.id === selected[0])?.images?.length || 0) > 1 && <button disabled={busy} onClick={async () => { const it = items.find(i => i.id === selected[0]); setBusy(true); try { await unpairItem(it); setSelected([]); } finally { setBusy(false); } }} style={{ ...ghostBtn, color: H.blue, borderColor: "rgba(143,199,216,.4)" }}>Unpair ({items.find(i => i.id === selected[0])?.images?.length})</button>}
           {selected.length === 2 && <button disabled={busy} onClick={pairSelected} style={{ ...primaryBtn, background: H.blue, color: H.ink }}>Pair → one product</button>}
           {selected.length > 2 && <button disabled={busy} onClick={groupSelected} style={{ ...ghostBtn, color: H.blue, borderColor: "rgba(143,199,216,.4)" }}>Group {selected.length} as one</button>}
@@ -495,4 +546,20 @@ function CopyLink({ url }: { url: string }) {
       {done ? "Copied ✓" : "Copy client link"}
     </button>
   );
+}
+
+// One draggable card: the wrapper moves, the picture is the handle (card()).
+function SortableCard({ id, children }: { id: string; children: (h: { listeners: any; attributes: any }) => React.ReactNode }) {
+  const { setNodeRef, transform, transition, listeners, attributes, isDragging } = useSortable({ id });
+  return (
+    <div ref={setNodeRef} style={{ transform: CSS.Translate.toString(transform), transition, opacity: isDragging ? 0.3 : 1 }}>
+      {children({ listeners, attributes })}
+    </div>
+  );
+}
+
+// A shelf (or the tray) as a drop target, so an empty one still takes a card.
+function DropBox({ id, style, children }: { id: string; style: React.CSSProperties; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return <div ref={setNodeRef} style={{ ...style, outline: isOver ? "1px dashed rgba(143,199,216,.6)" : undefined, outlineOffset: 4, borderRadius: 6 }}>{children}</div>;
 }
