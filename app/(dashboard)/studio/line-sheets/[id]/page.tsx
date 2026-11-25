@@ -98,7 +98,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   useEffect(() => {
     // The whole page is the drop zone (Jon, Nov 2026); the overlay says so.
     // Heartbeat: dragover fires every ~50ms while files are over the page, so
-    // the overlay stays up while those keep coming and clears 150ms after
+    // the overlay stays up while those keep coming and clears 500ms after
     // they stop (left the window, Esc, drop). enter/leave counting drifts,
     // and Safari sends every dragleave with no relatedTarget.
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -109,7 +109,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
       e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
       setDragging(true);
       if (timer) clearTimeout(timer);
-      timer = setTimeout(off, 150);
+      timer = setTimeout(off, 500);   // spec allows ~550ms gaps when the pointer is still
     };
     const drop = (e: DragEvent) => { off(); if (e.dataTransfer?.files?.length) { e.preventDefault(); enqueue(e.dataTransfer.files); } };
     window.addEventListener("dragover", over); window.addEventListener("drop", drop); window.addEventListener("dragend", off);
