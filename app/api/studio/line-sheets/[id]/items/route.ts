@@ -45,7 +45,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     nextNo = (((maxNo as any)?.item_no) || 0) + 1;
   }
   const rows = imgs.map((i: any) => ({
-    sheet_id: params.id, section_id: from ? from.section_id : null, name: null, sort: sort++,
+    // A plain upload is named by its file, minus the extension (Jon, Nov 2026:
+    // mockups are saved with descriptive names). A split stays unnamed.
+    sheet_id: params.id, section_id: from ? from.section_id : null,
+    name: from ? null : (String(i.name || "").replace(/\.[a-z0-9]{2,5}$/i, "").trim().slice(0, 140) || null), sort: sort++,
     images: [{ id: newImageId(), driveId: String(i.driveId), name: i.name || null }],
     ...(from?.added_in != null ? { added_in: from.added_in, item_no: nextNo++ } : {}),
   }));

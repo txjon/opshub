@@ -4,6 +4,7 @@ import { studioUser, lineSheetInCompany } from "@/lib/studio-access";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 import { logJobActivityServer } from "@/lib/notify-server";
+import { itemFileBase } from "@/lib/line-sheet-zip";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
 //        many thumbs-up items aren't on it yet.
 // POST → first time: births ONE intake job for the sheet's client (on the
 //        sheet's release) with an item per thumbs-up, each carrying its line
-//        sheet mockups. After that: adds only the thumbs-ups not yet ordered
+//        sheet mockups. Item and file take the sheet's item name. After that: adds only the thumbs-ups not yet ordered
 //        to that same job. type_meta.line_sheet_item_ids is the ordered set.
 // Items are NOT art-approved: a thumbs-up on a comp isn't a print proof.
 const admin = () => createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -99,16 +100,20 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   try {
   for (const it of picks) {
     const no = it.item_no != null ? String(it.item_no).padStart(2, "0") : null;
-    const name = `${secName[it.section_id] || "Item"} - ${it.name || no || "Untitled"}`.slice(0, 120);
+    // The sheet's name IS the product name (Jon, Nov 2026), and the mockup
+    // file carries it too. Unnamed → shelf and number.
+    const name = ((it.name || "").trim() || `${secName[it.section_id] || "Item"}${no ? ` #${no}` : ""}`).slice(0, 120);
+    const imgs = ((it.images || []) as any[]).filter(img => img?.driveId);
     const { data: item, error: iErr } = await db.from("items").insert({
       job_id: job.id, company_id: s.clients?.company_id || undefined, name, status: "tbd", sort_order: sort++, pipeline_stage: null,
       notes: `From line sheet${no ? ` #${no}` : ""} (client thumbs up)`,
     } as never).select("id").single();
     if (iErr || !item) { failed++; continue; }
-    for (const img of (it.images || []) as any[]) {
-      if (!img?.driveId) continue;
+    for (const [k, img] of imgs.entries()) {
+      const ext = /\.[a-z0-9]{2,5}$/i.exec(img.name || "")?.[0] || "";
+      const fileName = `${itemFileBase({ name, item_no: it.item_no })}${imgs.length > 1 ? ` (${k + 1})` : ""}${ext}`;
       const { error: fErr } = await db.from("item_files").insert({
-        item_id: (item as any).id, file_name: img.name || `${name} mockup`, stage: "mockup",
+        item_id: (item as any).id, file_name: fileName, stage: "mockup",
         drive_file_id: img.driveId, drive_link: `https://drive.google.com/file/d/${img.driveId}/view`,
         mime_type: /\.png$/i.test(img.name || "") ? "image/png" : /\.jpe?g$/i.test(img.name || "") ? "image/jpeg" : null,
         approval: "none",

@@ -235,6 +235,8 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
             <img src={thumbUrl(imgs[0].driveId, 400)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
           ) : null}
           {noOf(it) && <span style={{ position: "absolute", left: 5, top: 5, fontFamily: H.mono, fontSize: 10, fontWeight: 700, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>{noOf(it)}</span>}
+          {/* this item's file(s), named by the item (one = the file, more = a ZIP) */}
+          {!on && imgs.length > 0 && <a href={`/api/studio/line-sheets/${params.id}/download?pick=${it.id}`} download onClick={e => e.stopPropagation()} title={imgs.length > 1 ? `Download ${imgs.length} files` : "Download file"} style={{ position: "absolute", right: 5, top: 5, zIndex: 3, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "1px 6px", fontSize: 12, fontWeight: 800, textDecoration: "none", lineHeight: "18px" }}>↓</a>}
           {on && <span style={{ position: "absolute", right: 5, top: 5, background: H.blue, color: H.ink, borderRadius: 999, width: 20, height: 20, display: "grid", placeItems: "center", fontSize: 11, fontWeight: 900, zIndex: 3 }}>{selIdx + 1}</span>}
           {imgs.length > 2 && <span style={{ position: "absolute", right: 5, bottom: 5, ...tag("#555", 8.5), background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>+{imgs.length - 2}</span>}
           {it.client_thumb && <span style={{ position: "absolute", left: 5, bottom: 5, zIndex: 3, color: it.client_thumb === "up" ? "#3fae2a" : "#d33", background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 4px", display: "grid", placeItems: "center" }}><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ transform: it.client_thumb === "down" ? "rotate(180deg)" : undefined }} aria-hidden><path d="M7 10v12" /><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" /></svg></span>}
@@ -320,7 +322,9 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         {versions.length > 0 && <span style={{ fontSize: 10, fontFamily: H.mono, color: H.faint }}>last publish {fmtStamp(versions[versions.length - 1].published_at)}</span>}
         <span style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "center" }}>
           <input ref={fileIn} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { if (e.target.files?.length) enqueue(e.target.files); if (fileIn.current) fileIn.current.value = ""; }} />
-          {approvedN > 0 && <a href={`/api/studio/line-sheets/${params.id}/approved-zip`} download title="Every thumbs-up mockup, full res, in one ZIP" style={{ ...ghostBtn, textDecoration: "none" }}>↓ Approved ({approvedN})</a>}
+          {approvedN > 0 && <button onClick={() => setSelected(items.filter(i => i.client_thumb === "up").map(i => i.id))} title="Select every thumbs-up item (then download, pair, shelve…)" style={ghostBtn}>Select 👍 ({approvedN})</button>}
+          {approvedN > 0 && <a href={`/api/studio/line-sheets/${params.id}/download?pick=approved`} download title="Every thumbs-up mockup the client has seen, full res, in one ZIP" style={{ ...ghostBtn, textDecoration: "none" }}>↓ Approved ({approvedN})</a>}
+          {items.length > 0 && <a href={`/api/studio/line-sheets/${params.id}/download?pick=all`} download title="Every mockup on the sheet, full res, a folder per shelf" style={{ ...ghostBtn, textDecoration: "none" }}>↓ All</a>}
           {!sheet.archived_at && order && order.pending > 0 && <button disabled={busy} onClick={makeOrder} title="Turn the client's thumbs-ups into an order" style={ghostBtn}>{order.job ? `Add ${order.pending} 👍 to ${order.job.job_number}` : `Create order (${order.pending} 👍)`}</button>}
           {order?.job && order.pending === 0 && <a href={`/jobs/${order.job.id}`} style={{ ...ghostBtn, textDecoration: "none" }}>Order {order.job.job_number} →</a>}
           <button onClick={() => fileIn.current?.click()} style={ghostBtn}>+ Add mockups</button>
@@ -427,6 +431,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
               </span>
             )}
           </span>
+          <a href={`/api/studio/line-sheets/${params.id}/download?pick=${selected.join(",")}`} download style={{ ...ghostBtn, textDecoration: "none" }}>↓ Download ({selected.length})</a>
           <button disabled={busy} onClick={dropSelected} style={{ ...ghostBtn, color: H.red, borderColor: "rgba(255,90,110,.4)" }}>Remove</button>
           <button onClick={() => { setSelected([]); setShelfPickOpen(false); }} style={{ ...ghostBtn, border: "none", color: H.faint }}>Clear</button>
         </div>
