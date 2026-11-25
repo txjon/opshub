@@ -149,6 +149,74 @@ export function ImageLightbox({
   const [at, setAt] = useState(0);
   const fileId = ids[Math.min(at, ids.length - 1)];
   const step = (d: number) => setAt(i => (i + d + ids.length) % ids.length);
+
+  // Pinch / double-tap / drag to look closer, on the image alone (pages that
+  // lock page zoom, useNoPageZoom, still get a close look here). Transform is
+  // written straight to the element: no re-render per touchmove.
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const z = useRef({ s: 1, x: 0, y: 0, d0: 0, s0: 1, mx: 0, my: 0, x0: 0, y0: 0, cx: 0, cy: 0, lastTap: 0, moved: false });
+  const paint = () => {
+    const el = imgRef.current; if (!el) return;
+    el.style.transform = `translate(${z.current.x}px, ${z.current.y}px) scale(${z.current.s})`;
+  };
+  const resetZoom = () => { Object.assign(z.current, { s: 1, x: 0, y: 0 }); paint(); };
+  useEffect(() => { resetZoom(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [fileId]);
+  useEffect(() => {
+    const el = imgRef.current; if (!el) return;
+    const dist = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    // the image's untransformed centre: zoom keeps the point under the fingers fixed
+    const centre = () => { const r = el.getBoundingClientRect(); z.current.cx = r.left + r.width / 2 - z.current.x; z.current.cy = r.top + r.height / 2 - z.current.y; };
+    const start = (e: TouchEvent) => {
+      const c = z.current; c.moved = false;
+      if (e.touches.length === 2) {
+        centre();
+        c.d0 = dist(e.touches); c.s0 = c.s;
+        c.mx = (e.touches[0].clientX + e.touches[1].clientX) / 2; c.my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        c.x0 = c.x; c.y0 = c.y;
+      } else if (e.touches.length === 1) {
+        c.mx = e.touches[0].clientX; c.my = e.touches[0].clientY; c.x0 = c.x; c.y0 = c.y;
+      }
+    };
+    const move = (e: TouchEvent) => {
+      const c = z.current;
+      if (e.touches.length === 2 && c.d0) {
+        e.preventDefault(); c.moved = true;
+        c.s = Math.min(5, Math.max(1, c.s0 * dist(e.touches) / c.d0));
+        const mx = (e.touches[0].clientX + e.touches[1].clientX) / 2, my = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        const k = c.s / c.s0;   // image point under the start midpoint stays under the current one
+        c.x = mx - c.cx - k * (c.mx - c.cx - c.x0); c.y = my - c.cy - k * (c.my - c.cy - c.y0);
+        paint();
+      } else if (e.touches.length === 1 && c.s > 1) {
+        e.preventDefault(); c.moved = true;
+        c.x = c.x0 + (e.touches[0].clientX - c.mx); c.y = c.y0 + (e.touches[0].clientY - c.my);
+        paint();
+      }
+    };
+    const end = (e: TouchEvent) => {
+      const c = z.current;
+      if (e.touches.length) { start(e); return; }   // one finger lifted mid-pinch: carry on as a pan
+      c.d0 = 0;
+      if (c.s < 1.05) resetZoom();
+      if (!c.moved) {
+        const now = Date.now();
+        if (now - c.lastTap < 300) {               // double-tap: 2.5x, or back out
+          if (c.s > 1) resetZoom();
+          else { const t = e.changedTouches[0]; centre(); c.s = 2.5; c.x = -1.5 * (t.clientX - c.cx); c.y = -1.5 * (t.clientY - c.cy); paint(); }
+          c.lastTap = 0; c.moved = true;
+          e.preventDefault();
+        } else c.lastTap = now;
+      }
+    };
+    el.addEventListener("touchstart", start, { passive: true });
+    el.addEventListener("touchmove", move, { passive: false });
+    el.addEventListener("touchend", end, { passive: false });
+    return () => {
+      el.removeEventListener("touchstart", start);
+      el.removeEventListener("touchmove", move);
+      el.removeEventListener("touchend", end);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileId]);
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -245,14 +313,15 @@ export function ImageLightbox({
           width: "min(1100px, 96vw)",
           display: "flex", alignItems: "center", justifyContent: "center",
           flex: "0 1 auto",
+          overflow: "hidden", borderRadius: 10,   // a zoomed image stays inside its frame, off the header
         }}
       >
         <img
           key={fileId}
           src={`/api/files/thumbnail?id=${fileId}&size=1600${preview ? "&thumb=1" : ""}${t}`}
           alt={title || ""}
-          onClick={ids.length > 1 ? () => step(1) : undefined}
-          style={{ maxWidth: "100%", maxHeight: `calc(92vh - ${ids.length > 1 ? 96 : 60}px)`, objectFit: "contain", borderRadius: 10, display: "block", background: preview ? "#fff" : undefined, cursor: ids.length > 1 ? "pointer" : undefined }}
+          ref={imgRef}
+          style={{ touchAction: "none", maxWidth: "100%", maxHeight: `calc(92vh - ${ids.length > 1 ? 96 : 60}px)`, objectFit: "contain", borderRadius: 10, display: "block", background: preview ? "#fff" : undefined }}
         />
       </div>
       {ids.length > 1 && (

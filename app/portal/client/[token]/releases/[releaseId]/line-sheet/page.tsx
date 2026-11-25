@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { ImageLightbox } from "@/components/DriveThumb";
+import { useNoPageZoom } from "@/lib/useNoPageZoom";
 
 // THE LINE SHEET, client side (mig 190) — the product line as a webstore they
 // react to: shelves, product cards (front/back nested), one tap to thumb.
@@ -22,6 +23,7 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
   const [noteFor, setNoteFor] = useState<string | null>(null);   // item whose "why" field is open
   const [hold, setHold] = useState<string | null>(null);         // fresh 👎 holding its shelf spot until its why closes
   const [zoom, setZoom] = useState<any>(null);                    // item open full screen
+  useNoPageZoom();                                                // app feel: the page doesn't pinch; the viewer does
   const load = () => fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`).then(r => r.json()).then(j => { if (j.error) setMissing(true); else setData(j); }).catch(() => setMissing(true));
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [releaseId]);
   const back = <a href={`/portal/client/${token}/releases`} style={{ color: C.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", textDecoration: "none" }}>‹ {data?.release?.title || "Releases"}</a>;
