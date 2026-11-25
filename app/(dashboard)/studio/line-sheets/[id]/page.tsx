@@ -247,6 +247,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const listOf = (box: string) => items.filter(i => i.client_thumb !== "down" && boxOf(i) === box);
   const isBox = (id: string) => id === "tray" || shelfIds.has(id);
   function onDragStart(e: DragStartEvent) {
+    if (busy) return;
     const it = items.find(i => i.id === e.active.id); if (!it) return;
     dragFrom.current = boxOf(it); setDragId(String(e.active.id));
   }
@@ -275,8 +276,14 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     const overId = String(over.id);
     const newIdx = isBox(overId) ? ids.length - 1 : ids.indexOf(overId);
     const next = newIdx >= 0 && oldIdx >= 0 ? arrayMove(ids, oldIdx, newIdx) : ids;
+    // Renumber the WHOLE shelf, thumbs-down cards included in their slots, so
+    // an un-downed card comes back where it was, not at the front.
+    const full = items.filter(i => boxOf(i) === box).map(i => i.id);
+    const vis = new Set(next);
+    let v = 0;
+    const merged = full.map(id => vis.has(id) ? next[v++] : id);
     const sortOf: Record<string, number> = {};
-    next.forEach((id, k) => { sortOf[id] = (k + 1) * 10; });
+    merged.forEach((id, k) => { sortOf[id] = (k + 1) * 10; });
     const moved = from !== box;
     if (!moved && oldIdx === newIdx) return;
     setData((d: any) => ({ ...d, items: d.items.map((x: any) => sortOf[x.id] != null ? { ...x, sort: sortOf[x.id] } : x) }));
@@ -285,7 +292,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
       // A shelf change goes through the normal path (it stamps a number when
       // a published sheet's item first lands on a shelf); then one batch sort.
       if (moved) await patchItem({ id: it.id, sectionId: box === "tray" ? null : box });
-      const r = await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reorder: next.map(id => ({ id, sort: sortOf[id] })) }) }).then(x => x.json()).catch(() => ({ error: "Couldn't save the new order" }));
+      const r = await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reorder: merged.map(id => ({ id, sort: sortOf[id] })) }) }).then(x => x.json()).catch(() => ({ error: "Couldn't save the new order" }));
       if (r.error) setErr(r.error);
     } finally { setBusy(false); await load(); }
   }
@@ -298,7 +305,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
       <div key={it.id} onClick={e => { if (!justDragged.current) toggleSel(it.id, e.shiftKey); }}
         style={{ background: H.panel, border: `1px solid ${on ? H.blue : H.line}`, outline: on ? `2px solid ${H.blue}` : "none", outlineOffset: -1, borderRadius: 12, padding: 10, width: 172, cursor: "pointer", position: "relative", userSelect: "none" }}>
         {/* tight pair render: front left, back tucked right — the PDF look */}
-        <div {...(handle?.attributes || {})} {...(handle?.listeners || {})} style={{ position: "relative", height: 122, background: "#fff", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", cursor: handle ? "grab" : "pointer", touchAction: handle ? "manipulation" : undefined }}>
+        <div {...(handle?.attributes || {})} {...(handle?.listeners || {})} style={{ position: "relative", height: 122, background: "#fff", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", cursor: handle ? "grab" : "pointer", touchAction: handle ? "manipulation" : undefined, WebkitTouchCallout: "none" }}>
           {imgs.length > 1 ? (
             <>
               <img src={thumbUrl(imgs[0].driveId, 400)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" draggable={false} style={{ width: "62%", height: "94%", objectFit: "contain", marginRight: "-14%", zIndex: 2, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
@@ -431,9 +438,9 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
           <span style={tag(H.amber, 9.5)}>The tray · {tray.length ? `${tray.length} to sort` : "drop mockups anywhere on this page"}</span>
           <span style={{ fontSize: 10.5, color: H.faint }}>drag a picture to reorder or move shelves · tap two → Pair · shift-tap = select the run</span>
         </div>
-        <DropBox id="tray" style={{ display: "flex", gap: 12, flexWrap: "wrap", minHeight: dragId ? 60 : 0 }}>
+        <DropBox id="tray" style={{ display: "flex", gap: 12, flexWrap: "wrap", minHeight: tray.length ? 0 : 44 }}>
           <SortableContext items={tray.map(i => i.id)} strategy={rectSortingStrategy}>
-            {tray.map(it => <SortableCard key={it.id} id={it.id}>{h => card(it, h)}</SortableCard>)}
+            {tray.map(it => <SortableCard key={it.id} id={it.id} disabled={busy}>{h => card(it, h)}</SortableCard>)}
           </SortableContext>
         </DropBox>
       </section>
@@ -455,7 +462,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
             </div>
             <DropBox id={s.id} style={{ display: "flex", gap: 12, flexWrap: "wrap", minHeight: 40, borderLeft: `2px solid ${H.line2}`, paddingLeft: 12 }}>
               <SortableContext items={inSection.map(i => i.id)} strategy={rectSortingStrategy}>
-                {inSection.length ? inSection.map(it => <SortableCard key={it.id} id={it.id}>{h => card(it, h)}</SortableCard>) : <span style={{ fontSize: 11, color: H.faint, alignSelf: "center" }}>drag cards here, or select → Add to shelf</span>}
+                {inSection.length ? inSection.map(it => <SortableCard key={it.id} id={it.id} disabled={busy}>{h => card(it, h)}</SortableCard>) : <span style={{ fontSize: 11, color: H.faint, alignSelf: "center" }}>drag cards here, or select → Add to shelf</span>}
               </SortableContext>
             </DropBox>
           </section>
@@ -549,8 +556,9 @@ function CopyLink({ url }: { url: string }) {
 }
 
 // One draggable card: the wrapper moves, the picture is the handle (card()).
-function SortableCard({ id, children }: { id: string; children: (h: { listeners: any; attributes: any }) => React.ReactNode }) {
-  const { setNodeRef, transform, transition, listeners, attributes, isDragging } = useSortable({ id });
+function SortableCard({ id, disabled, children }: { id: string; disabled?: boolean; children: (h: { listeners: any; attributes: any }) => React.ReactNode }) {
+  // disabled while a save is in flight, so a second drag can't race the reload
+  const { setNodeRef, transform, transition, listeners, attributes, isDragging } = useSortable({ id, disabled });
   return (
     <div ref={setNodeRef} style={{ transform: CSS.Translate.toString(transform), transition, opacity: isDragging ? 0.3 : 1 }}>
       {children({ listeners, attributes })}

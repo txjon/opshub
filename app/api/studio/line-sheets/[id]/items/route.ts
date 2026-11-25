@@ -84,6 +84,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       const { error } = await db.from("line_sheet_items").update({ sort: Number(r.sort) || 0 } as never).eq("id", r.id).eq("sheet_id", params.id);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     }
+    await db.from("line_sheets").update({ updated_at: new Date().toISOString() } as never).eq("id", params.id);
     return NextResponse.json({ ok: true });
   }
   if (!b.id) return NextResponse.json({ error: "id required" }, { status: 400 });
