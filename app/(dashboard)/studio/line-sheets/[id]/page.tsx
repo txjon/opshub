@@ -30,6 +30,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const [queue, setQueue] = useState<QFile[]>([]);
   const [confirm, confirmEl] = useConfirm();
   const [menuOpen, setMenuOpen] = useState(false);   // ⋯ Archive / Delete
+  const [dragging, setDragging] = useState(false);   // files over the page → drop overlay
   // Line sheet → order (api/.../order): the sheet's job, and thumbs-ups not on it yet.
   const [order, setOrder] = useState<{ job: { id: string; job_number: string } | null; pending: number } | null>(null);
   const loadOrder = () => fetch(`/api/studio/line-sheets/${params.id}/order`).then(r => r.json()).then(j => { if (!j.error) setOrder(j); }).catch(() => {});
@@ -91,10 +92,20 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     return () => window.removeEventListener("beforeunload", guard);
   }, []);
   useEffect(() => {
-    const over = (e: DragEvent) => { if (e.dataTransfer?.types.includes("Files")) e.preventDefault(); };
-    const drop = (e: DragEvent) => { if (e.dataTransfer?.files?.length) { e.preventDefault(); enqueue(e.dataTransfer.files); } };
+    // The whole page is the drop zone (Jon, Nov 2026); the overlay says so.
+    // depth counts enter/leave pairs (child elements fire their own).
+    let depth = 0;
+    const isFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes("Files");
+    const enter = (e: DragEvent) => { if (isFiles(e)) { depth++; setDragging(true); } };
+    const leave = (e: DragEvent) => { if (isFiles(e)) { depth = Math.max(0, depth - 1); if (!depth) setDragging(false); } };
+    const over = (e: DragEvent) => { if (isFiles(e)) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"; } };
+    const drop = (e: DragEvent) => { depth = 0; setDragging(false); if (e.dataTransfer?.files?.length) { e.preventDefault(); enqueue(e.dataTransfer.files); } };
+    window.addEventListener("dragenter", enter); window.addEventListener("dragleave", leave);
     window.addEventListener("dragover", over); window.addEventListener("drop", drop);
-    return () => { window.removeEventListener("dragover", over); window.removeEventListener("drop", drop); };
+    return () => {
+      window.removeEventListener("dragenter", enter); window.removeEventListener("dragleave", leave);
+      window.removeEventListener("dragover", over); window.removeEventListener("drop", drop);
+    };
     // eslint-disable-next-line
   }, []);
 
@@ -266,6 +277,14 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   return (
     <div style={{ maxWidth: 1240, margin: "0 auto", padding: "26px 20px 140px", background: H.ink, minHeight: "100vh", color: H.text, fontFamily: H.font }}>
       {confirmEl}
+      {dragging && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 400, pointerEvents: "none", background: "rgba(10,10,10,.72)", display: "grid", placeItems: "center", padding: 24 }}>
+          <div style={{ border: `2px dashed ${H.blue}`, borderRadius: 18, padding: "46px 60px", textAlign: "center", background: "rgba(22,22,22,.9)" }}>
+            <div style={{ fontSize: 26, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.text }}>Drop to add mockups</div>
+            <div style={{ fontSize: 12, color: H.dim, marginTop: 8 }}>They land in the tray, named by file. Same names already on the sheet are skipped.</div>
+          </div>
+        </div>
+      )}
 
       {/* ── LOCKED UPLOAD OVERLAY — owns the screen until the batch is in ── */}
       {(uploadsActive || failedN > 0) && (
