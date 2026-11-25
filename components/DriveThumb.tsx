@@ -129,6 +129,8 @@ export function ImageLightbox({
   driveLink,
   onClose,
   token,
+  more,
+  preview,
 }: {
   driveFileId: string;
   title?: string;
@@ -136,18 +138,32 @@ export function ImageLightbox({
   onClose: () => void;
   /** Portal link token (client hub / vendor / designer). */
   token?: string | null;
+  /** Further views of the same piece (front/back), paged with arrows/dots. */
+  more?: string[];
+  /** Show a 1600px white-backed preview, no Download (line sheet proposals:
+   *  the client sees the mockup, it doesn't take the original file). */
+  preview?: boolean;
 }) {
   const t = token ? `&t=${encodeURIComponent(token)}` : "";
+  const ids = [driveFileId, ...(more || [])];
+  const [at, setAt] = useState(0);
+  const fileId = ids[Math.min(at, ids.length - 1)];
+  const step = (d: number) => setAt(i => (i + d + ids.length) % ids.length);
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (ids.length > 1 && e.key === "ArrowRight") step(1);
+      if (ids.length > 1 && e.key === "ArrowLeft") step(-1);
+    };
     document.addEventListener("keydown", handler);
     return () => {
       document.body.style.overflow = prev;
       document.removeEventListener("keydown", handler);
     };
-  }, [onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose, ids.length]);
 
   // driveLink prop retained on the signature for backwards compatibility,
   // but we no longer render an external link out — all Drive viewing stays
@@ -205,14 +221,14 @@ export function ImageLightbox({
             returns the original file (Content-Disposition: attachment),
             not the preview PNG. Works for any file type: PSD/AI/EPS
             download their native bytes, images as the original raster. */}
-        <a
-          href={`/api/files/thumbnail?id=${driveFileId}&dl=1${t}`}
+        {!preview && <a
+          href={`/api/files/thumbnail?id=${fileId}&dl=1${t}`}
           download
           onClick={(e) => e.stopPropagation()}
           style={headerBtn}
           onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "rgba(255,255,255,0.18)"; }}
           onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "rgba(255,255,255,0.10)"; }}
-        >Download</a>
+        >Download</a>}
         <button
           onClick={onClose}
           aria-label="Close"
@@ -232,11 +248,23 @@ export function ImageLightbox({
         }}
       >
         <img
-          src={`/api/files/thumbnail?id=${driveFileId}&size=1600${t}`}
+          key={fileId}
+          src={`/api/files/thumbnail?id=${fileId}&size=1600${preview ? "&thumb=1" : ""}${t}`}
           alt={title || ""}
-          style={{ maxWidth: "100%", maxHeight: "calc(92vh - 60px)", objectFit: "contain", borderRadius: 10, display: "block" }}
+          onClick={ids.length > 1 ? () => step(1) : undefined}
+          style={{ maxWidth: "100%", maxHeight: `calc(92vh - ${ids.length > 1 ? 96 : 60}px)`, objectFit: "contain", borderRadius: 10, display: "block", background: preview ? "#fff" : undefined, cursor: ids.length > 1 ? "pointer" : undefined }}
         />
       </div>
+      {ids.length > 1 && (
+        <div onClick={(e) => e.stopPropagation()} style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 12 }}>
+          <button onClick={() => step(-1)} aria-label="Previous view" style={{ ...headerBtn, width: 36, padding: 0, fontSize: 16 }}>‹</button>
+          {ids.map((id, i) => (
+            <button key={id + i} onClick={() => setAt(i)} aria-label={`View ${i + 1}`}
+              style={{ width: 8, height: 8, borderRadius: 4, padding: 0, border: "none", cursor: "pointer", background: i === at ? "#fff" : "rgba(255,255,255,0.3)" }} />
+          ))}
+          <button onClick={() => step(1)} aria-label="Next view" style={{ ...headerBtn, width: 36, padding: 0, fontSize: 16 }}>›</button>
+        </div>
+      )}
     </div>,
     document.body
   );

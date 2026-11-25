@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { ImageLightbox } from "@/components/DriveThumb";
 
 // THE LINE SHEET, client side (mig 190) — the product line as a webstore they
 // react to: shelves, product cards (front/back nested), one tap to thumb.
@@ -20,6 +21,7 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
   const [shelf, setShelf] = useState<string | null>(null);
   const [noteFor, setNoteFor] = useState<string | null>(null);   // item whose "why" field is open
   const [hold, setHold] = useState<string | null>(null);         // fresh 👎 holding its shelf spot until its why closes
+  const [zoom, setZoom] = useState<any>(null);                    // item open full screen
   const load = () => fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`).then(r => r.json()).then(j => { if (j.error) setMissing(true); else setData(j); }).catch(() => setMissing(true));
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [releaseId]);
   const back = <a href={`/portal/client/${token}/releases`} style={{ color: C.faint, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", textDecoration: "none" }}>‹ {data?.release?.title || "Releases"}</a>;
@@ -72,14 +74,15 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
     const imgs = it.images || [];
     return (
       <div key={it.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, overflow: "hidden", width: "100%" }}>
-        <div style={{ position: "relative", aspectRatio: "1", width: "100%", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div onClick={() => imgs[0] && setZoom(it)} role={imgs[0] ? "button" : undefined} aria-label={imgs[0] ? "View larger" : undefined}
+          style={{ position: "relative", aspectRatio: "1", width: "100%", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: imgs[0] ? "zoom-in" : undefined }}>
           {imgs.length > 1 ? (
             <>
-              <img src={thumbUrl(imgs[0].driveId, 480)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" style={{ width: "62%", height: "92%", objectFit: "contain", marginRight: "-14%", zIndex: 2, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
-              <img src={thumbUrl(imgs[1].driveId, 480)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" style={{ width: "62%", height: "92%", objectFit: "contain", zIndex: 1, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+              <img src={thumbUrl(imgs[0].driveId, 800)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" style={{ width: "62%", height: "92%", objectFit: "contain", marginRight: "-14%", zIndex: 2, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
+              <img src={thumbUrl(imgs[1].driveId, 800)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" style={{ width: "62%", height: "92%", objectFit: "contain", zIndex: 1, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.display = "none"; }} />
             </>
           ) : imgs[0] ? (
-            <img src={thumbUrl(imgs[0].driveId, 480)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
+            <img src={thumbUrl(imgs[0].driveId, 800)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
           ) : null}
           {it.badge && <span style={{ position: "absolute", top: 8, left: 8, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: it.badge === "new" ? C.green : C.amber, background: "rgba(10,10,10,.85)", borderRadius: 6, padding: "3px 8px", zIndex: 3 }}>{it.badge}</span>}
         </div>
@@ -160,6 +163,10 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
         </nav>
       )}
       {shelves.filter(f => active === null || f.id === active).map(f => renderShelf(f.name, f.list))}
+      {zoom && (
+        <ImageLightbox preview driveFileId={zoom.images[0].driveId} more={zoom.images.slice(1).map((m: any) => m.driveId)}
+          title={zoom.name || undefined} onClose={() => setZoom(null)} />
+      )}
     </div>
   );
 }
