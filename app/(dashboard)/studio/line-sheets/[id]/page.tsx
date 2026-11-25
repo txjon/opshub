@@ -239,9 +239,14 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
           {imgs.length > 2 && <span style={{ position: "absolute", right: 5, bottom: 5, ...tag("#555", 8.5), background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>+{imgs.length - 2}</span>}
           {it.client_thumb && <span style={{ position: "absolute", left: 5, bottom: 5, zIndex: 3, color: it.client_thumb === "up" ? "#3fae2a" : "#d33", background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 4px", display: "grid", placeItems: "center" }}><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ transform: it.client_thumb === "down" ? "rotate(180deg)" : undefined }} aria-hidden><path d="M7 10v12" /><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" /></svg></span>}
         </div>
-        <input defaultValue={it.name || ""} placeholder={noOf(it) ? `${noOf(it)} — name it…` : "name it…"} onClick={e => e.stopPropagation()}
-          onBlur={e => { if ((e.target.value || "") !== (it.name || "")) { patchItem({ id: it.id, name: e.target.value }).then(load); } }}
-          style={{ width: "100%", boxSizing: "border-box", background: H.ink, border: `1px solid ${H.line2}`, borderRadius: 6, color: H.text, fontSize: 11.5, fontWeight: 700, padding: "5px 7px", outline: "none", fontFamily: H.font, marginTop: 8 }} />
+        {/* Wraps and grows (Jon, Nov 2026: long names ran out of view). One
+            logical line: Enter finishes, no newlines saved. */}
+        <textarea rows={1} defaultValue={it.name || ""} placeholder={noOf(it) ? `${noOf(it)} — name it…` : "name it…"} onClick={e => e.stopPropagation()}
+          ref={el => { if (el) { el.style.height = "auto"; el.style.height = `${el.scrollHeight}px`; } }}
+          onInput={e => { const el = e.currentTarget; el.style.height = "auto"; el.style.height = `${el.scrollHeight}px`; }}
+          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }}
+          onBlur={e => { const v = e.target.value.replace(/\s*\n\s*/g, " ").trim(); if (v !== (it.name || "")) { patchItem({ id: it.id, name: v }).then(load); } }}
+          style={{ width: "100%", boxSizing: "border-box", background: H.ink, border: `1px solid ${H.line2}`, borderRadius: 6, color: H.text, fontSize: 11.5, fontWeight: 700, lineHeight: 1.35, padding: "5px 7px", outline: "none", fontFamily: H.font, marginTop: 8, resize: "none", overflow: "hidden", display: "block" }} />
         {/* the client's optional why on a thumbs-down (mig 195) */}
         {it.client_thumb === "down" && it.client_thumb_note && (
           <div title="Client's note on the thumbs-down" style={{ marginTop: 6, fontSize: 11, color: H.red, lineHeight: 1.35, fontStyle: "italic", overflowWrap: "anywhere" }}>&ldquo;{it.client_thumb_note}&rdquo;</div>
