@@ -49,11 +49,15 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const setQ = (next: QFile[]) => { queueRef.current = next; setQueue([...next]); };
   function enqueue(files: FileList | File[]) {
     const sheet = dataRef.current?.sheet; if (!sheet) return;
+    // Skip a re-drop of the SAME file: name AND size match. A revision saved
+    // over the same name has a different size and uploads (Jon deletes the
+    // desktop copy after, so a silent skip would lose it). Images stored
+    // before sizes were recorded never match: a duplicate beats a lost file.
     const existing = new Set<string>();
-    for (const it of dataRef.current?.items || []) for (const im of it.images || []) if (im.name) existing.add(im.name);
+    for (const it of dataRef.current?.items || []) for (const im of it.images || []) if (im.name && im.size) existing.add(`${im.name}|${im.size}`);
     const incoming = Array.from(files).filter(f => f.type.startsWith("image/"));
     if (!incoming.length) return;
-    const fresh: QFile[] = incoming.map(f => ({ file: f, status: existing.has(f.name) ? "skipped" as const : "pending" as const }));
+    const fresh: QFile[] = incoming.map(f => ({ file: f, status: existing.has(`${f.name}|${f.size}`) ? "skipped" as const : "pending" as const }));
     setQ([...queueRef.current.filter(q => q.status !== "done" && q.status !== "skipped"), ...fresh]);
     pump();
   }
@@ -64,7 +68,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
       try {
         const up = await uploadToDrive({ blob: q.file, fileName: q.file.name, mimeType: q.file.type || "image/png", itemId: null, clientName: sheet?.clients?.name || "Studio", projectTitle: "Line Sheets", itemName: sheet?.title || "Line Sheet", onProgress: undefined });
         // register IMMEDIATELY — a crash after this point loses nothing
-        const r = await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ images: [{ driveId: up.fileId, name: q.file.name }] }) });
+        const r = await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ images: [{ driveId: up.fileId, name: q.file.name, size: q.file.size }] }) });
         if (!r.ok) throw new Error((await r.json().catch(() => ({})))?.error || "register failed");
         q.status = "done"; setQ(queueRef.current);
         return;
@@ -100,11 +104,17 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     const leave = (e: DragEvent) => { if (isFiles(e)) { depth = Math.max(0, depth - 1); if (!depth) setDragging(false); } };
     const over = (e: DragEvent) => { if (isFiles(e)) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"; } };
     const drop = (e: DragEvent) => { depth = 0; setDragging(false); if (e.dataTransfer?.files?.length) { e.preventDefault(); enqueue(e.dataTransfer.files); } };
+    // Never strand the overlay: leaving the window, a cancelled drag, or the
+    // pointer moving again all clear it (the enter/leave count can drift).
+    const reset = () => { depth = 0; setDragging(false); };
+    const leaveWin = (e: DragEvent) => { if (!e.relatedTarget) reset(); };
     window.addEventListener("dragenter", enter); window.addEventListener("dragleave", leave);
     window.addEventListener("dragover", over); window.addEventListener("drop", drop);
+    window.addEventListener("dragleave", leaveWin); window.addEventListener("dragend", reset); window.addEventListener("mousemove", reset);
     return () => {
       window.removeEventListener("dragenter", enter); window.removeEventListener("dragleave", leave);
       window.removeEventListener("dragover", over); window.removeEventListener("drop", drop);
+      window.removeEventListener("dragleave", leaveWin); window.removeEventListener("dragend", reset); window.removeEventListener("mousemove", reset);
     };
     // eslint-disable-next-line
   }, []);
@@ -142,7 +152,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     const sh = dataRef.current?.sheet;
     if (!sh) return;
     const n = (dataRef.current?.items || []).length;
-    if (!await confirm({ title: `Delete "${sh.title}" for good?`, message: `This removes ${n} item${n === 1 ? "" : "s"}, every version, and the client's thumbs, and takes it out of their hub. It can't be undone. To just put it away, use Archive.`, confirmLabel: "Delete", confirmColor: H.red })) return;
+    if (!await confirm({ title: `Delete "${sh.title}" for good?`, message: `This removes ${n} item${n === 1 ? "" : "s"}, every version, and the client's thumbs, and takes it out of their hub. The mockup files stay in Drive, but OpsHub loses track of them: download what you need first (↓ All). It can't be undone. To just put it away, use Archive.`, confirmLabel: "Delete", confirmColor: H.red })) return;
     setBusy(true);
     try {
       const r = await fetch(`/api/studio/line-sheets/${params.id}`, { method: "DELETE" }).then(x => x.json()).catch(() => ({ error: "Delete failed" }));
@@ -239,15 +249,15 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         <div style={{ position: "relative", height: 122, background: "#fff", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
           {imgs.length > 1 ? (
             <>
-              <img src={thumbUrl(imgs[0].driveId, 400)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" style={{ width: "62%", height: "94%", objectFit: "contain", marginRight: "-14%", zIndex: 2, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
-              <img src={thumbUrl(imgs[1].driveId, 400)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" style={{ width: "62%", height: "94%", objectFit: "contain", zIndex: 1, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
+              <img src={thumbUrl(imgs[0].driveId, 400)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" draggable={false} style={{ width: "62%", height: "94%", objectFit: "contain", marginRight: "-14%", zIndex: 2, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
+              <img src={thumbUrl(imgs[1].driveId, 400)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" draggable={false} style={{ width: "62%", height: "94%", objectFit: "contain", zIndex: 1, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
             </>
           ) : imgs[0] ? (
-            <img src={thumbUrl(imgs[0].driveId, 400)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
+            <img src={thumbUrl(imgs[0].driveId, 400)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" draggable={false} style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
           ) : null}
           {noOf(it) && <span style={{ position: "absolute", left: 5, top: 5, fontFamily: H.mono, fontSize: 10, fontWeight: 700, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>{noOf(it)}</span>}
           {/* this item's file(s), named by the item (one = the file, more = a ZIP) */}
-          {!on && imgs.length > 0 && <a href={`/api/studio/line-sheets/${params.id}/download?pick=${it.id}`} download onClick={e => e.stopPropagation()} title={imgs.length > 1 ? `Download ${imgs.length} files` : "Download file"} style={{ position: "absolute", right: 5, top: 5, zIndex: 3, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "1px 6px", fontSize: 12, fontWeight: 800, textDecoration: "none", lineHeight: "18px" }}>↓</a>}
+          {!on && imgs.length > 0 && <a href={`/api/studio/line-sheets/${params.id}/download?pick=${it.id}`} download onClick={e => e.stopPropagation()} title={imgs.length > 1 ? `Download ${imgs.length} files` : "Download file"} style={{ position: "absolute", right: 5, top: 5, zIndex: 3, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 6, minWidth: 28, height: 28, display: "grid", placeItems: "center", fontSize: 13, fontWeight: 800, textDecoration: "none" }}>↓</a>}
           {on && <span style={{ position: "absolute", right: 5, top: 5, background: H.blue, color: H.ink, borderRadius: 999, width: 20, height: 20, display: "grid", placeItems: "center", fontSize: 11, fontWeight: 900, zIndex: 3 }}>{selIdx + 1}</span>}
           {imgs.length > 2 && <span style={{ position: "absolute", right: 5, bottom: 5, ...tag("#555", 8.5), background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>+{imgs.length - 2}</span>}
           {it.client_thumb && <span style={{ position: "absolute", left: 5, bottom: 5, zIndex: 3, color: it.client_thumb === "up" ? "#3fae2a" : "#d33", background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 4px", display: "grid", placeItems: "center" }}><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ transform: it.client_thumb === "down" ? "rotate(180deg)" : undefined }} aria-hidden><path d="M7 10v12" /><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" /></svg></span>}

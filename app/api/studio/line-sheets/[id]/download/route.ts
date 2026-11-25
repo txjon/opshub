@@ -26,7 +26,14 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const z = await sheetMocksDownload(db, params.id, pick, label);
     if (!z) return NextResponse.json({ error: "Not found" }, { status: 404 });
     if (!z.count) return NextResponse.json({ error: raw === "approved" ? "Nothing approved yet" : "No files to download" }, { status: 404 });
-    return new Response(z.stream, { headers: { "Content-Type": z.type, "Content-Disposition": `attachment; filename="${z.name.replace(/[^\x20-\x7E]/g, "_").replace(/"/g, "")}"; filename*=UTF-8''${encodeURIComponent(z.name)}`, "Cache-Control": "no-store" } });
+    // RFC 5987: encodeURIComponent leaves ' ( ) * bare ("Men's Tee")
+    const star = encodeURIComponent(z.name).replace(/['()*]/g, c => "%" + c.charCodeAt(0).toString(16).toUpperCase());
+    return new Response(z.stream, { headers: {
+      "Content-Type": z.type,
+      "Content-Disposition": `attachment; filename="${z.name.replace(/[^\x20-\x7E]/g, "_").replace(/"/g, "")}"; filename*=UTF-8''${star}`,
+      ...(z.size ? { "Content-Length": String(z.size) } : {}),
+      "Cache-Control": "no-store",
+    } });
   } catch (e: any) {
     console.error("[line-sheet-download] failed", e?.message || e);
     return NextResponse.json({ error: "Couldn't build the download" }, { status: 500 });

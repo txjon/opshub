@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { studioUser } from "@/lib/studio-access";
+import { studioUser, lineSheetInCompany } from "@/lib/studio-access";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { newImageId } from "@/lib/line-sheets";
 
@@ -16,14 +16,28 @@ export const dynamic = "force-dynamic";
 //         if it was never published, else dropped)
 // DELETE → { id } hard-remove a never-published item
 const admin = () => createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-async function authed() {
+// Signed-in studio user AND this sheet is the request's company's.
+async function authed(sheetId?: string) {
   const supabase = await createClient();
   const user = await studioUser(supabase);
-  return !!user;
+  if (!user) return false;
+  return sheetId ? lineSheetInCompany(admin(), sheetId) : true;
+}
+
+// Pairing "Smiley Tee Front" + "Smiley Tee Back" → "Smiley Tee": the words the
+// two names share from the start, trailing separators trimmed. Nothing shared
+// → the first name stands.
+function pairName(a: string | null, b: string | null): string | null {
+  if (!a || !b) return a || b || null;
+  const wa = a.trim().split(/\s+/), wb = b.trim().split(/\s+/);
+  const common: string[] = [];
+  for (let i = 0; i < Math.min(wa.length, wb.length) && wa[i].toLowerCase() === wb[i].toLowerCase(); i++) common.push(wa[i]);
+  const joined = common.join(" ").replace(/[\s\-–—·_|,:/]+$/, "").trim();
+  return joined && common.length < Math.max(wa.length, wb.length) ? joined : a;
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  if (!(await authed())) return NextResponse.json({ error: "Sign in" }, { status: 401 });
+  if (!(await authed(params.id))) return NextResponse.json({ error: "Sign in" }, { status: 401 });
   const b = await req.json().catch(() => ({} as any));
   const imgs = Array.isArray(b.images) ? b.images.filter((i: any) => i?.driveId) : [];
   if (!imgs.length) return NextResponse.json({ error: "No images" }, { status: 400 });
@@ -49,7 +63,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // mockups are saved with descriptive names). A split stays unnamed.
     sheet_id: params.id, section_id: from ? from.section_id : null,
     name: from ? null : (String(i.name || "").replace(/\.[a-z0-9]{2,5}$/i, "").trim().slice(0, 140) || null), sort: sort++,
-    images: [{ id: newImageId(), driveId: String(i.driveId), name: i.name || null }],
+    images: [{ id: newImageId(), driveId: String(i.driveId), name: i.name || null, ...(Number(i.size) > 0 ? { size: Number(i.size) } : {}) }],
     ...(from?.added_in != null ? { added_in: from.added_in, item_no: nextNo++ } : {}),
   }));
   const { data, error } = await db.from("line_sheet_items").insert(rows as never).select("*");
@@ -59,7 +73,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  if (!(await authed())) return NextResponse.json({ error: "Sign in" }, { status: 401 });
+  if (!(await authed(params.id))) return NextResponse.json({ error: "Sign in" }, { status: 401 });
   const b = await req.json().catch(() => ({} as any));
   if (!b.id) return NextResponse.json({ error: "id required" }, { status: 400 });
   const db = admin();
@@ -75,7 +89,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const keepThumb = (item as any).client_thumb ? {} : (donor as any).client_thumb ? {
       client_thumb: (donor as any).client_thumb, client_thumb_at: (donor as any).client_thumb_at, client_thumb_version: (donor as any).client_thumb_version, client_thumb_note: (donor as any).client_thumb_note,
     } : {};
-    await db.from("line_sheet_items").update({ images: merged, name: (item as any).name || (donor as any).name, ...keepThumb } as never).eq("id", b.id);
+    await db.from("line_sheet_items").update({ images: merged, name: pairName((item as any).name, (donor as any).name), ...keepThumb } as never).eq("id", b.id);
     if ((donor as any).added_in == null) await db.from("line_sheet_items").delete().eq("id", b.mergeFrom);
     else await db.from("line_sheet_items").update({ dropped: true } as never).eq("id", b.mergeFrom);
   }
@@ -104,7 +118,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  if (!(await authed())) return NextResponse.json({ error: "Sign in" }, { status: 401 });
+  if (!(await authed(params.id))) return NextResponse.json({ error: "Sign in" }, { status: 401 });
   const b = await req.json().catch(() => ({} as any));
   const db = admin();
   const { data: item } = await db.from("line_sheet_items").select("id, added_in").eq("id", b.id).eq("sheet_id", params.id).maybeSingle();

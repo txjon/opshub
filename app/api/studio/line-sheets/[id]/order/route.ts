@@ -4,7 +4,7 @@ import { studioUser, lineSheetInCompany } from "@/lib/studio-access";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { mergeJobTypeMeta } from "@/lib/job-type-meta";
 import { logJobActivityServer } from "@/lib/notify-server";
-import { itemFileBase } from "@/lib/line-sheet-zip";
+import { imageFileBases } from "@/lib/line-sheet-zip";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -104,6 +104,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     // file carries it too. Unnamed → shelf and number.
     const name = ((it.name || "").trim() || `${secName[it.section_id] || "Item"}${no ? ` #${no}` : ""}`).slice(0, 120);
     const imgs = ((it.images || []) as any[]).filter(img => img?.driveId);
+    const bases = imageFileBases({ name: it.name, item_no: it.item_no, images: imgs });
     const { data: item, error: iErr } = await db.from("items").insert({
       job_id: job.id, company_id: s.clients?.company_id || undefined, name, status: "tbd", sort_order: sort++, pipeline_stage: null,
       notes: `From line sheet${no ? ` #${no}` : ""} (client thumbs up)`,
@@ -111,7 +112,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     if (iErr || !item) { failed++; continue; }
     for (const [k, img] of imgs.entries()) {
       const ext = /\.[a-z0-9]{2,5}$/i.exec(img.name || "")?.[0] || "";
-      const fileName = `${itemFileBase({ name, item_no: it.item_no })}${imgs.length > 1 ? ` (${k + 1})` : ""}${ext}`;
+      const fileName = `${bases[k]}${ext}`;
       const { error: fErr } = await db.from("item_files").insert({
         item_id: (item as any).id, file_name: fileName, stage: "mockup",
         drive_file_id: img.driveId, drive_link: `https://drive.google.com/file/d/${img.driveId}/view`,

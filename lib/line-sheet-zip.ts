@@ -19,10 +19,19 @@ import { safeName } from "@/lib/design-work-orders-packet";
 type Db = any;
 export type MockPick = { mode: "approved" } | { mode: "all" } | { mode: "items"; ids: string[] };
 
-// The name an item's file goes by: its line sheet name, else its number.
-export function itemFileBase(it: { name?: string | null; item_no?: number | null }): string {
+const stripExt = (n?: string | null) => String(n || "").replace(/\.[a-z0-9]{2,5}$/i, "").trim();
+
+// The name each of an item's files goes by. One image: the item's line sheet
+// name (a rename carries), else the file's own name, else its number. Several
+// (front/back): each keeps its own file name, so Front/Back survive, else
+// item name + (k). Extension not included.
+export function imageFileBases(it: { name?: string | null; item_no?: number | null; images?: { name?: string | null }[] }): string[] {
   const no = it.item_no != null ? String(it.item_no).padStart(2, "0") : null;
-  return safeName((it.name || "").trim() || (no ? `Item ${no}` : "Item"), "item");
+  const named = (it.name || "").trim();
+  const imgs = it.images || [];
+  const fallback = named || (no ? `Item ${no}` : "Item");
+  if (imgs.length <= 1) return [safeName(named || stripExt(imgs[0]?.name) || fallback, "item")];
+  return imgs.map((img, k) => safeName(stripExt(img?.name) || `${fallback} (${k + 1})`, "item"));
 }
 
 export async function sheetMocks(db: Db, sheetId: string, pick: MockPick) {
@@ -44,9 +53,9 @@ export async function sheetMocks(db: Db, sheetId: string, pick: MockPick) {
     .sort((a, b) => (secSort.get(a.section_id) ?? 1e9) - (secSort.get(b.section_id) ?? 1e9) || a.sort - b.sort);
   const files: { driveId: string; folder: string; base: string }[] = [];
   for (const it of items) {
-    const base = itemFileBase(it);
+    const bases = imageFileBases(it);
     const folder = it.section_id && secName.get(it.section_id) ? safeName(secName.get(it.section_id)).replace(/^\.+$/, "_") + "/" : "";
-    it.images.forEach((img: SheetImage, i: number) => files.push({ driveId: img.driveId, folder, base: it.images.length > 1 ? `${base} (${i + 1})` : base }));
+    it.images.forEach((img: SheetImage, i: number) => files.push({ driveId: img.driveId, folder, base: bases[i] }));
   }
   const title = [(sheet as any).clients?.name, (sheet as any).title, (sheet as any).season].filter(Boolean).join(" - ");
   return { title, items: items.length, files };
@@ -55,7 +64,7 @@ export async function sheetMocks(db: Db, sheetId: string, pick: MockPick) {
 const extOf = (name?: string | null) => /\.[a-z0-9]{2,5}$/i.exec(name || "")?.[0] || "";
 
 export async function sheetMocksDownload(db: Db, sheetId: string, pick: MockPick, label: string):
-  Promise<{ stream: ReadableStream<Uint8Array>; name: string; type: string; count: number } | null> {
+  Promise<{ stream: ReadableStream<Uint8Array>; name: string; type: string; count: number; size?: number | null } | null> {
   const a = await sheetMocks(db, sheetId, pick);
   if (!a) return null;
   if (a.files.length === 1) {
@@ -63,7 +72,9 @@ export async function sheetMocksDownload(db: Db, sheetId: string, pick: MockPick
     const meta = await driveFileMeta(f.driveId).catch(() => null);
     const body = meta ? await driveFileStream(f.driveId).catch(() => null) : null;
     if (!body) throw new Error("Couldn't pull that file from Drive");
-    return { stream: body, name: `${f.base}${extOf(meta?.name)}`, type: meta?.mimeType || "application/octet-stream", count: 1 };
+    // size → Content-Length, so a Drive hiccup mid-stream reads as a failed
+    // download instead of a "complete" broken PNG
+    return { stream: body, name: `${f.base}${extOf(meta?.name)}`, type: meta?.mimeType || "application/octet-stream", count: 1, size: meta?.size ?? null };
   }
   const archive = archiver("zip", { store: true });
   const used = new Set<string>();
