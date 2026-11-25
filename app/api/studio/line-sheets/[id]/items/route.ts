@@ -33,7 +33,8 @@ function pairName(a: string | null, b: string | null): string | null {
   const common: string[] = [];
   for (let i = 0; i < Math.min(wa.length, wb.length) && wa[i].toLowerCase() === wb[i].toLowerCase(); i++) common.push(wa[i]);
   const joined = common.join(" ").replace(/[\s\-–—·_|,:/]+$/, "").trim();
-  return joined && common.length < Math.max(wa.length, wb.length) ? joined : a;
+  // two shared words at least: "The Front" + "The Back" must not become "The"
+  return joined && common.length >= 2 && common.length < Math.max(wa.length, wb.length) ? joined : a;
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
@@ -105,7 +106,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
   }
   if (b.sort !== undefined) patch.sort = Number(b.sort) || 0;
-  if (b.images !== undefined && Array.isArray(b.images)) patch.images = b.images.filter((i: any) => i?.driveId).map((i: any) => ({ id: i.id || newImageId(), driveId: String(i.driveId), name: i.name || null }));
+  if (b.images !== undefined && Array.isArray(b.images)) patch.images = b.images.filter((i: any) => i?.driveId).map((i: any) => ({ id: i.id || newImageId(), driveId: String(i.driveId), name: i.name || null, ...(Number(i.size) > 0 ? { size: Number(i.size) } : {}) }));
   if (b.drop) { patch.dropped = true; }
   if (b.restore) { patch.dropped = false; patch.dropped_in = null; }
   if (Object.keys(patch).length) {

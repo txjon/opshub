@@ -97,24 +97,25 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   }, []);
   useEffect(() => {
     // The whole page is the drop zone (Jon, Nov 2026); the overlay says so.
-    // depth counts enter/leave pairs (child elements fire their own).
-    let depth = 0;
+    // Heartbeat: dragover fires every ~50ms while files are over the page, so
+    // the overlay stays up while those keep coming and clears 150ms after
+    // they stop (left the window, Esc, drop). enter/leave counting drifts,
+    // and Safari sends every dragleave with no relatedTarget.
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const isFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes("Files");
-    const enter = (e: DragEvent) => { if (isFiles(e)) { depth++; setDragging(true); } };
-    const leave = (e: DragEvent) => { if (isFiles(e)) { depth = Math.max(0, depth - 1); if (!depth) setDragging(false); } };
-    const over = (e: DragEvent) => { if (isFiles(e)) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"; } };
-    const drop = (e: DragEvent) => { depth = 0; setDragging(false); if (e.dataTransfer?.files?.length) { e.preventDefault(); enqueue(e.dataTransfer.files); } };
-    // Never strand the overlay: leaving the window, a cancelled drag, or the
-    // pointer moving again all clear it (the enter/leave count can drift).
-    const reset = () => { depth = 0; setDragging(false); };
-    const leaveWin = (e: DragEvent) => { if (!e.relatedTarget) reset(); };
-    window.addEventListener("dragenter", enter); window.addEventListener("dragleave", leave);
-    window.addEventListener("dragover", over); window.addEventListener("drop", drop);
-    window.addEventListener("dragleave", leaveWin); window.addEventListener("dragend", reset); window.addEventListener("mousemove", reset);
+    const off = () => { if (timer) clearTimeout(timer); timer = null; setDragging(false); };
+    const over = (e: DragEvent) => {
+      if (!isFiles(e)) return;
+      e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+      setDragging(true);
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(off, 150);
+    };
+    const drop = (e: DragEvent) => { off(); if (e.dataTransfer?.files?.length) { e.preventDefault(); enqueue(e.dataTransfer.files); } };
+    window.addEventListener("dragover", over); window.addEventListener("drop", drop); window.addEventListener("dragend", off);
     return () => {
-      window.removeEventListener("dragenter", enter); window.removeEventListener("dragleave", leave);
-      window.removeEventListener("dragover", over); window.removeEventListener("drop", drop);
-      window.removeEventListener("dragleave", leaveWin); window.removeEventListener("dragend", reset); window.removeEventListener("mousemove", reset);
+      if (timer) clearTimeout(timer);
+      window.removeEventListener("dragover", over); window.removeEventListener("drop", drop); window.removeEventListener("dragend", off);
     };
     // eslint-disable-next-line
   }, []);
@@ -234,7 +235,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     const [first, ...rest] = it.images || [];
     if (!rest.length) return;
     await patchItem({ id: it.id, images: [first] });
-    await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ splitFrom: it.id, images: rest.map((r: any) => ({ driveId: r.driveId, name: r.name })) }) });
+    await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ splitFrom: it.id, images: rest.map((r: any) => ({ driveId: r.driveId, name: r.name, size: r.size })) }) });
     await load();
   }
 
@@ -291,7 +292,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         <div style={{ position: "fixed", inset: 0, zIndex: 400, pointerEvents: "none", background: "rgba(10,10,10,.72)", display: "grid", placeItems: "center", padding: 24 }}>
           <div style={{ border: `2px dashed ${H.blue}`, borderRadius: 18, padding: "46px 60px", textAlign: "center", background: "rgba(22,22,22,.9)" }}>
             <div style={{ fontSize: 26, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.text }}>Drop to add mockups</div>
-            <div style={{ fontSize: 12, color: H.dim, marginTop: 8 }}>They land in the tray, named by file. Same names already on the sheet are skipped.</div>
+            <div style={{ fontSize: 12, color: H.dim, marginTop: 8 }}>They land in the tray, named by file. The exact same file is skipped; a re-saved revision lands as a new card.</div>
           </div>
         </div>
       )}
