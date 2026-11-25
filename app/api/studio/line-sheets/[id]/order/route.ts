@@ -79,6 +79,11 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       job_number: "", quote_approved: false,
       type_meta: { source: "line_sheet", line_sheet_id: s.id, line_sheet_item_ids: [], release_id: s.release_id, release_title: s.title },
     } as never).select("id, job_number, type_meta").single();
+    if (jErr?.code === "23505") {
+      // Someone else created it a moment ago (mig 212: one order per sheet) —
+      // add to theirs instead.
+      return NextResponse.json({ error: "An order for this sheet was just created. Press again to add to it." }, { status: 409 });
+    }
     if (jErr || !nj) return NextResponse.json({ error: jErr?.message || "Couldn't create the order" }, { status: 500 });
     job = nj;
     if (lastJob?.id) {
@@ -90,34 +95,42 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const { data: existing } = await db.from("items").select("sort_order").eq("job_id", job.id).order("sort_order", { ascending: false }).limit(1);
   let sort = (((existing || []) as any[])[0]?.sort_order ?? -1) + 1;
   const done: string[] = [];
-  let failed = 0;
+  let failed = 0, noMock = 0;
+  try {
   for (const it of picks) {
     const no = it.item_no != null ? String(it.item_no).padStart(2, "0") : null;
     const name = `${secName[it.section_id] || "Item"} - ${it.name || no || "Untitled"}`.slice(0, 120);
     const { data: item, error: iErr } = await db.from("items").insert({
-      job_id: job.id, name, status: "tbd", sort_order: sort++, pipeline_stage: null,
+      job_id: job.id, company_id: s.clients?.company_id || undefined, name, status: "tbd", sort_order: sort++, pipeline_stage: null,
       notes: `From line sheet${no ? ` #${no}` : ""} (client thumbs up)`,
     } as never).select("id").single();
     if (iErr || !item) { failed++; continue; }
     for (const img of (it.images || []) as any[]) {
       if (!img?.driveId) continue;
-      await db.from("item_files").insert({
+      const { error: fErr } = await db.from("item_files").insert({
         item_id: (item as any).id, file_name: img.name || `${name} mockup`, stage: "mockup",
         drive_file_id: img.driveId, drive_link: `https://drive.google.com/file/d/${img.driveId}/view`,
         mime_type: /\.png$/i.test(img.name || "") ? "image/png" : /\.jpe?g$/i.test(img.name || "") ? "image/jpeg" : null,
         approval: "none",
       } as never);
+      if (fErr) noMock++;
     }
     done.push(it.id);
   }
-  // Record what's on the order, even on a partial run, so a retry adds only the rest.
-  const m = await mergeJobTypeMeta(db, job.id, { line_sheet_item_ids: [...Array.from(ordered), ...done] });
-  if (!m.ok) return NextResponse.json({ error: `Items added, but the order record didn't save: ${m.error}` }, { status: 500 });
+  } finally {
+    // Record what's on the order even if the loop threw, so a retry adds only the rest.
+    if (done.length) await mergeJobTypeMeta(db, job.id, { line_sheet_item_ids: [...Array.from(ordered), ...done] });
+  }
+  // Re-read: the record write above must have landed, or a retry would re-add.
+  const { data: chk } = await db.from("jobs").select("type_meta").eq("id", job.id).single();
+  const saved = new Set<string>(((chk as any)?.type_meta?.line_sheet_item_ids) || []);
+  if (done.some(id => !saved.has(id))) return NextResponse.json({ error: "Items added, but the order record didn't save. Don't press again; tell Jon.", jobId: job.id, jobNumber: job.job_number }, { status: 500 });
   try {
     await logJobActivityServer(job.id, born
       ? `Job created from line sheet "${s.title}": ${done.length} thumbs-up item${done.length === 1 ? "" : "s"} with their mockups.`
       : `${done.length} more thumbs-up item${done.length === 1 ? "" : "s"} added from line sheet "${s.title}".`);
   } catch {}
   if (failed) return NextResponse.json({ error: `${failed} item${failed === 1 ? "" : "s"} failed; press again to retry`, jobId: job.id, jobNumber: job.job_number, added: done.length }, { status: 500 });
+  if (noMock) return NextResponse.json({ error: `Order ${job.job_number} made, but ${noMock} mockup${noMock === 1 ? "" : "s"} didn't attach. Add ${noMock === 1 ? "it" : "them"} on the order.`, jobId: job.id, jobNumber: job.job_number, added: done.length }, { status: 207 });
   return NextResponse.json({ ok: true, jobId: job.id, jobNumber: job.job_number, added: done.length, born });
 }
