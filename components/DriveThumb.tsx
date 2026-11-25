@@ -152,8 +152,11 @@ export function ImageLightbox({
 
   // Pinch / double-tap / drag to look closer, on the image alone (pages that
   // lock page zoom, useNoPageZoom, still get a close look here). Transform is
-  // written straight to the element: no re-render per touchmove.
+  // written straight to the element: no re-render per touchmove. Touches are
+  // read on the whole overlay, so a pinch with a finger off the image works.
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const frameRef = useRef<HTMLDivElement | null>(null);
   const z = useRef({ s: 1, x: 0, y: 0, d0: 0, s0: 1, mx: 0, my: 0, x0: 0, y0: 0, cx: 0, cy: 0, lastTap: 0, moved: false });
   const paint = () => {
     const el = imgRef.current; if (!el) return;
@@ -162,7 +165,7 @@ export function ImageLightbox({
   const resetZoom = () => { Object.assign(z.current, { s: 1, x: 0, y: 0 }); paint(); };
   useEffect(() => { resetZoom(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [fileId]);
   useEffect(() => {
-    const el = imgRef.current; if (!el) return;
+    const el = imgRef.current, root = rootRef.current; if (!el || !root) return;
     const dist = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
     // the image's untransformed centre: zoom keeps the point under the fingers fixed
     const centre = () => { const r = el.getBoundingClientRect(); z.current.cx = r.left + r.width / 2 - z.current.x; z.current.cy = r.top + r.height / 2 - z.current.y; };
@@ -194,10 +197,12 @@ export function ImageLightbox({
     };
     const end = (e: TouchEvent) => {
       const c = z.current;
-      if (e.touches.length) { start(e); return; }   // one finger lifted mid-pinch: carry on as a pan
+      // one finger lifted mid-pinch: carry on as a pan. Still a gesture, never a tap.
+      if (e.touches.length) { start(e); c.moved = true; return; }
       c.d0 = 0;
       if (c.s < 1.05) resetZoom();
-      if (!c.moved) {
+      // only a tap on the image's frame counts toward a double-tap (a backdrop tap closes)
+      if (!c.moved && frameRef.current?.contains(e.target as Node)) {
         const now = Date.now();
         if (now - c.lastTap < 300) {               // double-tap: 2.5x, or back out
           if (c.s > 1) resetZoom();
@@ -207,13 +212,16 @@ export function ImageLightbox({
         } else c.lastTap = now;
       }
     };
-    el.addEventListener("touchstart", start, { passive: true });
-    el.addEventListener("touchmove", move, { passive: false });
-    el.addEventListener("touchend", end, { passive: false });
+    const cancel = () => { z.current.d0 = 0; z.current.moved = true; if (z.current.s < 1.05) resetZoom(); };
+    root.addEventListener("touchstart", start, { passive: true });
+    root.addEventListener("touchmove", move, { passive: false });
+    root.addEventListener("touchend", end, { passive: false });
+    root.addEventListener("touchcancel", cancel);
     return () => {
-      el.removeEventListener("touchstart", start);
-      el.removeEventListener("touchmove", move);
-      el.removeEventListener("touchend", end);
+      root.removeEventListener("touchstart", start);
+      root.removeEventListener("touchmove", move);
+      root.removeEventListener("touchend", end);
+      root.removeEventListener("touchcancel", cancel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fileId]);
@@ -254,6 +262,7 @@ export function ImageLightbox({
 
   return createPortal(
     <div
+      ref={rootRef}
       onClick={(e) => { e.stopPropagation(); onClose(); }}
       // Stop pointer/touch events at the root so React-tree ancestors
       // (clickable rows, vaul drag handlers) never receive them.
@@ -268,6 +277,7 @@ export function ImageLightbox({
         // Radix/vaul modals set pointer-events:none on <body> while
         // open — re-enable for this body-level portal explicitly.
         pointerEvents: "auto",
+        touchAction: "none",   // pinches here zoom the image (handlers above), never the page
       }}
     >
       {/* Header bar — same width as the image area below so the row
@@ -308,6 +318,7 @@ export function ImageLightbox({
 
       {/* Image */}
       <div
+        ref={frameRef}
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "min(1100px, 96vw)",
