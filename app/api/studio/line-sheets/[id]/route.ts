@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { studioUser } from "@/lib/studio-access";
+import { studioUser, lineSheetInCompany } from "@/lib/studio-access";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { publishedImageIds, shelfNumbering } from "@/lib/line-sheets";
-import { getActiveCompanyId } from "@/lib/company";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,11 +36,7 @@ async function loadFull(db: any, id: string) {
   return { sheet, sections: sections || [], items: items || [], versions: versions || [] };
 }
 
-// A sheet belongs to this request's company through its client.
-async function ownSheet(db: any, id: string): Promise<boolean> {
-  const { data } = await db.from("line_sheets").select("id, clients!inner(company_id)").eq("id", id).maybeSingle();
-  return !!data && (data as any).clients?.company_id === await getActiveCompanyId();
-}
+const ownSheet = lineSheetInCompany;
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   if (!(await me())) return NextResponse.json({ error: "Sign in" }, { status: 401 });

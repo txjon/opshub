@@ -30,6 +30,10 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const [queue, setQueue] = useState<QFile[]>([]);
   const [confirm, confirmEl] = useConfirm();
   const [menuOpen, setMenuOpen] = useState(false);   // ⋯ Archive / Delete
+  // Line sheet → order (api/.../order): the sheet's job, and thumbs-ups not on it yet.
+  const [order, setOrder] = useState<{ job: { id: string; job_number: string } | null; pending: number } | null>(null);
+  const loadOrder = () => fetch(`/api/studio/line-sheets/${params.id}/order`).then(r => r.json()).then(j => { if (!j.error) setOrder(j); }).catch(() => {});
+  useEffect(() => { loadOrder(); /* eslint-disable-next-line */ }, [params.id, data?.items]);
   const fileIn = useRef<HTMLInputElement | null>(null);
   const dataRef = useRef<any>(null);
   const queueRef = useRef<QFile[]>([]);
@@ -133,6 +137,20 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
       const r = await fetch(`/api/studio/line-sheets/${params.id}`, { method: "DELETE" }).then(x => x.json()).catch(() => ({ error: "Delete failed" }));
       if (r.error) { setErr(r.error); return; }
       window.location.href = "/studio/line-sheets";
+    } finally { setBusy(false); }
+  }
+  async function makeOrder() {
+    if (!order) return;
+    const job = order.job;
+    const ok = await confirm(job
+      ? { title: `Add ${order.pending} to ${job.job_number}?`, message: `The ${order.pending} new thumbs-up item${order.pending === 1 ? "" : "s"} go onto ${job.job_number} with their mockups.`, confirmLabel: "Add to order", confirmColor: T.accent }
+      : { title: `Create an order from ${order.pending} thumbs-up item${order.pending === 1 ? "" : "s"}?`, message: "One intake order for this client, an item per thumbs-up with its mockup. Quantities, blanks, pricing and proofs come next, on the order.", confirmLabel: "Create order", confirmColor: T.accent });
+    if (!ok) return;
+    setBusy(true); setErr("");
+    try {
+      const r = await fetch(`/api/studio/line-sheets/${params.id}/order`, { method: "POST" }).then(x => x.json()).catch(() => ({ error: "Couldn't create the order" }));
+      if (r.error) { setErr(r.error); await loadOrder(); return; }
+      window.location.href = `/jobs/${r.jobId}`;
     } finally { setBusy(false); }
   }
   async function patchItem(body: any) { const r = await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(x => x.json()); if (r.error) setErr(r.error); }
@@ -298,6 +316,8 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         <span style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "center" }}>
           <input ref={fileIn} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { if (e.target.files?.length) enqueue(e.target.files); if (fileIn.current) fileIn.current.value = ""; }} />
           {approvedN > 0 && <a href={`/api/studio/line-sheets/${params.id}/approved-zip`} download title="Every thumbs-up mockup, full res, in one ZIP" style={{ ...ghostBtn, textDecoration: "none" }}>↓ Approved ({approvedN})</a>}
+          {!sheet.archived_at && order && order.pending > 0 && <button disabled={busy} onClick={makeOrder} title="Turn the client's thumbs-ups into an order" style={ghostBtn}>{order.job ? `Add ${order.pending} 👍 to ${order.job.job_number}` : `Create order (${order.pending} 👍)`}</button>}
+          {order?.job && order.pending === 0 && <a href={`/jobs/${order.job.id}`} style={{ ...ghostBtn, textDecoration: "none" }}>Order {order.job.job_number} →</a>}
           <button onClick={() => fileIn.current?.click()} style={ghostBtn}>+ Add mockups</button>
           {!sheet.archived_at && <button disabled={busy} onClick={() => setPublishOpen(true)} style={{ ...primaryBtn, padding: "11px 20px" }}>Publish {sheet.current_version ? `v${sheet.current_version + 1}` : "v1"} →</button>}
           <span style={{ position: "relative" }}>

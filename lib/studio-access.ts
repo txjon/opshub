@@ -40,3 +40,11 @@ export async function studioAllowed(db: any, userId: string, companyId: string):
   const who = { role: prof.role, isGod: prof.is_god === true, pageAccess: prof.page_access };
   return STUDIO_KEYS.some(k => canAccessKey(k, who));
 }
+
+// A line sheet belongs to this request's company through its client. Every
+// /api/studio/line-sheets/[id]* route that writes checks it (Nov 2026).
+export async function lineSheetInCompany(db: any, sheetId: string): Promise<boolean> {
+  const { getActiveCompanyId } = await import("@/lib/company");
+  const { data } = await db.from("line_sheets").select("id, clients!inner(company_id)").eq("id", sheetId).maybeSingle();
+  return !!data && (data as any).clients?.company_id === await getActiveCompanyId();
+}
