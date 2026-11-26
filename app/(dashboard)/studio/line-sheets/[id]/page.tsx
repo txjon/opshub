@@ -139,12 +139,15 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const { sheet, sections, versions } = data;
   const items: any[] = data.items.filter((i: any) => !i.dropped).sort((a: any, b: any) => ((a.sort || 0) - (b.sort || 0)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));   // id tie-break = shelfNumbering
   const dropped: any[] = data.items.filter((i: any) => i.dropped);
-  // Client thumbs-down = "Not approved" (Jon, Oct 1): still on the line, shown
-  // in its own bucket below the shelves here AND in the hub. section_id is
-  // untouched, so un-downing puts it straight back on its shelf.
+  // The client's verdicts get their own buckets, here AND in the hub:
+  // thumbs-up = "Selections" at the top (Nov 25), thumbs-down = "Not
+  // approved" at the bottom (Oct 1). section_id is untouched, so a Clear puts
+  // it straight back on its shelf. Bucketed items aren't in any drag list.
+  const selections = items.filter(i => i.client_thumb === "up");
   const notApproved = items.filter(i => i.client_thumb === "down");
-  const approvedN = items.filter(i => i.client_thumb === "up").length;
-  const tray = items.filter(i => !i.section_id && i.client_thumb !== "down");
+  const approvedN = selections.length;
+  const onShelf = (i: any) => !i.client_thumb;
+  const tray = items.filter(i => !i.section_id && onShelf(i));
   // Organizing is live in their hub; only never-published uploads wait (Oct 1 2026).
   const unpublished = items.filter(i => !i.dropped && i.added_in == null).length;
   // Never published → numbers follow the shelves (lib/line-sheets shelfNumbering);
@@ -192,7 +195,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   }
   async function patchItem(body: any) { const r = await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(x => x.json()); if (r.error) setErr(r.error); }
 
-  const visualOrder = [...tray, ...sections.flatMap((s: any) => items.filter(i => i.section_id === s.id && i.client_thumb !== "down")), ...notApproved].map(i => i.id);
+  const visualOrder = [...selections, ...tray, ...sections.flatMap((s: any) => items.filter(i => i.section_id === s.id && onShelf(i))), ...notApproved].map(i => i.id);
   const toggleSel = (id: string, shift = false) => setSelected(prev => {
     if (shift && prev.length) {
       // shift-click = select the whole run between the last tap and this one
@@ -240,11 +243,11 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     await load();
   }
 
-  // Containers: "tray" or a shelf id. Thumbs-down items keep their shelf id
-  // but live in Not approved, so they're never in a drag list.
+  // Containers: "tray" or a shelf id. Thumbed items keep their shelf id but
+  // live in Selections / Not approved, so they're never in a drag list.
   const shelfIds = new Set<string>(sections.map((x: any) => x.id));
   const boxOf = (it: any) => (it.section_id && shelfIds.has(it.section_id) ? it.section_id : "tray");
-  const listOf = (box: string) => items.filter(i => i.client_thumb !== "down" && boxOf(i) === box);
+  const listOf = (box: string) => items.filter(i => onShelf(i) && boxOf(i) === box);
   const isBox = (id: string) => id === "tray" || shelfIds.has(id);
   function onDragStart(e: DragStartEvent) {
     if (busy) return;
@@ -276,8 +279,8 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     const overId = String(over.id);
     const newIdx = isBox(overId) ? ids.length - 1 : ids.indexOf(overId);
     const next = newIdx >= 0 && oldIdx >= 0 ? arrayMove(ids, oldIdx, newIdx) : ids;
-    // Renumber the WHOLE shelf, thumbs-down cards included in their slots, so
-    // an un-downed card comes back where it was, not at the front.
+    // Renumber the WHOLE shelf, bucketed (thumbed) cards included in their
+    // slots, so a cleared card comes back where it was, not at the front.
     const full = items.filter(i => boxOf(i) === box).map(i => i.id);
     const vis = new Set(next);
     let v = 0;
@@ -339,6 +342,24 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
       </div>
     );
   };
+
+  // Selections / Not approved: the client's verdict buckets (not drag lists)
+  const bucket = (title: string, color: string, list: any[], hint: string) => list.length > 0 && (
+    <section style={{ marginBottom: 26 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
+        <span style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", color }}>{title}</span>
+        <span style={{ fontSize: 10.5, color: H.faint }}>{list.length} {hint}</span>
+      </div>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", borderLeft: `2px solid ${color}`, paddingLeft: 12 }}>
+        {list.map(it => (
+          <div key={it.id}>
+            {card(it)}
+            <div style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint, marginTop: 4 }}>from {sections.find((x: any) => x.id === it.section_id)?.name || "no shelf"}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
 
   const doneN = queue.filter(q => q.status === "done").length;
   const skippedN = queue.filter(q => q.status === "skipped").length;
@@ -440,6 +461,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
       </div>
       {err && <div style={{ color: H.red, fontSize: 12, marginBottom: 12 }}>{err}</div>}
 
+      {bucket("Selections", H.green, selections, "thumbs-up · their picks, back to its shelf if they clear it")}
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={() => { setDragId(null); dragFrom.current = null; load(); }}>
       {/* THE TRAY */}
       <section style={{ border: `2px dashed ${tray.length ? H.line : H.line2}`, borderRadius: 14, padding: 14, marginBottom: 26 }}>
@@ -456,7 +478,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
 
       {/* THE SHELVES */}
       {sections.map((s: any, si: number) => {
-        const inSection = items.filter(i => i.section_id === s.id && i.client_thumb !== "down");
+        const inSection = items.filter(i => i.section_id === s.id && onShelf(i));
         return (
           <section key={s.id} style={{ marginBottom: 26 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
@@ -481,22 +503,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         {dragId ? (() => { const it = items.find(i => i.id === dragId); return it ? <div style={{ boxShadow: "0 12px 30px rgba(0,0,0,.55)", borderRadius: 12, cursor: "grabbing" }}>{card(it)}</div> : null; })() : null}
       </DragOverlay>
       </DndContext>
-      {notApproved.length > 0 && (
-        <section style={{ marginBottom: 26 }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
-            <span style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", color: H.red }}>Not approved</span>
-            <span style={{ fontSize: 10.5, color: H.faint }}>{notApproved.length} thumbs-down · still on the line, back to its shelf if they change their mind</span>
-          </div>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", borderLeft: `2px solid ${H.red}`, paddingLeft: 12 }}>
-            {notApproved.map(it => (
-              <div key={it.id}>
-                {card(it)}
-                <div style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint, marginTop: 4 }}>from {sections.find((x: any) => x.id === it.section_id)?.name || "no shelf"}</div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+      {bucket("Not approved", H.red, notApproved, "thumbs-down · still on the line, back to its shelf if they change their mind")}
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 30 }}>
         <input value={newSection} onChange={e => setNewSection(e.target.value)} placeholder="New shelf — e.g. HATS" onKeyDown={async e => { if (e.key === "Enter" && newSection.trim()) { await fetch(`/api/studio/line-sheets/${params.id}/sections`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newSection.trim() }) }); setNewSection(""); await load(); } }} style={{ ...inp, maxWidth: 240 }} />
         <span style={{ fontSize: 10.5, color: H.faint }}>↵ to add</span>
