@@ -51,6 +51,11 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const loadOrder = () => fetch(`/api/studio/line-sheets/${params.id}/order`).then(r => r.json()).then(j => { if (!j.error) setOrder(j); }).catch(() => {});
   useEffect(() => { loadOrder(); /* eslint-disable-next-line */ }, [params.id, data?.items]);
   const fileIn = useRef<HTMLInputElement | null>(null);
+  // Replace (Nov 25): swap one mockup on an item in place
+  const replaceIn = useRef<HTMLInputElement | null>(null);
+  const replaceTarget = useRef<{ id: string; at: number } | null>(null);
+  const [replacing, setReplacing] = useState<string | null>(null);   // item id mid-upload
+  const [pickSide, setPickSide] = useState<string | null>(null);     // multi-image item asking which one
   const dataRef = useRef<any>(null);
   const queueRef = useRef<QFile[]>([]);
   const pumping = useRef(false);
@@ -195,6 +200,22 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
       window.location.href = `/jobs/${r.jobId}`;
     } finally { setBusy(false); }
   }
+  function startReplace(it: any, at: number) {
+    setPickSide(null);
+    replaceTarget.current = { id: it.id, at };
+    replaceIn.current?.click();
+  }
+  async function doReplace(file: File) {
+    const t = replaceTarget.current; replaceTarget.current = null;
+    const sheet = dataRef.current?.sheet;
+    if (!t || !sheet || !file.type.startsWith("image/")) return;
+    setReplacing(t.id); setErr("");
+    try {
+      const up = await uploadToDrive({ blob: file, fileName: file.name, mimeType: file.type || "image/png", itemId: null, clientName: sheet?.clients?.name || "Studio", projectTitle: "Line Sheets", itemName: sheet?.title || "Line Sheet", onProgress: undefined });
+      await patchItem({ id: t.id, replaceImage: { at: t.at, driveId: up.fileId, name: file.name, size: file.size } });
+    } catch (e: any) { setErr(`Replace failed: ${e?.message || "upload failed"}`); }
+    finally { setReplacing(null); await load(); }
+  }
   async function patchItem(body: any) { const r = await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(x => x.json()); if (r.error) setErr(r.error); }
 
   const visualOrder = [...selections, ...tray, ...sections.flatMap((s: any) => items.filter(i => i.section_id === s.id && onShelf(i))), ...notApproved].map(i => i.id);
@@ -321,6 +342,21 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
           ) : null}
           {noOf(it) && <span style={{ position: "absolute", left: 5, top: 5, fontFamily: H.mono, fontSize: 10, fontWeight: 700, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>{noOf(it)}</span>}
           {/* this item's file(s), named by the item (one = the file, more = a ZIP) */}
+          {/* ↻ Replace: swap the mockup in place (a front/back pair asks which) */}
+          {!on && imgs.length > 0 && !sheet.archived_at && <button onClick={e => { e.stopPropagation(); if (imgs.length === 1) startReplace(it, 0); else setPickSide(pickSide === it.id ? null : it.id); }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}
+            disabled={replacing === it.id} title={imgs.length === 1 ? "Replace this mockup" : "Replace one of these mockups"} aria-label="Replace mockup"
+            style={{ position: "absolute", right: 37, top: 5, zIndex: 3, color: "#555", background: "rgba(255,255,255,.92)", border: "none", borderRadius: 6, minWidth: 28, height: 28, display: "grid", placeItems: "center", fontSize: 14, fontWeight: 800, cursor: "pointer", padding: 0 }}>{replacing === it.id ? "…" : "↻"}</button>}
+          {pickSide === it.id && (
+            <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} style={{ position: "absolute", right: 5, top: 37, zIndex: 4, background: "#161616", border: `1px solid ${H.line}`, borderRadius: 8, padding: 4, display: "flex", flexDirection: "column", gap: 2, minWidth: 120 }}>
+              <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, padding: "4px 7px" }}>Replace which?</span>
+              {imgs.map((im: any, k: number) => (
+                <button key={im.id || k} onClick={() => startReplace(it, k)} title={im.name || undefined}
+                  style={{ background: "none", border: "none", color: H.text, fontSize: 12, fontFamily: H.font, textAlign: "left", padding: "6px 7px", cursor: "pointer", borderRadius: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 160 }}>
+                  {imgs.length === 2 ? (k === 0 ? "Front" : "Back") : `Picture ${k + 1}`}
+                </button>
+              ))}
+            </div>
+          )}
           {!on && imgs.length > 0 && <a href={`/api/studio/line-sheets/${params.id}/download?pick=${it.id}`} download onClick={e => e.stopPropagation()} title={imgs.length > 1 ? `Download ${imgs.length} files` : "Download file"} style={{ position: "absolute", right: 5, top: 5, zIndex: 3, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 6, minWidth: 28, height: 28, display: "grid", placeItems: "center", fontSize: 13, fontWeight: 800, textDecoration: "none" }}>↓</a>}
           {on && <span style={{ position: "absolute", right: 5, top: 5, background: H.blue, color: H.ink, borderRadius: 999, width: 20, height: 20, display: "grid", placeItems: "center", fontSize: 11, fontWeight: 900, zIndex: 3 }}>{selIdx + 1}</span>}
           {imgs.length > 2 && <span style={{ position: "absolute", right: 5, bottom: 5, ...tag("#555", 8.5), background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>+{imgs.length - 2}</span>}
@@ -439,6 +475,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
             {sheet.archived_at ? "Archived · hidden from their hub" : sheet.current_version ? `v${sheet.current_version} live in their hub` : "Draft · never published"}
           </span>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <input ref={replaceIn} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (replaceIn.current) replaceIn.current.value = ""; if (f) doReplace(f); else replaceTarget.current = null; }} />
             <input ref={fileIn} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { if (e.target.files?.length) enqueue(e.target.files); if (fileIn.current) fileIn.current.value = ""; }} />
             {!sheet.archived_at && <button disabled={busy} onClick={() => setPublishOpen(true)} style={{ ...primaryBtn, padding: "11px 20px" }}>Publish {sheet.current_version ? `v${sheet.current_version + 1}` : "v1"} →</button>}
             <span style={{ position: "relative" }}>

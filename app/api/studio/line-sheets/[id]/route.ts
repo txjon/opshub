@@ -89,6 +89,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           updated++;
         }
       }
+      // a published replacement no longer stands in for anything
+      if ((it.images || []).some((img: any) => img.replaces)) patch.images = (it.images || []).map(({ replaces, ...img }: any) => img);
       if (Object.keys(patch).length) await db.from("line_sheet_items").update(patch as never).eq("id", it.id);
     }
     // anything still unnumbered gets its permanent number now — the client

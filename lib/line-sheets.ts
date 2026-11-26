@@ -4,7 +4,9 @@
 // optional client comment. New art on an item keeps a thumbs-up (a revision
 // he asked for is still his pick) and resets a thumbs-down (he gets a fresh
 // look at the rework); the comment stays, read as "on the previous version".
-export type SheetImage = { id: string; driveId: string; name?: string | null };
+// replaces = the published picture this unpublished one swapped out (Replace);
+// the client keeps seeing that until the next publish.
+export type SheetImage = { id: string; driveId: string; name?: string | null; size?: number; replaces?: { driveId: string; name?: string | null } };
 export type SheetItem = {
   id: string; sheet_id: string; section_id: string | null; name: string | null; sort: number;
   images: SheetImage[];
@@ -81,7 +83,8 @@ export async function clientSheetView(db: Db, sheet: { id: string; current_versi
   ]);
   const items = ((rows || []) as any[])
     .filter(it => !it.dropped && it.added_in != null)
-    .map(it => ({ ...it, images: (it.images || []).filter((img: SheetImage) => published.has(img.driveId)) }))
+    .map(it => ({ ...it, images: (it.images || []).map((img: SheetImage) => published.has(img.driveId) ? img
+      : img.replaces && published.has(img.replaces.driveId) ? { id: img.id, driveId: img.replaces.driveId, name: img.replaces.name } : null).filter(Boolean) }))
     .filter(it => it.images.length > 0)
     .map(it => ({
       id: it.id, section_id: it.section_id, name: it.name, item_no: it.item_no, sort: it.sort, images: it.images,

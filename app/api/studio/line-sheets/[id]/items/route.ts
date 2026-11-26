@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { studioUser, lineSheetInCompany } from "@/lib/studio-access";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { newImageId } from "@/lib/line-sheets";
+import { newImageId, publishedImageIds } from "@/lib/line-sheets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,9 +11,13 @@ export const dynamic = "force-dynamic";
 // POST  → { images: [{driveId, name}] } register uploads: one new TRAY item
 //         per image (grouping happens after, like sorting the desktop folder)
 // PATCH → { id, name? , sectionId?(null→tray), sort?, images?, drop?, restore?,
-//           mergeFrom? } mergeFrom = another item id whose images fold into
-//         this one (front+back become one product; the donor item is removed
-//         if it was never published, else dropped)
+//           mergeFrom?, replaceImage? } mergeFrom = another item id whose
+//         images fold into this one (front+back become one product; the donor
+//         item is removed if it was never published, else dropped).
+//         replaceImage = { at, driveId, name, size } swaps one mockup in place
+//         (Jon, Nov 25): the item keeps its thumb, comment, number and name.
+//         Until the next publish the client keeps seeing the picture it
+//         replaced (image.replaces, read by lib/line-sheets clientSheetView).
 // DELETE → { id } hard-remove a never-published item
 const admin = () => createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 // Signed-in studio user AND this sheet is the request's company's.
@@ -121,7 +125,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
   }
   if (b.sort !== undefined) patch.sort = Number(b.sort) || 0;
-  if (b.images !== undefined && Array.isArray(b.images)) patch.images = b.images.filter((i: any) => i?.driveId).map((i: any) => ({ id: i.id || newImageId(), driveId: String(i.driveId), name: i.name || null, ...(Number(i.size) > 0 ? { size: Number(i.size) } : {}) }));
+  if (b.images !== undefined && Array.isArray(b.images)) patch.images = b.images.filter((i: any) => i?.driveId).map((i: any) => ({ id: i.id || newImageId(), driveId: String(i.driveId), name: i.name || null, ...(Number(i.size) > 0 ? { size: Number(i.size) } : {}), ...(i.replaces?.driveId ? { replaces: { driveId: String(i.replaces.driveId), name: i.replaces.name || null } } : {}) }));
+  if (b.replaceImage) {
+    const r = b.replaceImage, imgs: any[] = [...((item as any).images || [])];
+    const at = Number(r.at);
+    if (!Number.isInteger(at) || at < 0 || at >= imgs.length || !r.driveId) return NextResponse.json({ error: "Nothing to replace there" }, { status: 400 });
+    const old = imgs[at];
+    // what the client is looking at now: the old picture if it was published,
+    // or whatever an unpublished earlier replacement was standing in for
+    const published = await publishedImageIds(db, params.id);
+    const shown = published.has(old.driveId) ? { driveId: old.driveId, name: old.name || null } : old.replaces || null;
+    imgs[at] = { id: newImageId(), driveId: String(r.driveId), name: r.name || null, ...(Number(r.size) > 0 ? { size: Number(r.size) } : {}), ...(shown ? { replaces: shown } : {}) };
+    patch.images = imgs;
+  }
   if (b.drop) { patch.dropped = true; }
   if (b.restore) { patch.dropped = false; patch.dropped_in = null; }
   if (Object.keys(patch).length) {
