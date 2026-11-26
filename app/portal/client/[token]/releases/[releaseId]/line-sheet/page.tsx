@@ -89,7 +89,7 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
   const itemCard = (it: any) => {
     const imgs = it.images || [];
     return (
-      <div key={it.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, overflow: "hidden", width: "100%" }}>
+      <div key={it.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, overflow: "hidden", width: "100%", display: "flex", flexDirection: "column" }}>
         <div onClick={() => imgs[0] && setZoom(it)} role={imgs[0] ? "button" : undefined} aria-label={imgs[0] ? "View larger" : undefined}
           style={{ position: "relative", aspectRatio: "1", width: "100%", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: imgs[0] ? "zoom-in" : undefined }}>
           {imgs.length > 1 ? (
@@ -102,35 +102,8 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
           ) : null}
           {it.badge && <span style={{ position: "absolute", top: 8, left: 8, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: it.badge === "new" ? C.green : C.amber, background: "rgba(10,10,10,.85)", borderRadius: 6, padding: "3px 8px", zIndex: 3 }}>{it.badge}</span>}
         </div>
-        <div style={{ padding: "10px 12px 12px" }}>
+        <div style={{ padding: "10px 12px 12px", flex: 1, display: "flex", flexDirection: "column" }}>
           <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25 }}>{it.name || (it.item_no ? String(it.item_no).padStart(2, "0") : "Untitled")}</div>
-          {(() => {
-            const btn = (on: boolean, col: string, wash: string): React.CSSProperties => ({ flex: 1, padding: "7px 0", borderRadius: 8, border: `1px solid ${on ? col : C.line}`, background: on ? wash : "transparent", cursor: "pointer", color: on ? col : C.dim, display: "grid", placeItems: "center", fontFamily: C.font });
-            const noteBtn = <button onClick={() => openNote(it)} aria-label={it.note ? "Edit comment" : "Add a comment"} aria-expanded={noteFor === it.id}
-              style={{ ...btn(!!it.note, C.text, "rgba(255,255,255,.08)"), flex: "0 0 44px" }}><NoteIcon filled={!!it.note} /></button>;
-            // in a bucket (Selections / Not approved): the verdict, the comment, Clear
-            if (it.thumb && hold !== it.id) {
-              const up = it.thumb === "up";
-              return (
-                <div style={{ display: "flex", gap: 8, marginTop: 9, alignItems: "center" }}>
-                  {/* the bucket heading names it; the card shows which way (shape, not just colour) */}
-                  <span role="img" aria-label={up ? "Selected" : "Not approved"} style={{ flex: 1, display: "flex", alignItems: "center", paddingLeft: 4, color: up ? C.green : C.red }}>
-                    <ThumbIcon dir={up ? "up" : "down"} size={16} />
-                  </span>
-                  {noteBtn}
-                  <button onClick={() => react(it, null)} aria-label="Clear: back to its shelf"
-                    style={{ ...btn(false, C.text, ""), flex: "0 0 auto", padding: "7px 12px", fontSize: 11, fontWeight: 700 }}>Clear</button>
-                </div>
-              );
-            }
-            return (
-              <div style={{ display: "flex", gap: 8, marginTop: 9 }}>
-                <button onClick={() => react(it, "up")} aria-label="Thumbs up" aria-pressed={it.thumb === "up"} style={btn(it.thumb === "up", C.green, "rgba(88,201,60,.14)")}><ThumbIcon dir="up" /></button>
-                <button onClick={() => react(it, "down")} aria-label="Thumbs down" aria-pressed={it.thumb === "down"} style={btn(it.thumb === "down", C.red, "rgba(255,90,110,.12)")}><ThumbIcon dir="down" /></button>
-                {noteBtn}
-              </div>
-            );
-          })()}
           {noteFor === it.id ? (
             <textarea autoFocus rows={2} defaultValue={it.note || ""} placeholder="Add a comment" maxLength={500} aria-label="Comment"
               // Escape cancels: flag it so the blur that follows doesn't save
@@ -143,6 +116,36 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
               {it.noteStale && <span style={{ display: "block", marginTop: 3, fontSize: 9.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.faint }}>On the previous version</span>}
             </button>
           ) : null}
+          {/* actions pinned to the card's foot: every card in a row lines up, whatever the name or comment length */}
+          <div style={{ marginTop: "auto", paddingTop: 10 }}>
+          {(() => {
+            const btn = (on: boolean, col: string, wash: string): React.CSSProperties => ({ flex: 1, padding: "7px 0", borderRadius: 8, border: `1px solid ${on ? col : C.line}`, background: on ? wash : "transparent", cursor: "pointer", color: on ? col : C.dim, display: "grid", placeItems: "center", fontFamily: C.font });
+            const noteBtn = <button onClick={() => openNote(it)} aria-label={it.note ? "Edit comment" : "Add a comment"} aria-expanded={noteFor === it.id}
+              style={{ ...btn(!!it.note, C.text, "rgba(255,255,255,.08)"), flex: "0 0 44px" }}><NoteIcon filled={!!it.note} /></button>;
+            // in a bucket (Selections / Not approved): the verdict, the comment, Clear
+            if (it.thumb && hold !== it.id) {
+              const up = it.thumb === "up";
+              return (
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  {/* the bucket heading names it; the card shows which way (shape, not just colour) */}
+                  <span role="img" aria-label={up ? "Selected" : "Not approved"} style={{ flex: 1, display: "flex", alignItems: "center", paddingLeft: 4, color: up ? C.green : C.red }}>
+                    <ThumbIcon dir={up ? "up" : "down"} size={16} />
+                  </span>
+                  {noteBtn}
+                  <button onClick={() => react(it, null)} aria-label="Clear: back to its shelf" title="Back to its shelf"
+                    style={{ ...btn(false, C.faint, ""), flex: "0 0 44px", color: C.faint, fontSize: 15, lineHeight: 1 }}>✕</button>
+                </div>
+              );
+            }
+            return (
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => react(it, "up")} aria-label="Thumbs up" aria-pressed={it.thumb === "up"} style={btn(it.thumb === "up", C.green, "rgba(88,201,60,.14)")}><ThumbIcon dir="up" /></button>
+                <button onClick={() => react(it, "down")} aria-label="Thumbs down" aria-pressed={it.thumb === "down"} style={btn(it.thumb === "down", C.red, "rgba(255,90,110,.12)")}><ThumbIcon dir="down" /></button>
+                {noteBtn}
+              </div>
+            );
+          })()}
+          </div>
         </div>
       </div>
     );
