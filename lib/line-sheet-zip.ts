@@ -36,7 +36,7 @@ export function imageFileBases(it: { name?: string | null; item_no?: number | nu
 
 export async function sheetMocks(db: Db, sheetId: string, pick: MockPick) {
   const [{ data: sheet }, { data: secs }, { data: rows }] = await Promise.all([
-    db.from("line_sheets").select("id, title, season, clients(name)").eq("id", sheetId).maybeSingle(),
+    db.from("line_sheets").select("id, title, clients(name)").eq("id", sheetId).maybeSingle(),
     db.from("line_sheet_sections").select("id, name, sort").eq("sheet_id", sheetId).order("sort"),
     db.from("line_sheet_items").select("id, section_id, name, item_no, sort, images, dropped, client_thumb").eq("sheet_id", sheetId).order("sort"),
   ]);
@@ -57,7 +57,7 @@ export async function sheetMocks(db: Db, sheetId: string, pick: MockPick) {
     const folder = it.section_id && secName.get(it.section_id) ? safeName(secName.get(it.section_id)).replace(/^\.+$/, "_") + "/" : "";
     it.images.forEach((img: SheetImage, i: number) => files.push({ driveId: img.driveId, folder, base: bases[i] }));
   }
-  const title = [(sheet as any).clients?.name, (sheet as any).title, (sheet as any).season].filter(Boolean).join(" - ");
+  const title = [(sheet as any).clients?.name, (sheet as any).title].filter(Boolean).join(" - ");
   return { title, items: items.length, files };
 }
 

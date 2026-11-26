@@ -30,7 +30,7 @@ export default function LineSheetsPage() {
               <span style={{ fontSize: 15, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{s.title}</span>
               <span style={tag(s.status === "final" ? H.green : s.current_version ? H.blue : H.amber, 9)}>{s.status === "final" ? "Final" : s.current_version ? `v${s.current_version} live` : "Draft"}</span>
             </div>
-            <div style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint, marginTop: 4 }}>{s.client_name}{s.release_title ? ` · ${s.release_title}` : ""}{s.season ? ` · ${s.season}` : ""}</div>
+            <div style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint, marginTop: 4 }}>{s.client_name}{s.release_title ? ` · ${s.release_title}` : ""}</div>
             <div style={{ fontSize: 11, color: H.dim, marginTop: 10, display: "flex", gap: 14 }}>
               <span>{s._counts.items} item{s._counts.items === 1 ? "" : "s"}</span>
               {s._counts.thumbsUp > 0 && <span style={{ color: H.green }}>👍 {s._counts.thumbsUp}</span>}
@@ -48,7 +48,7 @@ export default function LineSheetsPage() {
 function NewSheet({ onClose, onCreated }: any) {
   const [q, setQ] = useState(""); const [results, setResults] = useState<any[]>([]);
   const [client, setClient] = useState<any>(null);
-  const [title, setTitle] = useState(""); const [season, setSeason] = useState("");
+  const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
   // The release this sheet proposes — an open (building) one without a sheet,
   // or "" = a new release born with the sheet's title.
@@ -70,7 +70,7 @@ function NewSheet({ onClose, onCreated }: any) {
     if (!client || !title.trim()) { setErr("Pick a client and give it a title."); return; }
     setBusy(true); setErr("");
     try {
-      const r = await fetch("/api/studio/line-sheets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientId: client.id, title: title.trim(), season: season.trim() || null, releaseId: releaseId || null }) }).then(x => x.json());
+      const r = await fetch("/api/studio/line-sheets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientId: client.id, title: title.trim(), releaseId: releaseId || null }) }).then(x => x.json());
       if (r.error) { setErr(r.error); return; }
       onCreated(r.sheet.id);
     } finally { setBusy(false); }
@@ -100,8 +100,6 @@ function NewSheet({ onClose, onCreated }: any) {
         </>)}
         <label style={{ ...lbl, marginTop: 12 }}>Title</label>
         <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Sike Ops Line Sheet" style={inp} />
-        <label style={{ ...lbl, marginTop: 12 }}>Season <span style={{ color: H.faint }}>(optional)</span></label>
-        <input value={season} onChange={e => setSeason(e.target.value)} placeholder="e.g. FALL / 2026" style={inp} />
         {err && <div style={{ color: H.red, fontSize: 12, marginTop: 8 }}>{err}</div>}
         <button disabled={busy} onClick={go} style={{ ...primaryBtn, width: "100%", marginTop: 16, padding: "13px" }}>{busy ? "Starting…" : "Start the sheet"}</button>
       </div>

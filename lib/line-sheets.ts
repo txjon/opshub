@@ -36,7 +36,7 @@ export function shelfNumbering(
 }
 
 export type LineSheet = {
-  id: string; client_id: string; release_id: string; title: string; season: string | null;
+  id: string; client_id: string; release_id: string; title: string;
   status: "working" | "final"; current_version: number;
   created_by: string | null; created_at: string; updated_at: string;
 };

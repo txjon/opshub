@@ -30,7 +30,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
   // Live organizing + published art only (lib/line-sheets clientSheetView).
   const view = await clientSheetView(db, sheet);
   return NextResponse.json({
-    sheet: { id: sheet.id, title: sheet.title, season: sheet.season, status: sheet.status },
+    sheet: { id: sheet.id, title: sheet.title, status: sheet.status },
     release: { id: sheet.releases.id, title: sheet.releases.title },
     version: view.version,
     sections: view.sections, items: view.items,

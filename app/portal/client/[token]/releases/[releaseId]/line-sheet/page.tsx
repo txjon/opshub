@@ -183,7 +183,6 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
       {back}
       <div style={{ display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap", marginTop: 8 }}>
         <h1 style={{ fontSize: "clamp(26px,4.5vw,40px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.02em", margin: 0 }}>{sheet.title}</h1>
-        {sheet.season && <span style={{ fontFamily: C.mono, fontSize: 12, color: C.amber }}>{sheet.season}</span>}
       </div>
       <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap", marginTop: 8, fontSize: 11, fontFamily: C.mono, color: C.faint }}>
         <span style={{ color: C.blue, fontWeight: 700 }}>v{version.n}</span>

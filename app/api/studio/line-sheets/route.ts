@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 //        Archived sheets (mig 211) only with ?archived=1, and then only those.
 //        ?client=<id> → instead, that client's building releases with no
 //        sheet yet (the New-sheet picker).
-// POST → start one: { clientId, title, season?, releaseId? }. A sheet is the
+// POST → start one: { clientId, title, releaseId? }. A sheet is the
 //        proposal stage of ONE release (mig 192): no releaseId → a new
 //        building release is born with the sheet's title.
 const admin = () => createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -82,8 +82,7 @@ export async function POST(req: NextRequest) {
     bornRelease = true;
   }
   const { data: sheet, error } = await db.from("line_sheets").insert({
-    client_id: b.clientId, release_id: releaseId, title,
-    season: b.season ? String(b.season).trim().slice(0, 60) : null, created_by: who.name,
+    client_id: b.clientId, release_id: releaseId, title, created_by: who.name,
   } as never).select("*").single();
   if (error || !sheet) {
     if (bornRelease) await db.from("releases").delete().eq("id", releaseId!);

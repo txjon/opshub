@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 // One line sheet.
 // GET    → sheet + sections + items (live draft) + version history.
-// PATCH  → { title?, season? } meta edits
+// PATCH  → { title? } meta edits
 //          { publish: true, note? } → stamp the next version (see below)
 //          { finalize: true } / { reopen: true } → status
 //          { archive: true } / { unarchive: true } → archived_at (mig 211):
@@ -140,7 +140,6 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
   const patch: Record<string, any> = { updated_at: now };
   if (b.title !== undefined) patch.title = String(b.title || "").trim().slice(0, 140) || (sheet as any).title;
-  if (b.season !== undefined) patch.season = b.season ? String(b.season).trim().slice(0, 60) : null;
   const { error } = await db.from("line_sheets").update(patch as never).eq("id", params.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });

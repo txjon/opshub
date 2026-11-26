@@ -397,40 +397,46 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         </div>
       )}
       <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint }}><a href="/studio/line-sheets" style={{ color: H.faint, textDecoration: "none" }}>‹ Line sheets</a></div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap", margin: "6px 0 4px" }}>
-        <input defaultValue={sheet.title} onBlur={e => { if (e.target.value.trim() && e.target.value !== sheet.title) patchSheet({ title: e.target.value }); }}
-          style={{ fontSize: "clamp(26px,4vw,44px)", fontWeight: 900, letterSpacing: "-0.02em", textTransform: "uppercase", background: "none", border: "none", borderBottom: "1px dotted rgba(255,255,255,.3)", color: H.text, outline: "none", fontFamily: H.font, minWidth: 200, flex: "1 1 300px" }} />
-        <input defaultValue={sheet.season || ""} placeholder="[ SEASON ]" onBlur={e => { if ((e.target.value || "") !== (sheet.season || "")) patchSheet({ season: e.target.value }); }}
-          style={{ fontFamily: H.mono, fontSize: 13, color: H.amber, background: "none", border: "none", borderBottom: "1px dotted rgba(255,255,255,.25)", outline: "none", width: 140 }} />
-      </div>
-      <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", marginBottom: 24 }}>
-        <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>{sheet.clients?.name}</span>
-        {sheet.releases && <a href="/drops" style={{ fontSize: 10.5, fontFamily: H.mono, color: H.dim, textDecoration: "none", borderBottom: "1px dotted rgba(255,255,255,.3)" }}>Release · {sheet.releases.title}</a>}
-        {sheet.archived_at && <span style={tag(H.faint, 9.5)}>Archived · hidden from their hub</span>}
-        {!sheet.archived_at && <span style={tag(sheet.current_version ? H.blue : H.amber, 9.5)}>{sheet.current_version ? `v${sheet.current_version} live in their hub` : "Draft · never published"}</span>}
-        {!sheet.archived_at && sheet.current_version > 0 && sheet.clients?.portal_token && <a href={`/portal/client/${sheet.clients.portal_token}/releases/${sheet.release_id}/line-sheet`} target="_blank" rel="noreferrer" style={{ ...tag(H.text, 9.5), textDecoration: "none", border: `1px solid ${H.line}`, borderRadius: 8, padding: "4px 9px" }}>View as client ↗</a>}
-        {!sheet.archived_at && sheet.current_version > 0 && sheet.clients?.portal_token && <CopyLink url={`${window.location.origin}/portal/client/${sheet.clients.portal_token}/releases/${sheet.release_id}/line-sheet`} />}
-        {versions.length > 0 && <span style={{ fontSize: 10, fontFamily: H.mono, color: H.faint }}>last publish {fmtStamp(versions[versions.length - 1].published_at)}</span>}
-        <span style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "center" }}>
-          <input ref={fileIn} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { if (e.target.files?.length) enqueue(e.target.files); if (fileIn.current) fileIn.current.value = ""; }} />
-          {approvedN > 0 && <button onClick={() => setSelected(items.filter(i => i.client_thumb === "up").map(i => i.id))} title="Select every thumbs-up item (then download, pair, shelve…)" style={ghostBtn}>Select 👍 ({approvedN})</button>}
-          {approvedN > 0 && <a href={`/api/studio/line-sheets/${params.id}/download?pick=approved`} download title="Every thumbs-up mockup the client has seen, full res, in one ZIP" style={{ ...ghostBtn, textDecoration: "none" }}>↓ Approved ({approvedN})</a>}
-          {items.length > 0 && <a href={`/api/studio/line-sheets/${params.id}/download?pick=all`} download title="Every mockup on the sheet, full res, a folder per shelf" style={{ ...ghostBtn, textDecoration: "none" }}>↓ All</a>}
-          {!sheet.archived_at && order && order.pending > 0 && <button disabled={busy} onClick={makeOrder} title="Turn the client's thumbs-ups into an order" style={ghostBtn}>{order.job ? `Add ${order.pending} 👍 to ${order.job.job_number}` : `Create order (${order.pending} 👍)`}</button>}
-          {order?.job && order.pending === 0 && <a href={`/jobs/${order.job.id}`} style={{ ...ghostBtn, textDecoration: "none" }}>Order {order.job.job_number} →</a>}
-          <button onClick={() => fileIn.current?.click()} style={ghostBtn}>+ Add mockups</button>
-          {!sheet.archived_at && <button disabled={busy} onClick={() => setPublishOpen(true)} style={{ ...primaryBtn, padding: "11px 20px" }}>Publish {sheet.current_version ? `v${sheet.current_version + 1}` : "v1"} →</button>}
-          <span style={{ position: "relative" }}>
-            <button disabled={busy} onClick={() => setMenuOpen(o => !o)} title="More" style={{ ...ghostBtn, padding: "9px 13px" }}>⋯</button>
-            {menuOpen && (<>
-              <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
-              <div style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 41, background: "#161616", border: `1px solid ${H.line}`, borderRadius: 10, padding: 5, minWidth: 170 }}>
-                <button onClick={toggleArchive} style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", color: H.text, fontSize: 13, fontFamily: H.font, padding: "9px 11px", cursor: "pointer", borderRadius: 7 }}>{sheet.archived_at ? "Unarchive" : "Archive"}</button>
-                <button onClick={deleteSheet} style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", color: H.red, fontSize: 13, fontFamily: H.font, padding: "9px 11px", cursor: "pointer", borderRadius: 7 }}>Delete…</button>
-              </div>
-            </>)}
+      {/* Header (Jon, Nov 25): title + who/where on the left; Publish with its
+          status above and last-publish stamp below on the right; everything
+          else lives in the ⋯ menu. */}
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 18, flexWrap: "wrap", margin: "6px 0 24px" }}>
+        <div style={{ flex: "1 1 320px", minWidth: 0 }}>
+          <input defaultValue={sheet.title} onBlur={e => { if (e.target.value.trim() && e.target.value !== sheet.title) patchSheet({ title: e.target.value }); }}
+            style={{ width: "100%", boxSizing: "border-box", fontSize: "clamp(26px,4vw,44px)", fontWeight: 900, letterSpacing: "-0.02em", textTransform: "uppercase", background: "none", border: "none", borderBottom: "1px dotted rgba(255,255,255,.3)", color: H.text, outline: "none", fontFamily: H.font }} />
+          <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+            <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>{sheet.clients?.name}</span>
+            {sheet.releases && <a href="/drops" style={{ fontSize: 10.5, fontFamily: H.mono, color: H.dim, textDecoration: "none", borderBottom: "1px dotted rgba(255,255,255,.3)" }}>Release · {sheet.releases.title}</a>}
+            {!sheet.archived_at && sheet.current_version > 0 && sheet.clients?.portal_token && <CopyLink url={`${window.location.origin}/portal/client/${sheet.clients.portal_token}/releases/${sheet.release_id}/line-sheet`} />}
+            {order?.job && <a href={`/jobs/${order.job.id}`} style={{ fontSize: 10.5, fontFamily: H.mono, color: H.dim, textDecoration: "none", borderBottom: "1px dotted rgba(255,255,255,.3)" }}>Order {order.job.job_number} →</a>}
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 7 }}>
+          <span style={tag(sheet.archived_at ? H.faint : sheet.current_version ? H.blue : H.amber, 9.5)}>
+            {sheet.archived_at ? "Archived · hidden from their hub" : sheet.current_version ? `v${sheet.current_version} live in their hub` : "Draft · never published"}
           </span>
-        </span>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <input ref={fileIn} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { if (e.target.files?.length) enqueue(e.target.files); if (fileIn.current) fileIn.current.value = ""; }} />
+            {!sheet.archived_at && <button disabled={busy} onClick={() => setPublishOpen(true)} style={{ ...primaryBtn, padding: "11px 20px" }}>Publish {sheet.current_version ? `v${sheet.current_version + 1}` : "v1"} →</button>}
+            <span style={{ position: "relative" }}>
+              <button disabled={busy} onClick={() => setMenuOpen(o => !o)} title="More" aria-haspopup="menu" aria-expanded={menuOpen} style={{ ...ghostBtn, padding: "9px 13px" }}>⋯</button>
+              {menuOpen && (<>
+                <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+                <div role="menu" onClick={() => setMenuOpen(false)} style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 41, background: "#161616", border: `1px solid ${H.line}`, borderRadius: 10, padding: 5, minWidth: 220 }}>
+                  {!sheet.archived_at && <button role="menuitem" onClick={() => fileIn.current?.click()} style={menuItem}>+ Add mockups</button>}
+                  {approvedN > 0 && <button role="menuitem" onClick={() => setSelected(items.filter(i => i.client_thumb === "up").map(i => i.id))} title="Select every thumbs-up item (then download, pair, shelve…)" style={menuItem}>Select 👍 ({approvedN})</button>}
+                  {!sheet.archived_at && order && order.pending > 0 && <button role="menuitem" disabled={busy} onClick={makeOrder} title="Turn the client's thumbs-ups into an order" style={menuItem}>{order.job ? `Add ${order.pending} 👍 to ${order.job.job_number}` : `Create order (${order.pending} 👍)`}</button>}
+                  {approvedN > 0 && <a role="menuitem" href={`/api/studio/line-sheets/${params.id}/download?pick=approved`} download title="Every thumbs-up mockup the client has seen, full res, in one ZIP" style={menuItem}>↓ Download approved ({approvedN})</a>}
+                  {items.length > 0 && <a role="menuitem" href={`/api/studio/line-sheets/${params.id}/download?pick=all`} download title="Every mockup on the sheet, full res, a folder per shelf" style={menuItem}>↓ Download all</a>}
+                  <div style={{ height: 1, background: H.line2, margin: "5px 6px" }} />
+                  <button role="menuitem" onClick={toggleArchive} style={menuItem}>{sheet.archived_at ? "Unarchive" : "Archive"}</button>
+                  <button role="menuitem" onClick={deleteSheet} style={{ ...menuItem, color: H.red }}>Delete…</button>
+                </div>
+              </>)}
+            </span>
+          </div>
+          {versions.length > 0 && <span style={{ fontSize: 10, fontFamily: H.mono, color: H.faint }}>last publish {fmtStamp(versions[versions.length - 1].published_at)}</span>}
+        </div>
       </div>
       {err && <div style={{ color: H.red, fontSize: 12, marginBottom: 12 }}>{err}</div>}
 
@@ -532,7 +538,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         <div onClick={e => { if (e.target === e.currentTarget) setPublishOpen(false); }} style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(0,0,0,.8)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
           <div style={{ background: "#161616", border: `1px solid ${H.line}`, borderRadius: 18, width: "100%", maxWidth: 460, padding: "20px 22px" }}>
             <div style={{ fontSize: 15, fontWeight: 900, textTransform: "uppercase" }}>Publish v{sheet.current_version + 1}</div>
-            <div style={{ fontSize: 12, color: H.dim, marginTop: 6, lineHeight: 1.5 }}>New uploads go live in their hub{unpublished ? ` (${unpublished} waiting)` : ""}. Names, shelves and grouping are already live without publishing. New items get a NEW badge; items with new art get UPDATED and their thumb resets. Everything else keeps its 👍/👎.</div>
+            <div style={{ fontSize: 12, color: H.dim, marginTop: 6, lineHeight: 1.5 }}>New uploads go live in their hub{unpublished ? ` (${unpublished} waiting)` : ""}. Names, shelves and grouping are already live without publishing. New items get a NEW badge; items with new art get UPDATED. New art keeps a 👍 and resets a 👎 (back on its shelf for a fresh look). Comments stay.</div>
             {tray.length > 0 && <div style={{ fontSize: 12, color: H.amber, marginTop: 8 }}>Heads up: {tray.length} item{tray.length === 1 ? " is" : "s are"} still in the tray — they publish shelf-less at the bottom.</div>}
             <label style={{ ...lbl, marginTop: 12 }}>What changed <span style={{ color: H.faint }}>(the client sees this)</span></label>
             <textarea value={publishNote} onChange={e => setPublishNote(e.target.value)} rows={2} placeholder="e.g. your swaps are in, added the M81 and a popup sticker pack" style={{ ...inp, resize: "vertical" }} />
@@ -546,6 +552,8 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     </div>
   );
 }
+
+const menuItem: React.CSSProperties = { display: "block", width: "100%", boxSizing: "border-box", textAlign: "left", background: "none", border: "none", color: H.text, fontSize: 13, fontFamily: H.font, padding: "9px 11px", cursor: "pointer", borderRadius: 7, textDecoration: "none" };
 
 // The direct link for a message to the client — opens straight to this sheet.
 function CopyLink({ url }: { url: string }) {
