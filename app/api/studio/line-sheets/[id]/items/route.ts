@@ -14,7 +14,8 @@ export const dynamic = "force-dynamic";
 //         Before the first publish they join the end of the list (the sheet
 //         is being laid out in order); after it, the top, where HPD sees them.
 // PATCH → { id, name?, sort?, images?, drop?, restore?, mergeFrom?,
-//           replaceImage?, verdict?, note? } mergeFrom = another item id
+//           replaceImage?, verdict?, note? } note alone = reword the note.
+//         mergeFrom = another item id
 //         whose images fold into this one (front+back become one product; the
 //         donor item is removed if it was never published, else dropped).
 //         verdict = HPD sets the client's verdict (mig 215): "asis" | "change"
@@ -158,6 +159,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (v === "change" && !note) return NextResponse.json({ error: "Say what should change" }, { status: 400 });
     Object.assign(patch, verdictPatch(v, "hpd", version));
     if (note) { patch.client_note = note; patch.client_note_version = version; }
+  } else if (b.note !== undefined) {
+    // the note on its own, reworded by HPD (e.g. what they texted); a Change
+    // can't lose its note
+    const note = String(b.note || "").replace(/\s*\n\s*/g, " ").trim().slice(0, 500) || null;
+    if (!note && (item as any).client_verdict === "change") return NextResponse.json({ error: "A Change needs its note" }, { status: 400 });
+    const { data: sh } = await db.from("line_sheets").select("current_version").eq("id", params.id).maybeSingle();
+    patch.client_note = note; patch.client_note_version = note ? ((sh as any)?.current_version || 0) : null;
   }
   if (b.drop) { patch.dropped = true; }
   if (b.restore) { patch.dropped = false; patch.dropped_in = null; }

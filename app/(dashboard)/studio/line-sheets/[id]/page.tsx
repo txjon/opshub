@@ -8,7 +8,8 @@ import { T } from "@/lib/theme";   // T.accent = the confirm dialog's dark-text 
 import { useConfirm } from "@/components/useConfirm";
 // @ts-ignore — plain-JS lib, no declarations
 import { uploadToDrive } from "@/lib/drive-upload-client";
-import { layoutNumbering, noteIsStale } from "@/lib/line-sheets";
+import { layoutNumbering, noteIsStale, badgeFor } from "@/lib/line-sheets";
+import { LineSheetView, LS, type ViewItem, type SaveBody } from "@/components/LineSheetView";
 import { VerdictRow } from "@/components/LineSheetVerdicts";
 
 // THE LINE SHEET BUILDER (mig 190, selection-first rework Oct 1; one list of
@@ -21,7 +22,6 @@ import { VerdictRow } from "@/components/LineSheetVerdicts";
 // each file registers the moment it lands (a crash keeps everything landed),
 // re-dropping the same folder skips what's already on the sheet, and a
 // locked overlay owns the screen until the batch is in.
-const thumbUrl = (id: string, size = 500) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
 type QFile = { file: File; status: "pending" | "uploading" | "done" | "failed" | "skipped"; error?: string };
 
 export default function LineSheetBuilder({ params }: { params: { id: string } }) {
@@ -286,19 +286,18 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     await load();
   }
 
-  // Drag reorders Concepts. The WHOLE list is renumbered, bucketed cards
-  // included in their slots, so a card sent back to Concepts returns where
-  // it was, not to the front.
+  // Drag reorders Concepts. The WHOLE list is renumbered, cards in the other
+  // groups included in their slots, so a card sent back to Concepts returns
+  // where it was, not to the front.
   function onDragStart(e: DragStartEvent) {
     if (busy) return;
     setDragId(String(e.active.id));
   }
-  async function onDragEnd(e: DragEndEvent) {
+  async function onDragEnd(e: DragEndEvent, ids: string[]) {
     const { active, over } = e;
     setDragId(null);
     justDragged.current = true; setTimeout(() => { justDragged.current = false; }, 0);
     if (!over) return;
-    const ids = concepts.map(i => i.id);
     const oldIdx = ids.indexOf(String(active.id)), newIdx = ids.indexOf(String(over.id));
     if (oldIdx < 0 || newIdx < 0 || oldIdx === newIdx) return;
     const next = arrayMove(ids, oldIdx, newIdx);
@@ -315,83 +314,48 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     } finally { setBusy(false); await load(); }
   }
 
-  const card = (it: any, handle?: { listeners?: any; attributes?: any }) => {
-    const imgs = it.images || [];
-    const selIdx = selected.indexOf(it.id);
-    const on = selIdx >= 0;
-    return (
-      <div key={it.id} className="ls-card" onClick={e => { if (!justDragged.current) toggleSel(it.id, e.shiftKey); }}
-        title={it.client_verdict && it.client_verdict !== "liked" ? `Set by ${it.client_verdict_by === "hpd" ? "HPD" : "the client"}${it.client_verdict_at ? `, ${fmtStamp(it.client_verdict_at)}` : ""}` : undefined}
-        style={{ background: H.panel, border: `1px solid ${on ? H.blue : H.line}`, outline: on ? `2px solid ${H.blue}` : "none", outlineOffset: -1, borderRadius: 12, padding: 10, width: 172, cursor: "pointer", position: "relative", userSelect: "none" }}>
-        {/* tight pair render: front left, back tucked right — the PDF look */}
-        <div {...(handle?.attributes || {})} {...(handle?.listeners || {})} style={{ position: "relative", height: 122, background: "#fff", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", cursor: handle ? "grab" : "pointer", touchAction: handle ? "manipulation" : undefined, WebkitTouchCallout: "none" }}>
-          {imgs.length > 1 ? (
-            <>
-              <img src={thumbUrl(imgs[0].driveId, 400)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" draggable={false} style={{ width: "62%", height: "94%", objectFit: "contain", marginRight: "-14%", zIndex: 2, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
-              <img src={thumbUrl(imgs[1].driveId, 400)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" draggable={false} style={{ width: "62%", height: "94%", objectFit: "contain", zIndex: 1, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
-            </>
-          ) : imgs[0] ? (
-            <img src={thumbUrl(imgs[0].driveId, 400)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" draggable={false} style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
-          ) : null}
-          {noOf(it) && <span style={{ position: "absolute", left: 5, top: 5, fontFamily: H.mono, fontSize: 10, fontWeight: 700, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>{noOf(it)}</span>}
-          {/* this item's file(s), named by the item (one = the file, more = a ZIP) */}
-          {/* ↻ Replace: swap the mockup in place (a front/back pair asks which) */}
-          {!on && imgs.length > 0 && !sheet.archived_at && <button onClick={e => { e.stopPropagation(); if (imgs.length === 1) startReplace(it, 0); else setPickSide(pickSide === it.id ? null : it.id); }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}
-            disabled={replacing.includes(it.id)} title={imgs.length === 1 ? "Replace this mockup" : "Replace one of these mockups"} aria-label="Replace mockup" className={replacing.includes(it.id) ? undefined : "ls-tool"}
-            style={{ position: "absolute", right: 37, top: 5, zIndex: 3, color: "#555", background: "rgba(255,255,255,.92)", border: "none", borderRadius: 6, minWidth: 28, height: 28, display: "grid", placeItems: "center", fontSize: 14, fontWeight: 800, cursor: "pointer", padding: 0 }}>{replacing.includes(it.id) ? "…" : "↻"}</button>}
-          {pickSide === it.id && (
-            <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} style={{ position: "absolute", left: 4, right: 4, top: 4, maxHeight: 114, overflowY: "auto", zIndex: 4, background: "#161616", border: `1px solid ${H.line}`, borderRadius: 8, padding: 4, display: "flex", flexDirection: "column", gap: 2 }}>
-              <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, padding: "4px 7px" }}>Replace which?</span>
-              {imgs.map((im: any, k: number) => (
-                <button key={im.id || k} onClick={() => startReplace(it, k)} title={im.name || undefined}
-                  style={{ background: "none", border: "none", color: H.text, fontSize: 12, fontFamily: H.font, textAlign: "left", padding: "6px 7px", cursor: "pointer", borderRadius: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 160 }}>
-                  {imgs.length === 2 ? (k === 0 ? "Front" : "Back") : `Picture ${k + 1}`}
-                </button>
-              ))}
-            </div>
-          )}
-          {!on && imgs.length > 0 && <a className="ls-tool" href={`/api/studio/line-sheets/${params.id}/download?pick=${it.id}`} download onClick={e => e.stopPropagation()} title={imgs.length > 1 ? `Download ${imgs.length} files` : "Download file"} style={{ position: "absolute", right: 5, top: 5, zIndex: 3, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 6, minWidth: 28, height: 28, display: "grid", placeItems: "center", fontSize: 13, fontWeight: 800, textDecoration: "none" }}>↓</a>}
-          {on && <span style={{ position: "absolute", right: 5, top: 5, background: H.blue, color: H.ink, borderRadius: 999, width: 20, height: 20, display: "grid", placeItems: "center", fontSize: 11, fontWeight: 900, zIndex: 3 }}>{selIdx + 1}</span>}
-          {imgs.length > 2 && <span style={{ position: "absolute", right: 5, bottom: 5, ...tag("#555", 8.5), background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>+{imgs.length - 2}</span>}
-          {/* what the client sees of this card right now */}
-          {it.added_in == null
-            ? <span title="Not in their hub until you publish" style={{ position: "absolute", left: 5, bottom: 5, zIndex: 3, ...tag("#8a5a00", 8.5), background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px" }}>Only you see this</span>
-            : (imgs || []).some((im: any) => im.replaces) && <span title="They still see the old picture until you publish" style={{ position: "absolute", left: 5, bottom: 5, zIndex: 3, ...tag("#8a5a00", 8.5), background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px" }}>New art not live</span>}
+  // THE CLIENT'S VIEW, HPD's seat (components/LineSheetView; Jon, Nov 26:
+  // "we see it internally how he sees it"). Same cards and groups; HPD sees
+  // drafts too, dimmed and badged DRAFT: never published, or new art
+  // waiting on a publish (the client still sees the old picture).
+  const raw = new Map(items.map(i => [i.id, i]));
+  const view: ViewItem[] = items.map(it => ({
+    id: it.id, name: it.name, item_no: it.item_no, images: it.images || [],
+    badge: it.added_in == null || (it.images || []).some((im: any) => im.replaces) ? "draft" : badgeFor(it),
+    verdict: it.client_verdict ?? null, verdictBy: it.client_verdict_by ?? null,
+    note: it.client_note ?? null, noteStale: noteIsStale(it),
+  }));
+  async function saveFromView(b: SaveBody): Promise<boolean> {
+    if (b.seen) return true;   // HPD looking never counts as the client looking
+    const r = await patchItem({ id: b.itemId, ...(b.verdict !== undefined ? { verdict: b.verdict } : {}), ...(b.note !== undefined ? { note: b.note } : {}) });
+    await load();
+    return !r?.error;
+  }
+  const tool: React.CSSProperties = { position: "absolute", top: 8, zIndex: 3, color: "#555", background: "rgba(255,255,255,.92)", border: "none", borderRadius: 6, minWidth: 28, height: 28, display: "grid", placeItems: "center", fontSize: 14, fontWeight: 800, cursor: "pointer", padding: 0, textDecoration: "none" };
+  const stop = { onClick: (e: React.MouseEvent) => e.stopPropagation(), onMouseDown: (e: React.MouseEvent) => e.stopPropagation(), onTouchStart: (e: React.TouchEvent) => e.stopPropagation(), onPointerDown: (e: React.PointerEvent) => e.stopPropagation() };
+  const tools = (v: ViewItem) => {
+    const it = raw.get(v.id); const imgs = it?.images || [];
+    if (!it || !imgs.length) return null;
+    return (<>
+      {/* ↻ Replace: swap the mockup in place (a front/back pair asks which) */}
+      {!sheet.archived_at && <button {...stop} onClick={e => { e.stopPropagation(); if (imgs.length === 1) startReplace(it, 0); else setPickSide(pickSide === it.id ? null : it.id); }}
+        disabled={replacing.includes(it.id)} title={imgs.length === 1 ? "Replace this mockup" : "Replace one of these mockups"} aria-label="Replace mockup"
+        className={replacing.includes(it.id) ? undefined : "lsx-tool"} style={{ ...tool, right: 40 }}>{replacing.includes(it.id) ? "…" : "↻"}</button>}
+      {/* this item's file(s), named by the item (one = the file, more = a ZIP) */}
+      <a {...stop} className="lsx-tool" href={`/api/studio/line-sheets/${params.id}/download?pick=${it.id}`} download title={imgs.length > 1 ? `Download ${imgs.length} files` : "Download file"} style={{ ...tool, right: 8, fontSize: 13 }}>↓</a>
+      {pickSide === it.id && (
+        <div {...stop} style={{ position: "absolute", left: 6, right: 6, top: 6, maxHeight: "80%", overflowY: "auto", zIndex: 4, background: "#161616", border: `1px solid ${H.line}`, borderRadius: 8, padding: 4, display: "flex", flexDirection: "column", gap: 2 }}>
+          <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, padding: "4px 7px" }}>Replace which?</span>
+          {imgs.map((im: any, k: number) => (
+            <button key={im.id || k} onClick={() => startReplace(it, k)} title={im.name || undefined}
+              style={{ background: "none", border: "none", color: H.text, fontSize: 12, fontFamily: H.font, textAlign: "left", padding: "6px 7px", cursor: "pointer", borderRadius: 6, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {imgs.length === 2 ? (k === 0 ? "Front" : "Back") : `Picture ${k + 1}`}
+            </button>
+          ))}
         </div>
-        {/* Wraps and grows (Jon, Nov 2026: long names ran out of view). One
-            logical line: Enter finishes, no newlines saved. */}
-        <textarea rows={1} defaultValue={it.name || ""} placeholder={noOf(it) ? `${noOf(it)} — name it…` : "name it…"} onClick={e => e.stopPropagation()}
-          ref={el => { if (el) { el.style.height = "auto"; el.style.height = `${el.scrollHeight}px`; } }}
-          onInput={e => { const el = e.currentTarget; el.style.height = "auto"; el.style.height = `${el.scrollHeight}px`; }}
-          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }}
-          onBlur={e => { const v = e.target.value.replace(/\s*\n\s*/g, " ").trim(); if (v !== (it.name || "")) { patchItem({ id: it.id, name: v }).then(load); } }}
-          style={{ width: "100%", boxSizing: "border-box", background: H.ink, border: `1px solid ${H.line2}`, borderRadius: 6, color: H.text, fontSize: 11.5, fontWeight: 700, lineHeight: 1.35, padding: "5px 7px", outline: "none", fontFamily: H.font, marginTop: 8, resize: "none", overflow: "hidden", display: "block" }} />
-        {/* the client's note (mig 213): what to change, or what they asked on the last picture */}
-        {it.client_note && (
-          <div style={{ marginTop: 6, fontSize: 11, color: H.dim, lineHeight: 1.35, overflowWrap: "anywhere" }}>
-            {noteIsStale(it)
-              ? <span style={{ display: "block", marginBottom: 2, fontSize: 9.5, color: it.client_verdict ? H.faint : H.amber, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>{it.client_verdict ? "asked, on the last version" : "asked · new version is up"}</span>
-              : it.client_verdict === "change" && <span style={{ display: "block", marginBottom: 2, fontSize: 9.5, color: H.amber, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>what to change</span>}
-            <span title={it.client_note} style={{ fontStyle: "italic", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>&ldquo;{it.client_note}&rdquo;</span>
-          </div>
-        )}
-        {ordered.has(it.id) && order?.job && <div style={{ marginTop: 6, fontSize: 9.5, fontFamily: H.mono, color: H.faint }}>on {order.job.job_number}</div>}
-      </div>
-    );
+      )}
+    </>);
   };
-
-  // The verdict groups (not drag lists). Select → ↩ Concepts sends a card back.
-  const bucket = (title: string, color: string, list: any[], hint: string) => list.length > 0 && (
-    <section style={{ marginBottom: 26 }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
-        <span style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", color }}>{title}</span>
-        <span style={{ fontSize: 10.5, color: H.faint }}>{list.length} · {hint}</span>
-      </div>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", borderLeft: `2px solid ${color}`, paddingLeft: 12 }}>
-        {list.map(it => card(it))}
-      </div>
-    </section>
-  );
 
   const doneN = queue.filter(q => q.status === "done").length;
   const skippedN = queue.filter(q => q.status === "skipped").length;
@@ -400,10 +364,8 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const uploadingNames = queue.filter(q => q.status === "uploading").map(q => q.file.name);
 
   return (
-    <div style={{ maxWidth: 1240, margin: "0 auto", padding: "26px 20px 220px", background: H.ink, minHeight: "100vh", color: H.text, fontFamily: H.font }}>
+    <div style={{ maxWidth: 1100, margin: "0 auto", padding: "26px 18px 220px", background: H.ink, minHeight: "100vh", color: H.text, fontFamily: H.font }}>
       {confirmEl}
-      {/* ↻ / ↓ show on hover (always on touch screens), so the board reads as pictures, not buttons */}
-      <style>{`.ls-card .ls-tool{opacity:0;transition:opacity .12s}.ls-card:hover .ls-tool,.ls-card .ls-tool:focus-visible{opacity:1}@media (hover:none){.ls-card .ls-tool{opacity:1}}`}</style>
       {dragging && (
         <div style={{ position: "fixed", inset: 0, zIndex: 400, pointerEvents: "none", background: "rgba(10,10,10,.72)", display: "grid", placeItems: "center", padding: 24 }}>
           <div style={{ border: `2px dashed ${H.blue}`, borderRadius: 18, padding: "46px 60px", textAlign: "center", background: "rgba(22,22,22,.9)" }}>
@@ -495,38 +457,26 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         </div>
       </div>
       {err && <div style={{ color: H.red, fontSize: 12, marginBottom: 12 }}>{err}</div>}
-      {/* where things stand, in one line: what's yours to do comes first */}
-      {items.length > 0 && (
-        <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "baseline", margin: "-8px 0 22px", fontSize: 13 }}>
-          {changes.length > 0 && <span style={{ color: H.amber, fontWeight: 800 }}>{changes.length} change{changes.length === 1 ? "" : "s"} to make</span>}
-          {goN > 0 && <span style={{ color: H.green, fontWeight: 700 }}>{goN} good to go{order?.pending ? ` · ${order.pending} not on an order yet` : ""}</span>}
-          {liked.length > 0 && <span style={{ color: H.blue }}>{liked.length} waiting on their answer</span>}
-          <span style={{ color: H.dim }}>{concepts.length} in concepts</span>
-          {passed.length > 0 && <span style={{ color: H.faint }}>{passed.length} passed</span>}
-        </div>
-      )}
 
-      {bucket("Good to go", H.green, goodToGo, "As is · what Create order takes")}
-      {bucket("Changes asked", H.amber, changes, "your to-do · Replace for a fix, new upload for a new color or blank")}
-      {bucket("Liked", H.blue, liked, "old thumbs-ups · waiting on them: As is or Change")}
-      {/* CONCEPTS: the one list. Everything lands here; verdicts move cards out. */}
-      <section style={{ border: `2px dashed ${H.line}`, borderRadius: 14, padding: 14, marginBottom: 26 }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: concepts.length ? 12 : 0, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", color: H.text }}>Concepts</span>
-          <span style={{ fontSize: 10.5, color: H.faint }}>{concepts.length ? `${concepts.length} · ` : ""}drop mockups anywhere on this page · drag a picture to reorder · tap two → Pair · shift-tap = select the run</span>
-        </div>
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setDragId(null); load(); }}>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", minHeight: concepts.length ? 0 : 44 }}>
-            <SortableContext items={concepts.map(i => i.id)} strategy={rectSortingStrategy}>
-              {concepts.map(it => <SortableCard key={it.id} id={it.id} disabled={busy}>{h => card(it, h)}</SortableCard>)}
+      {/* the client's view, with HPD's tools on top */}
+      <LineSheetView items={view} stamp={data} save={saveFromView} head={null} staff={{
+        selected,
+        onSelect: (id, shift) => { if (!justDragged.current) toggleSel(id, shift); },
+        numberOf: v => { const it = raw.get(v.id); return it ? noOf(it) : null; },
+        tools,
+        onRename: (v, name) => { const it = raw.get(v.id); if (it && name !== (it.name || "")) patchItem({ id: v.id, name }).then(load); },
+        footnote: v => ordered.has(v.id) && order?.job ? <div style={{ marginTop: 6, fontSize: 9.5, fontFamily: LS.mono, color: LS.faint }}>on {order.job.job_number}</div> : null,
+        concepts: (list, card) => (
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={onDragStart} onDragEnd={e => onDragEnd(e, list.map(i => i.id))} onDragCancel={() => { setDragId(null); load(); }}>
+            <SortableContext items={list.map(i => i.id)} strategy={rectSortingStrategy}>
+              {list.map(it => <SortableCard key={it.id} id={it.id} disabled={busy || !!sheet.archived_at}>{h => card(it, h)}</SortableCard>)}
             </SortableContext>
-          </div>
-          <DragOverlay dropAnimation={null}>
-            {dragId ? (() => { const it = items.find(i => i.id === dragId); return it ? <div style={{ boxShadow: "0 12px 30px rgba(0,0,0,.55)", borderRadius: 12, cursor: "grabbing" }}>{card(it)}</div> : null; })() : null}
-          </DragOverlay>
-        </DndContext>
-      </section>
-      {bucket("Passed", H.red, passed, "still on the line · ↩ if they change their mind")}
+            <DragOverlay dropAnimation={null}>
+              {dragId ? (() => { const it = list.find(i => i.id === dragId); return it ? <div style={{ boxShadow: "0 12px 30px rgba(0,0,0,.55)", borderRadius: 14, cursor: "grabbing" }}>{card(it)}</div> : null; })() : null}
+            </DragOverlay>
+          </DndContext>
+        ),
+      }} />
 
       {dropped.length > 0 && (
         <div style={{ borderTop: `1px solid ${H.line2}`, paddingTop: 12 }}>
@@ -622,7 +572,7 @@ function SortableCard({ id, disabled, children }: { id: string; disabled?: boole
   // disabled while a save is in flight, so a second drag can't race the reload
   const { setNodeRef, transform, transition, listeners, attributes, isDragging } = useSortable({ id, disabled });
   return (
-    <div ref={setNodeRef} style={{ transform: CSS.Translate.toString(transform), transition, opacity: isDragging ? 0.3 : 1 }}>
+    <div ref={setNodeRef} style={{ transform: CSS.Translate.toString(transform), transition, opacity: isDragging ? 0.3 : 1, height: "100%" }}>
       {children({ listeners, attributes })}
     </div>
   );
