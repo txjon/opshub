@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { DndContext, DragOverlay, MouseSensor, TouchSensor, closestCorners, useDroppable, useSensor, useSensors, type DragEndEvent, type DragOverEvent, type DragStartEvent } from "@dnd-kit/core";
+import { DndContext, DragOverlay, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { H, primaryBtn, ghostBtn, inp, lbl, tag, fmtStamp } from "@/lib/studio-theme";
@@ -8,15 +8,18 @@ import { T } from "@/lib/theme";   // T.accent = the confirm dialog's dark-text 
 import { useConfirm } from "@/components/useConfirm";
 // @ts-ignore — plain-JS lib, no declarations
 import { uploadToDrive } from "@/lib/drive-upload-client";
-import { shelfNumbering, noteIsStale } from "@/lib/line-sheets";
+import { layoutNumbering, noteIsStale } from "@/lib/line-sheets";
+import { VerdictRow } from "@/components/LineSheetVerdicts";
 
-// THE LINE SHEET BUILDER (mig 190, selection-first rework Oct 1).
-// Tap cards to select; a sticky action bar does the rest:
-// Pair (2 selected → one product), Add to shelf (existing or named right
-// there), Drop. Mockups auto-number on arrival (01, 02…). Uploads are
-// bulletproof: 3-at-a-time, each file registers the moment it lands (a crash
-// keeps everything landed), re-dropping the same folder skips what's already
-// on the sheet, and a locked overlay owns the screen until the batch is in.
+// THE LINE SHEET BUILDER (mig 190, selection-first rework Oct 1; one list of
+// concepts + verdicts Nov 26 2026). Everything lands in Concepts; the
+// client's verdicts (or HPD's) move a card up to Good to go / Changes asked
+// or down to Passed, and ↩ / tapping the verdict again sends it back. Tap
+// cards to select; a sticky action bar does the rest: Pair (2 selected → one
+// product), Group, Download, Remove. Uploads are bulletproof: 3-at-a-time,
+// each file registers the moment it lands (a crash keeps everything landed),
+// re-dropping the same folder skips what's already on the sheet, and a
+// locked overlay owns the screen until the batch is in.
 const thumbUrl = (id: string, size = 500) => `/api/files/thumbnail?id=${id}&thumb=1&size=${size}`;
 type QFile = { file: File; status: "pending" | "uploading" | "done" | "failed" | "skipped"; error?: string };
 
@@ -25,9 +28,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<string[]>([]);   // ordered — first tap = front
-  const [newSection, setNewSection] = useState("");
-  const [shelfPickOpen, setShelfPickOpen] = useState(false);
-  const [newShelfName, setNewShelfName] = useState("");
+  const [changeFor, setChangeFor] = useState<string | null>(null);   // card whose "what should change?" box is open
   const [publishOpen, setPublishOpen] = useState(false);
   const [publishNote, setPublishNote] = useState("");
   const [queue, setQueue] = useState<QFile[]>([]);
@@ -40,14 +41,14 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   // (touch), by the picture only, so clicks still select and the name box is
   // never a handle. Pointer-based, so it can't collide with file drops.
   const [dragId, setDragId] = useState<string | null>(null);
-  const dragFrom = useRef<string | null>(null);      // container the card started in
   const justDragged = useRef(false);                 // swallow the click a drop can fire
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 6 } }),
   );
-  // Line sheet → order (api/.../order): the sheet's job, and thumbs-ups not on it yet.
-  const [order, setOrder] = useState<{ job: { id: string; job_number: string } | null; pending: number } | null>(null);
+  // Line sheet → order (api/.../order): the sheet's job, the Good to go items
+  // not on it yet, and the ids that are.
+  const [order, setOrder] = useState<{ job: { id: string; job_number: string } | null; pending: number; ordered: string[] } | null>(null);
   const loadOrder = () => fetch(`/api/studio/line-sheets/${params.id}/order`).then(r => r.json()).then(j => { if (!j.error) setOrder(j); }).catch(() => {});
   useEffect(() => { loadOrder(); /* eslint-disable-next-line */ }, [params.id, data?.items]);
   const fileIn = useRef<HTMLInputElement | null>(null);
@@ -112,7 +113,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         batch.forEach(q => { q.status = "uploading"; });
         setQ(queueRef.current);
         await Promise.all(batch.map(uploadOne));
-        await load();   // tray fills as the batch lands
+        await load();   // Concepts fills as the batch lands
       }
     } finally { pumping.current = false; await load(); }
   }
@@ -148,28 +149,27 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   }, []);
 
   if (!data) return <div style={{ padding: 40, color: "rgba(255,255,255,.4)", background: H.ink, minHeight: "100vh", fontFamily: H.font }}>Opening the sheet…</div>;
-  const { sheet, sections, versions } = data;
-  const items: any[] = data.items.filter((i: any) => !i.dropped).sort((a: any, b: any) => ((a.sort || 0) - (b.sort || 0)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));   // id tie-break = shelfNumbering
+  const { sheet, versions } = data;
+  const items: any[] = data.items.filter((i: any) => !i.dropped).sort((a: any, b: any) => ((a.sort || 0) - (b.sort || 0)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));   // id tie-break = lib/line-sheets sortItems
   const dropped: any[] = data.items.filter((i: any) => i.dropped);
-  // The client's verdicts get their own buckets, here AND in the hub:
-  // thumbs-up = "Selections" at the top (Nov 25), thumbs-down = "Not
-  // approved" at the bottom (Oct 1). section_id is untouched, so a Clear puts
-  // it straight back on its shelf. Bucketed items aren't in any drag list.
-  const selections = items.filter(i => i.client_thumb === "up");
-  const notApproved = items.filter(i => i.client_thumb === "down");
-  const approvedN = selections.length;
-  const onShelf = (i: any) => !i.client_thumb;
-  // no shelf, or a shelf since removed: both publish shelf-less (boxOf agrees)
-  const shelfless = (i: any) => !(i.section_id && sections.some((x: any) => x.id === i.section_id));
-  const tray = items.filter(i => shelfless(i) && onShelf(i));
+  // The verdicts get their own groups, here AND in the hub (mig 215). An
+  // item keeps its place in the one list, so ↩ puts it straight back in
+  // Concepts where it was. Only Concepts is a drag list.
+  const goodToGo = items.filter(i => i.client_verdict === "asis");
+  const changes = items.filter(i => i.client_verdict === "change");
+  const liked = items.filter(i => i.client_verdict === "liked");
+  const passed = items.filter(i => i.client_verdict === "pass");
+  const concepts = items.filter(i => !i.client_verdict);
+  const goN = goodToGo.length;
+  const ordered = new Set(order?.ordered || []);
   // Organizing is live in their hub; only never-published uploads wait (Oct 1 2026).
   const unpublished = items.filter(i => !i.dropped && i.added_in == null).length;
   // live pieces whose art was replaced: the client sees the old picture until a publish
   const replacedN = items.filter(i => i.added_in != null && (i.images || []).some((im: any) => im.replaces)).length;
   const waiting = unpublished + replacedN;
-  // Never published → numbers follow the shelves (lib/line-sheets shelfNumbering);
+  // Never published → numbers follow the list (lib/line-sheets layoutNumbering);
   // once published, the stamped item_no is permanent.
-  const draftNo = sheet.current_version ? null : shelfNumbering(sections, data.items);
+  const draftNo = sheet.current_version ? null : layoutNumbering(data.items);
   const noOf = (it: any) => { const n = draftNo ? draftNo[it.id] : it.item_no; return n ? String(n).padStart(2, "0") : null; };
 
   async function patchSheet(body: any) { setBusy(true); try { const r = await fetch(`/api/studio/line-sheets/${params.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(x => x.json()); if (r.error) setErr(r.error); await load(); return r; } finally { setBusy(false); } }
@@ -179,7 +179,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     setMenuOpen(false);
     const sh = dataRef.current?.sheet;
     if (!sh) return;
-    if (!sh.archived_at && !await confirm({ title: "Archive this line sheet?", message: "It leaves your Line sheets list and the client's hub. Items, versions and their thumbs are kept; Unarchive brings it all back.", confirmLabel: "Archive", confirmColor: T.accent })) return;
+    if (!sh.archived_at && !await confirm({ title: "Archive this line sheet?", message: "It leaves your Line sheets list and the client's hub. Items, versions and their verdicts are kept; Unarchive brings it all back.", confirmLabel: "Archive", confirmColor: T.accent })) return;
     const r = await patchSheet(sh.archived_at ? { unarchive: true } : { archive: true });
     if (r?.ok && !sh.archived_at) window.location.href = "/studio/line-sheets";
   }
@@ -188,7 +188,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     const sh = dataRef.current?.sheet;
     if (!sh) return;
     const n = (dataRef.current?.items || []).length;
-    if (!await confirm({ title: `Delete "${sh.title}" for good?`, message: `This removes ${n} item${n === 1 ? "" : "s"}, every version, and the client's thumbs, and takes it out of their hub. The mockup files stay in Drive, but OpsHub loses track of them: download what you need first (⋯ → Download all). It can't be undone. To just put it away, use Archive.`, confirmLabel: "Delete", confirmColor: H.red })) return;
+    if (!await confirm({ title: `Delete "${sh.title}" for good?`, message: `This removes ${n} item${n === 1 ? "" : "s"}, every version, and the client's verdicts, and takes it out of their hub. The mockup files stay in Drive, but OpsHub loses track of them: download what you need first (⋯ → Download all). It can't be undone. To just put it away, use Archive.`, confirmLabel: "Delete", confirmColor: H.red })) return;
     setBusy(true);
     try {
       const r = await fetch(`/api/studio/line-sheets/${params.id}`, { method: "DELETE" }).then(x => x.json()).catch(() => ({ error: "Delete failed" }));
@@ -200,8 +200,8 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     if (!order) return;
     const job = order.job;
     const ok = await confirm(job
-      ? { title: `Add ${order.pending} to ${job.job_number}?`, message: `The ${order.pending} new thumbs-up item${order.pending === 1 ? "" : "s"} go onto ${job.job_number} with their mockups.`, confirmLabel: "Add to order", confirmColor: T.accent }
-      : { title: `Create an order from ${order.pending} thumbs-up item${order.pending === 1 ? "" : "s"}?`, message: "One intake order for this client, an item per thumbs-up with its mockup. Quantities, blanks, pricing and proofs come next, on the order.", confirmLabel: "Create order", confirmColor: T.accent });
+      ? { title: `Add ${order.pending} to ${job.job_number}?`, message: `The ${order.pending} new Good to go item${order.pending === 1 ? "" : "s"} go onto ${job.job_number} with their mockups.`, confirmLabel: "Add to order", confirmColor: T.accent }
+      : { title: `Create an order from ${order.pending} Good to go item${order.pending === 1 ? "" : "s"}?`, message: "One intake order for this client, an item per As is with its mockup. Changes asked wait until they're As is. Quantities, blanks, pricing and proofs come next, on the order.", confirmLabel: "Create order", confirmColor: T.accent });
     if (!ok) return;
     setBusy(true); setErr("");
     try {
@@ -227,9 +227,20 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     } catch (e: any) { setErr(`Replace failed: ${e?.message || "upload failed"}`); }
     finally { setReplacing(r => r.filter(x => x !== t.id)); await load(); }
   }
-  async function patchItem(body: any) { const r = await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(x => x.json()); if (r.error) setErr(r.error); }
+  async function patchItem(body: any) { const r = await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(x => x.json()); if (r.error) setErr(r.error); return r; }
+  // HPD sets the verdict (Jon, Nov 26: both sides move things between As is,
+  // Change and Pass). Tapping the one it has undoes it; Change asks what.
+  async function setVerdict(it: any, v: "asis" | "change" | "pass" | null, note?: string) {
+    setChangeFor(null); setBusy(true); setErr("");
+    try { await patchItem({ id: it.id, verdict: v, ...(note ? { note } : {}) }); await load(); } finally { setBusy(false); }
+  }
+  function pickVerdict(it: any, v: "asis" | "change" | "pass") {
+    if (it.client_verdict === v) return setVerdict(it, null);
+    if (v === "change") return setChangeFor(changeFor === it.id ? null : it.id);
+    return setVerdict(it, v);
+  }
 
-  const visualOrder = [...selections, ...tray, ...sections.flatMap((s: any) => items.filter(i => i.section_id === s.id && onShelf(i))), ...notApproved].map(i => i.id);
+  const visualOrder = [...goodToGo, ...changes, ...liked, ...concepts, ...passed].map(i => i.id);
   const toggleSel = (id: string, shift = false) => setSelected(prev => {
     if (shift && prev.length) {
       // shift-click = select the whole run between the last tap and this one
@@ -247,14 +258,6 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     if (selected.length < 2) return;
     const [first, ...rest] = selected;
     setBusy(true); try { for (const id of rest) await patchItem({ id: first, mergeFrom: id }); setSelected([]); await load(); } finally { setBusy(false); }
-  }
-  async function addSelectedToShelf(sectionId: string) {
-    setBusy(true); try { for (const id of selected) await patchItem({ id, sectionId }); setSelected([]); setShelfPickOpen(false); setNewShelfName(""); await load(); } finally { setBusy(false); }
-  }
-  async function addSelectedToNewShelf() {
-    if (!newShelfName.trim()) return;
-    const r = await fetch(`/api/studio/line-sheets/${params.id}/sections`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newShelfName.trim() }) }).then(x => x.json());
-    if (r.section?.id) await addSelectedToShelf(r.section.id);
   }
   async function dropSelected() {
     if (!await confirm({ title: `Remove ${selected.length} item${selected.length === 1 ? "" : "s"}?`, message: "Never-published items delete outright; published ones drop (kept in history).", confirmLabel: "Remove" })) return;
@@ -277,58 +280,30 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     await load();
   }
 
-  // Containers: "tray" or a shelf id. Thumbed items keep their shelf id but
-  // live in Selections / Not approved, so they're never in a drag list.
-  const shelfIds = new Set<string>(sections.map((x: any) => x.id));
-  const boxOf = (it: any) => (it.section_id && shelfIds.has(it.section_id) ? it.section_id : "tray");
-  const listOf = (box: string) => items.filter(i => onShelf(i) && boxOf(i) === box);
-  const isBox = (id: string) => id === "tray" || shelfIds.has(id);
+  // Drag reorders Concepts. The WHOLE list is renumbered, bucketed cards
+  // included in their slots, so a card sent back to Concepts returns where
+  // it was, not to the front.
   function onDragStart(e: DragStartEvent) {
     if (busy) return;
-    const it = items.find(i => i.id === e.active.id); if (!it) return;
-    dragFrom.current = boxOf(it); setDragId(String(e.active.id));
-  }
-  // Crossing into another shelf moves the card there live (local only) so the
-  // gap opens where it will land.
-  function onDragOver(e: DragOverEvent) {
-    const { active, over } = e; if (!over) return;
-    const it = items.find(i => i.id === active.id); if (!it) return;
-    const overId = String(over.id);
-    const to = isBox(overId) ? overId : (() => { const o = items.find(i => i.id === overId); return o ? boxOf(o) : null; })();
-    if (!to || to === boxOf(it)) return;
-    const overItem = isBox(overId) ? null : items.find(i => i.id === overId);
-    const sort = overItem ? (overItem.sort || 0) - 0.5 : Math.max(0, ...listOf(to).map(i => i.sort || 0)) + 1;
-    setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, section_id: to === "tray" ? null : to, sort } : x) }));
+    setDragId(String(e.active.id));
   }
   async function onDragEnd(e: DragEndEvent) {
     const { active, over } = e;
     setDragId(null);
     justDragged.current = true; setTimeout(() => { justDragged.current = false; }, 0);
-    const from = dragFrom.current; dragFrom.current = null;
-    const it = items.find(i => i.id === active.id);
-    if (!over || !it) { await load(); return; }
-    const box = boxOf(it);
-    const ids = listOf(box).map(i => i.id);
-    const oldIdx = ids.indexOf(it.id);
-    const overId = String(over.id);
-    const newIdx = isBox(overId) ? ids.length - 1 : ids.indexOf(overId);
-    const next = newIdx >= 0 && oldIdx >= 0 ? arrayMove(ids, oldIdx, newIdx) : ids;
-    // Renumber the WHOLE shelf, bucketed (thumbed) cards included in their
-    // slots, so a cleared card comes back where it was, not at the front.
-    const full = items.filter(i => boxOf(i) === box).map(i => i.id);
+    if (!over) return;
+    const ids = concepts.map(i => i.id);
+    const oldIdx = ids.indexOf(String(active.id)), newIdx = ids.indexOf(String(over.id));
+    if (oldIdx < 0 || newIdx < 0 || oldIdx === newIdx) return;
+    const next = arrayMove(ids, oldIdx, newIdx);
     const vis = new Set(next);
     let v = 0;
-    const merged = full.map(id => vis.has(id) ? next[v++] : id);
+    const merged = items.map(i => i.id).map(id => vis.has(id) ? next[v++] : id);
     const sortOf: Record<string, number> = {};
     merged.forEach((id, k) => { sortOf[id] = (k + 1) * 10; });
-    const moved = from !== box;
-    if (!moved && oldIdx === newIdx) return;
     setData((d: any) => ({ ...d, items: d.items.map((x: any) => sortOf[x.id] != null ? { ...x, sort: sortOf[x.id] } : x) }));
     setBusy(true);
     try {
-      // A shelf change goes through the normal path (it stamps a number when
-      // a published sheet's item first lands on a shelf); then one batch sort.
-      if (moved) await patchItem({ id: it.id, sectionId: box === "tray" ? null : box });
       const r = await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reorder: merged.map(id => ({ id, sort: sortOf[id] })) }) }).then(x => x.json()).catch(() => ({ error: "Couldn't save the new order" }));
       if (r.error) setErr(r.error);
     } finally { setBusy(false); await load(); }
@@ -371,7 +346,10 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
           {!on && imgs.length > 0 && <a href={`/api/studio/line-sheets/${params.id}/download?pick=${it.id}`} download onClick={e => e.stopPropagation()} title={imgs.length > 1 ? `Download ${imgs.length} files` : "Download file"} style={{ position: "absolute", right: 5, top: 5, zIndex: 3, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 6, minWidth: 28, height: 28, display: "grid", placeItems: "center", fontSize: 13, fontWeight: 800, textDecoration: "none" }}>↓</a>}
           {on && <span style={{ position: "absolute", right: 5, top: 5, background: H.blue, color: H.ink, borderRadius: 999, width: 20, height: 20, display: "grid", placeItems: "center", fontSize: 11, fontWeight: 900, zIndex: 3 }}>{selIdx + 1}</span>}
           {imgs.length > 2 && <span style={{ position: "absolute", right: 5, bottom: 5, ...tag("#555", 8.5), background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>+{imgs.length - 2}</span>}
-          {it.client_thumb && <span style={{ position: "absolute", left: 5, bottom: 5, zIndex: 3, color: it.client_thumb === "up" ? "#3fae2a" : "#d33", background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 4px", display: "grid", placeItems: "center" }}><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ transform: it.client_thumb === "down" ? "rotate(180deg)" : undefined }} aria-hidden><path d="M7 10v12" /><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" /></svg></span>}
+          {/* what the client sees of this card right now */}
+          {it.added_in == null
+            ? <span title="Not in their hub until you publish" style={{ position: "absolute", left: 5, bottom: 5, zIndex: 3, ...tag("#8a5a00", 8.5), background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px" }}>Only you see this</span>
+            : (imgs || []).some((im: any) => im.replaces) && <span title="They still see the old picture until you publish" style={{ position: "absolute", left: 5, bottom: 5, zIndex: 3, ...tag("#8a5a00", 8.5), background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px" }}>New art not live</span>}
         </div>
         {/* Wraps and grows (Jon, Nov 2026: long names ran out of view). One
             logical line: Enter finishes, no newlines saved. */}
@@ -381,35 +359,53 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
           onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }}
           onBlur={e => { const v = e.target.value.replace(/\s*\n\s*/g, " ").trim(); if (v !== (it.name || "")) { patchItem({ id: it.id, name: v }).then(load); } }}
           style={{ width: "100%", boxSizing: "border-box", background: H.ink, border: `1px solid ${H.line2}`, borderRadius: 6, color: H.text, fontSize: 11.5, fontWeight: 700, lineHeight: 1.35, padding: "5px 7px", outline: "none", fontFamily: H.font, marginTop: 8, resize: "none", overflow: "hidden", display: "block" }} />
-        {/* the client's comment (mig 213), any thumb or none */}
-        {it.client_note && (
-          <div title="Client's comment" style={{ marginTop: 6, fontSize: 11, color: H.dim, lineHeight: 1.35, overflowWrap: "anywhere" }}>
-            <span style={{ fontStyle: "italic" }}>💬 &ldquo;{it.client_note}&rdquo;</span>
-            {noteIsStale(it) && <span style={{ display: "block", marginTop: 2, fontSize: 9.5, color: H.faint, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>on the previous version</span>}
+        {/* the client's note (mig 213): what to change, or what they asked on the last picture */}
+        {it.client_note && changeFor !== it.id && (
+          <div title="Client's note" style={{ marginTop: 6, fontSize: 11, color: H.dim, lineHeight: 1.35, overflowWrap: "anywhere" }}>
+            {noteIsStale(it)
+              ? <span style={{ display: "block", marginBottom: 2, fontSize: 9.5, color: it.client_verdict ? H.faint : H.amber, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>{it.client_verdict ? "asked, on the last version" : "asked · new version is up"}</span>
+              : it.client_verdict === "change" && <span style={{ display: "block", marginBottom: 2, fontSize: 9.5, color: H.amber, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>what to change</span>}
+            <span style={{ fontStyle: "italic" }}>&ldquo;{it.client_note}&rdquo;</span>
+          </div>
+        )}
+        {changeFor === it.id && (
+          <textarea autoFocus rows={2} defaultValue={noteIsStale(it) ? "" : it.client_note || ""} placeholder="What should change? (their words)" maxLength={500} aria-label="What should change?"
+            onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}
+            onBlur={e => { if (e.currentTarget.dataset.cancel) return; const v = e.target.value.replace(/\s*\n\s*/g, " ").trim(); if (v) setVerdict(it, "change", v); else setChangeFor(null); }}
+            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } if (e.key === "Escape") { e.currentTarget.dataset.cancel = "1"; setChangeFor(null); } }}
+            style={{ width: "100%", boxSizing: "border-box", marginTop: 6, background: H.ink, border: `1px solid ${H.amber}`, borderRadius: 6, color: H.text, fontSize: 11.5, lineHeight: 1.35, padding: "5px 7px", outline: "none", fontFamily: H.font, resize: "none" }} />
+        )}
+        {it.client_verdict === "liked" && <div style={{ marginTop: 6, fontSize: 10.5, color: H.blue, lineHeight: 1.35 }}>Old thumbs-up: they&rsquo;re asked As is or Change</div>}
+        {ordered.has(it.id) && order?.job && <div style={{ marginTop: 6, fontSize: 9.5, fontFamily: H.mono, color: H.faint }}>on {order.job.job_number}</div>}
+        {!sheet.archived_at && (
+          <div style={{ marginTop: 8 }}>
+            <VerdictRow compact disabled={busy} value={it.client_verdict === "liked" ? null : it.client_verdict} pending={changeFor === it.id} onPick={v => pickVerdict(it, v)}
+              p={{ line: H.line, dim: H.dim, ink: H.ink, green: H.green, amber: H.amber, red: H.red, font: H.font }} />
+            {it.client_verdict && it.client_verdict !== "liked" && <div style={{ marginTop: 4, fontSize: 9, fontFamily: H.mono, color: H.faint }}>{it.client_verdict_by === "hpd" ? "set by HPD" : "set by client"}{it.client_verdict_at ? ` · ${fmtStamp(it.client_verdict_at)}` : ""}</div>}
           </div>
         )}
       </div>
     );
   };
 
-  // Selections / Not approved: the client's verdict buckets (not drag lists)
+  // The verdict groups (not drag lists). ↩ sends a card back to Concepts.
   const bucket = (title: string, color: string, list: any[], hint: string) => list.length > 0 && (
     <section style={{ marginBottom: 26 }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
         <span style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", color }}>{title}</span>
-        <span style={{ fontSize: 10.5, color: H.faint }}>{list.length} {hint}</span>
+        <span style={{ fontSize: 10.5, color: H.faint }}>{list.length} · {hint}</span>
       </div>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", borderLeft: `2px solid ${color}`, paddingLeft: 12 }}>
         {list.map(it => (
           <div key={it.id}>
             {card(it)}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, width: 172 }}>
-              <span style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>from {sections.find((x: any) => x.id === it.section_id)?.name || "no shelf"}</span>
-              {/* HPD clears the client's thumb: back to its shelf, no verdict; the comment stays */}
-              {!sheet.archived_at && <button disabled={busy} onClick={async () => { setBusy(true); try { await patchItem({ id: it.id, clearThumb: true }); await load(); } finally { setBusy(false); } }}
-                title="Back to its shelf (clears their thumb; their comment stays). Already on an order? It stays there." aria-label="Clear: back to its shelf"
-                style={{ marginLeft: "auto", background: "none", border: `1px solid ${H.line}`, borderRadius: 6, color: H.faint, fontSize: 11, lineHeight: 1, padding: "4px 7px", cursor: "pointer", fontFamily: H.font }}>✕ Clear</button>}
-            </div>
+            {!sheet.archived_at && (
+              <div style={{ display: "flex", marginTop: 4, width: 172 }}>
+                <button disabled={busy} onClick={() => setVerdict(it, null)}
+                  title="Back to Concepts, where it was (clears the verdict; their note stays). Already on an order? It stays there." aria-label="Back to Concepts"
+                  style={{ marginLeft: "auto", background: "none", border: `1px solid ${H.line}`, borderRadius: 6, color: H.faint, fontSize: 11, lineHeight: 1, padding: "4px 7px", cursor: "pointer", fontFamily: H.font }}>↩ Concepts</button>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -429,7 +425,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         <div style={{ position: "fixed", inset: 0, zIndex: 400, pointerEvents: "none", background: "rgba(10,10,10,.72)", display: "grid", placeItems: "center", padding: 24 }}>
           <div style={{ border: `2px dashed ${H.blue}`, borderRadius: 18, padding: "46px 60px", textAlign: "center", background: "rgba(22,22,22,.9)" }}>
             <div style={{ fontSize: 26, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", color: H.text }}>Drop to add mockups</div>
-            <div style={{ fontSize: 12, color: H.dim, marginTop: 8 }}>They land in the tray, named by file. The exact same file is skipped; a re-saved revision lands as a new card.</div>
+            <div style={{ fontSize: 12, color: H.dim, marginTop: 8 }}>They land in Concepts{sheet.current_version ? ", at the top" : ""}, named by file. The exact same file is skipped; a re-saved revision lands as a new card.</div>
           </div>
         </div>
       )}
@@ -501,10 +497,10 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
                 <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
                 <div role="menu" onClick={() => setMenuOpen(false)} style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 41, background: "#161616", border: `1px solid ${H.line}`, borderRadius: 10, padding: 5, minWidth: 220 }}>
                   {!sheet.archived_at && <button role="menuitem" onClick={() => fileIn.current?.click()} style={menuItem}>+ Add mockups</button>}
-                  {approvedN > 0 && <button role="menuitem" onClick={() => setSelected(items.filter(i => i.client_thumb === "up").map(i => i.id))} title="Select every thumbs-up item (then download, pair, shelve…)" style={menuItem}>Select 👍 ({approvedN})</button>}
-                  {!sheet.archived_at && order && order.pending > 0 && <button role="menuitem" disabled={busy} onClick={makeOrder} title="Turn the client's thumbs-ups into an order" style={menuItem}>{order.job ? `Add ${order.pending} 👍 to ${order.job.job_number}` : `Create order (${order.pending} 👍)`}</button>}
-                  {approvedN > 0 && <a role="menuitem" href={`/api/studio/line-sheets/${params.id}/download?pick=approved`} download title="Every thumbs-up mockup the client has seen, full res, in one ZIP" style={menuItem}>↓ Download approved ({approvedN})</a>}
-                  {items.length > 0 && <a role="menuitem" href={`/api/studio/line-sheets/${params.id}/download?pick=all`} download title="Every mockup on the sheet, full res, a folder per shelf" style={menuItem}>↓ Download all</a>}
+                  {goN > 0 && <button role="menuitem" onClick={() => setSelected(goodToGo.map(i => i.id))} title="Select every Good to go item (then download, pair…)" style={menuItem}>Select Good to go ({goN})</button>}
+                  {!sheet.archived_at && order && order.pending > 0 && <button role="menuitem" disabled={busy} onClick={makeOrder} title="Turn the Good to go items into an order" style={menuItem}>{order.job ? `Add ${order.pending} Good to go to ${order.job.job_number}` : `Create order (${order.pending} Good to go)`}</button>}
+                  {goN > 0 && <a role="menuitem" href={`/api/studio/line-sheets/${params.id}/download?pick=approved`} download title="Every Good to go mockup the client has seen, full res, in one ZIP" style={menuItem}>↓ Download Good to go ({goN})</a>}
+                  {items.length > 0 && <a role="menuitem" href={`/api/studio/line-sheets/${params.id}/download?pick=all`} download title="Every mockup on the sheet, full res, in one ZIP" style={menuItem}>↓ Download all</a>}
                   <div style={{ height: 1, background: H.line2, margin: "5px 6px" }} />
                   <button role="menuitem" onClick={toggleArchive} style={menuItem}>{sheet.archived_at ? "Unarchive" : "Archive"}</button>
                   <button role="menuitem" onClick={deleteSheet} style={{ ...menuItem, color: H.red }}>Delete…</button>
@@ -517,53 +513,27 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
       </div>
       {err && <div style={{ color: H.red, fontSize: 12, marginBottom: 12 }}>{err}</div>}
 
-      {bucket("Selections", H.green, selections, "thumbs-up · their picks, back to its shelf if they clear it")}
-      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={() => { setDragId(null); dragFrom.current = null; load(); }}>
-      {/* THE TRAY */}
-      <section style={{ border: `2px dashed ${tray.length ? H.line : H.line2}`, borderRadius: 14, padding: 14, marginBottom: 26 }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: tray.length ? 12 : 0 }}>
-          <span style={tag(H.amber, 9.5)}>The tray · {tray.length ? `${tray.length} to sort` : "drop mockups anywhere on this page"}</span>
-          <span style={{ fontSize: 10.5, color: H.faint }}>drag a picture to reorder or move shelves · tap two → Pair · shift-tap = select the run</span>
+      {bucket("Good to go", H.green, goodToGo, "As is · what Create order takes")}
+      {bucket("Changes asked", H.amber, changes, "your to-do · Replace for a fix, new upload for a new color or blank")}
+      {bucket("Liked", H.blue, liked, "old thumbs-ups · they're asked As is or Change")}
+      {/* CONCEPTS: the one list. Everything lands here; verdicts move cards out. */}
+      <section style={{ border: `2px dashed ${H.line}`, borderRadius: 14, padding: 14, marginBottom: 26 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: concepts.length ? 12 : 0, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", color: H.text }}>Concepts</span>
+          <span style={{ fontSize: 10.5, color: H.faint }}>{concepts.length ? `${concepts.length} · ` : ""}drop mockups anywhere on this page · drag a picture to reorder · tap two → Pair · shift-tap = select the run</span>
         </div>
-        <DropBox id="tray" style={{ display: "flex", gap: 12, flexWrap: "wrap", minHeight: tray.length ? 0 : 44 }}>
-          <SortableContext items={tray.map(i => i.id)} strategy={rectSortingStrategy}>
-            {tray.map(it => <SortableCard key={it.id} id={it.id} disabled={busy}>{h => card(it, h)}</SortableCard>)}
-          </SortableContext>
-        </DropBox>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => { setDragId(null); load(); }}>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", minHeight: concepts.length ? 0 : 44 }}>
+            <SortableContext items={concepts.map(i => i.id)} strategy={rectSortingStrategy}>
+              {concepts.map(it => <SortableCard key={it.id} id={it.id} disabled={busy}>{h => card(it, h)}</SortableCard>)}
+            </SortableContext>
+          </div>
+          <DragOverlay dropAnimation={null}>
+            {dragId ? (() => { const it = items.find(i => i.id === dragId); return it ? <div style={{ boxShadow: "0 12px 30px rgba(0,0,0,.55)", borderRadius: 12, cursor: "grabbing" }}>{card(it)}</div> : null; })() : null}
+          </DragOverlay>
+        </DndContext>
       </section>
-
-      {/* THE SHELVES */}
-      {sections.map((s: any, si: number) => {
-        const inSection = items.filter(i => i.section_id === s.id && onShelf(i));
-        return (
-          <section key={s.id} style={{ marginBottom: 26 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-              <input defaultValue={s.name} onBlur={e => { if (e.target.value.trim() && e.target.value !== s.name) fetch(`/api/studio/line-sheets/${params.id}/sections`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: s.id, name: e.target.value }) }).then(load); }}
-                style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", background: "none", border: "none", borderBottom: "1px dotted rgba(255,255,255,.25)", color: H.text, outline: "none", fontFamily: H.font, width: 240 }} />
-              <span style={{ fontSize: 10.5, color: H.faint }}>{inSection.length} item{inSection.length === 1 ? "" : "s"}</span>
-              <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-                {si > 0 && <button onClick={() => Promise.all([fetch(`/api/studio/line-sheets/${params.id}/sections`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: s.id, sort: sections[si - 1].sort }) }), fetch(`/api/studio/line-sheets/${params.id}/sections`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: sections[si - 1].id, sort: s.sort }) })]).then(load)} style={{ ...ghostBtn, padding: "4px 9px", fontSize: 10 }}>↑</button>}
-                {si < sections.length - 1 && <button onClick={() => Promise.all([fetch(`/api/studio/line-sheets/${params.id}/sections`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: s.id, sort: sections[si + 1].sort }) }), fetch(`/api/studio/line-sheets/${params.id}/sections`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: sections[si + 1].id, sort: s.sort }) })]).then(load)} style={{ ...ghostBtn, padding: "4px 9px", fontSize: 10 }}>↓</button>}
-                <button onClick={async () => { if (await confirm({ title: `Remove the "${s.name}" shelf?`, message: "Its items go back to the tray.", confirmLabel: "Remove shelf" })) { await fetch(`/api/studio/line-sheets/${params.id}/sections`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: s.id }) }); await load(); } }} style={{ background: "none", border: "none", color: H.faint, fontSize: 14, cursor: "pointer" }}>×</button>
-              </span>
-            </div>
-            <DropBox id={s.id} style={{ display: "flex", gap: 12, flexWrap: "wrap", minHeight: 40, borderLeft: `2px solid ${H.line2}`, paddingLeft: 12 }}>
-              <SortableContext items={inSection.map(i => i.id)} strategy={rectSortingStrategy}>
-                {inSection.length ? inSection.map(it => <SortableCard key={it.id} id={it.id} disabled={busy}>{h => card(it, h)}</SortableCard>) : <span style={{ fontSize: 11, color: H.faint, alignSelf: "center" }}>drag cards here, or select → Add to shelf</span>}
-              </SortableContext>
-            </DropBox>
-          </section>
-        );
-      })}
-      <DragOverlay dropAnimation={null}>
-        {dragId ? (() => { const it = items.find(i => i.id === dragId); return it ? <div style={{ boxShadow: "0 12px 30px rgba(0,0,0,.55)", borderRadius: 12, cursor: "grabbing" }}>{card(it)}</div> : null; })() : null}
-      </DragOverlay>
-      </DndContext>
-      {bucket("Not approved", H.red, notApproved, "thumbs-down · still on the line, back to its shelf if they change their mind")}
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 30 }}>
-        <input value={newSection} onChange={e => setNewSection(e.target.value)} placeholder="New shelf — e.g. HATS" onKeyDown={async e => { if (e.key === "Enter" && newSection.trim()) { await fetch(`/api/studio/line-sheets/${params.id}/sections`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newSection.trim() }) }); setNewSection(""); await load(); } }} style={{ ...inp, maxWidth: 240 }} />
-        <span style={{ fontSize: 10.5, color: H.faint }}>↵ to add</span>
-      </div>
+      {bucket("Passed", H.red, passed, "still on the line · ↩ if they change their mind")}
 
       {dropped.length > 0 && (
         <div style={{ borderTop: `1px solid ${H.line2}`, paddingTop: 12 }}>
@@ -579,21 +549,9 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
           {selected.length === 1 && (items.find(i => i.id === selected[0])?.images?.length || 0) > 1 && <button disabled={busy} onClick={async () => { const it = items.find(i => i.id === selected[0]); setBusy(true); try { await unpairItem(it); setSelected([]); } finally { setBusy(false); } }} style={{ ...ghostBtn, color: H.blue, borderColor: "rgba(143,199,216,.4)" }}>Unpair ({items.find(i => i.id === selected[0])?.images?.length})</button>}
           {selected.length === 2 && <button disabled={busy} onClick={pairSelected} style={{ ...primaryBtn, background: H.blue, color: H.ink }}>Pair → one product</button>}
           {selected.length > 2 && <button disabled={busy} onClick={groupSelected} style={{ ...ghostBtn, color: H.blue, borderColor: "rgba(143,199,216,.4)" }}>Group {selected.length} as one</button>}
-          <span style={{ position: "relative" }}>
-            <button disabled={busy} onClick={() => setShelfPickOpen(v => !v)} style={primaryBtn}>Add to shelf ▾</button>
-            {shelfPickOpen && (
-              <span style={{ position: "absolute", bottom: "110%", left: 0, background: "#161616", border: `1px solid ${H.line}`, borderRadius: 12, padding: 10, display: "flex", flexDirection: "column", gap: 6, minWidth: 220 }}>
-                {sections.map((s: any) => <button key={s.id} onClick={() => addSelectedToShelf(s.id)} style={{ ...ghostBtn, textAlign: "left", width: "100%" }}>{s.name}</button>)}
-                <span style={{ display: "flex", gap: 6 }}>
-                  <input value={newShelfName} onChange={e => setNewShelfName(e.target.value)} placeholder="new shelf…" autoFocus={!sections.length} onKeyDown={e => { if (e.key === "Enter") addSelectedToNewShelf(); }} style={{ ...inp, fontSize: 12, padding: "7px 9px" }} />
-                  <button onClick={addSelectedToNewShelf} style={{ ...primaryBtn, padding: "7px 12px", fontSize: 10 }}>＋</button>
-                </span>
-              </span>
-            )}
-          </span>
           <a href={`/api/studio/line-sheets/${params.id}/download?pick=${selected.join(",")}`} download style={{ ...ghostBtn, textDecoration: "none" }}>↓ Download ({selected.length})</a>
           <button disabled={busy} onClick={dropSelected} style={{ ...ghostBtn, color: H.red, borderColor: "rgba(255,90,110,.4)" }}>Remove</button>
-          <button onClick={() => { setSelected([]); setShelfPickOpen(false); }} style={{ ...ghostBtn, border: "none", color: H.faint }}>Clear</button>
+          <button onClick={() => setSelected([])} style={{ ...ghostBtn, border: "none", color: H.faint }}>Clear</button>
         </div>
       )}
 
@@ -601,8 +559,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         <div onClick={e => { if (e.target === e.currentTarget) setPublishOpen(false); }} style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(0,0,0,.8)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
           <div style={{ background: "#161616", border: `1px solid ${H.line}`, borderRadius: 18, width: "100%", maxWidth: 460, padding: "20px 22px" }}>
             <div style={{ fontSize: 15, fontWeight: 900, textTransform: "uppercase" }}>Publish v{sheet.current_version + 1}</div>
-            <div style={{ fontSize: 12, color: H.dim, marginTop: 6, lineHeight: 1.5 }}>New uploads and replaced mockups go live in their hub{waiting ? ` (${waiting} waiting)` : ""}. Names, shelves and grouping are already live without publishing. New items get a NEW badge; items with new art get UPDATED. New art keeps a 👍 and resets a 👎 (back on its shelf for a fresh look). Comments stay.</div>
-            {(() => { const n = items.filter(shelfless).length; return n > 0 && <div style={{ fontSize: 12, color: H.amber, marginTop: 8 }}>Heads up: {n} item{n === 1 ? " has" : "s have"} no shelf. They publish shelf-less at the bottom.</div>; })()}
+            <div style={{ fontSize: 12, color: H.dim, marginTop: 6, lineHeight: 1.5 }}>New uploads and replaced mockups go live in their hub{waiting ? ` (${waiting} waiting)` : ""}. Names, order, grouping and verdicts are already live without publishing. New items get a NEW badge; items with new art get UPDATED, and their verdict clears so the client is asked again about the new picture (back in Concepts). Their note stays, shown as what they asked for.</div>
             <label style={{ ...lbl, marginTop: 12 }}>What changed <span style={{ color: H.faint }}>(the client sees this)</span></label>
             <textarea value={publishNote} onChange={e => setPublishNote(e.target.value)} rows={2} placeholder="e.g. your swaps are in, added the M81 and a popup sticker pack" style={{ ...inp, resize: "vertical" }} />
             <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
@@ -638,10 +595,4 @@ function SortableCard({ id, disabled, children }: { id: string; disabled?: boole
       {children({ listeners, attributes })}
     </div>
   );
-}
-
-// A shelf (or the tray) as a drop target, so an empty one still takes a card.
-function DropBox({ id, style, children }: { id: string; style: React.CSSProperties; children: React.ReactNode }) {
-  const { setNodeRef, isOver } = useDroppable({ id });
-  return <div ref={setNodeRef} style={{ ...style, outline: isOver ? "1px dashed rgba(143,199,216,.6)" : undefined, outlineOffset: 4, borderRadius: 6 }}>{children}</div>;
 }

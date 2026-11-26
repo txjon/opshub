@@ -299,7 +299,7 @@ export default function ReleasesPage() {
                   <a href={`/portal/client/${token}/releases/${d.id}/line-sheet`}
                     style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", background: C.surface, border: `1px solid ${C.border}`, borderTop: "none", borderRadius: "0 0 16px 16px", padding: "11px 18px", color: C.text, textDecoration: "none", fontFamily: C.font }}>
                     <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" }}>Line sheet</span>
-                    <span style={{ fontSize: 10.5, fontFamily: C.mono, color: C.muted }}>v{d.lineSheet.version} · {d.lineSheet.pieces} proposed{d.lineSheet.kept ? ` · ${d.lineSheet.kept} kept` : ""}</span>
+                    <span style={{ fontSize: 10.5, fontFamily: C.mono, color: C.muted }}>v{d.lineSheet.version} · {d.lineSheet.pieces} proposed{d.lineSheet.kept ? ` · ${d.lineSheet.kept} good to go` : ""}</span>
                     <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>View ›</span>
                   </a>
                 )}

@@ -3538,6 +3538,10 @@ export type Database = {
           client_note: string | null;
           client_note_version: number | null;
           client_seen_version: number | null;
+          client_verdict: string | null;
+          client_verdict_at: string | null;
+          client_verdict_version: number | null;
+          client_verdict_by: string | null;
         };
         Insert: {
           id?: string;
@@ -3559,6 +3563,10 @@ export type Database = {
           client_note?: string | null;
           client_note_version?: number | null;
           client_seen_version?: number | null;
+          client_verdict?: string | null;
+          client_verdict_at?: string | null;
+          client_verdict_version?: number | null;
+          client_verdict_by?: string | null;
         };
         Update: {
           id?: string;
@@ -3580,6 +3588,10 @@ export type Database = {
           client_note?: string | null;
           client_note_version?: number | null;
           client_seen_version?: number | null;
+          client_verdict?: string | null;
+          client_verdict_at?: string | null;
+          client_verdict_version?: number | null;
+          client_verdict_by?: string | null;
         };
         Relationships: [
           { foreignKeyName: "line_sheet_items_sheet_id_fkey"; columns: ["sheet_id"]; isOneToOne: false; referencedRelation: "line_sheets"; referencedColumns: ["id"] },

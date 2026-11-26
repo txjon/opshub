@@ -1,40 +1,46 @@
 // THE LINE SHEET — shared, client-safe model (mig 190, design map artifact
-// 4931e236). A client-level product line: sections of named items with
-// persistent identity, published versions, a client thumb per item and an
-// optional client comment. New art on an item keeps a thumbs-up (a revision
-// he asked for is still his pick) and resets a thumbs-down (he gets a fresh
-// look at the rework); the comment stays, read as "on the previous version".
+// 4931e236). One list of named concepts per sheet (shelves retired Nov 26
+// 2026: sort, numbers and names are enough), published versions, and a
+// verdict per item (mig 215) that the client OR HPD sets:
+//   asis   = good to go: the only verdict Create order takes
+//   change = likes it, wants something changed; the note says what
+//   pass   = no
+//   liked  = an old thumbs-up nobody has sorted: he's asked "As is, or change?"
+// New art on an item clears its verdict: he's asked again about the new
+// picture. The note stays, read as "you asked" (noteIsStale).
 // replaces = the published picture this unpublished one swapped out (Replace);
 // the client keeps seeing that until the next publish.
 export type SheetImage = { id: string; driveId: string; name?: string | null; size?: number; replaces?: { driveId: string; name?: string | null } };
+export type Verdict = "asis" | "change" | "pass" | "liked";
+// what the client and HPD can set (liked only comes from the mig 215 backfill)
+export const SETTABLE_VERDICTS = ["asis", "change", "pass"] as const;
 export type SheetItem = {
-  id: string; sheet_id: string; section_id: string | null; name: string | null; sort: number;
+  id: string; sheet_id: string; name: string | null; sort: number;
   images: SheetImage[];
   added_in: number | null; updated_in: number | null;
   dropped: boolean; dropped_in: number | null;
-  client_thumb: "up" | "down" | null; client_thumb_at: string | null; client_thumb_version: number | null;
-  client_note: string | null;           // the client's comment, any thumb or none (mig 213)
+  client_verdict: Verdict | null;
+  client_verdict_at: string | null;      // last change, a clear included (mig 216 re-sync relies on it)
+  client_verdict_version: number | null; // published version it was set on
+  client_verdict_by: "client" | "hpd" | null;
+  client_note: string | null;           // the client's note, any verdict or none (mig 213)
   client_note_version: number | null;   // published version it was written on
   client_seen_version: number | null;   // last version the client looked at it on (mig 214)
 };
-export type SheetSection = { id: string; sheet_id: string; name: string; sort: number };
-// Item numbers before the FIRST publish follow the shelves (Jon, Nov 2026):
-// shelf order, then position on the shelf, then the tray. Nobody outside has
-// seen a number yet, so they can track the layout; the first publish stamps
-// them for good (route.ts publish) and from then on they never move.
-export function shelfNumbering(
-  sections: { id: string; sort: number }[],
-  items: { id: string; section_id: string | null; sort: number; dropped?: boolean }[],
-  includeTray = false,
-): Record<string, number> {
-  const live = items.filter(i => !i.dropped);
-  // id breaks ties (legacy equal sorts) so builder and publish agree
-  const bySort = (a: { id: string; sort: number }, b: { id: string; sort: number }) => ((a.sort || 0) - (b.sort || 0)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-  const known = new Set(sections.map(s => s.id));
-  const order = [...sections].sort(bySort).flatMap(sec => live.filter(i => i.section_id === sec.id).sort(bySort));
-  if (includeTray) order.push(...live.filter(i => !i.section_id || !known.has(i.section_id)).sort(bySort));
+// The write that sets (or clears) a verdict. One place, so the client route
+// and HPD's builder route can't drift.
+export function verdictPatch(v: Verdict | null, by: "client" | "hpd", version: number) {
+  return { client_verdict: v, client_verdict_at: new Date().toISOString(), client_verdict_version: v ? version : null, client_verdict_by: v ? by : null };
+}
+// Item numbers before the FIRST publish follow the list order: nobody outside
+// has seen a number yet. The first publish stamps them for good (route.ts
+// publish) and from then on they never move; later items are numbered as
+// they're published.
+const bySort = (a: { id: string; sort: number }, b: { id: string; sort: number }) => ((a.sort || 0) - (b.sort || 0)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+export function sortItems<T extends { id: string; sort: number }>(items: T[]): T[] { return [...items].sort(bySort); }
+export function layoutNumbering(items: { id: string; sort: number; dropped?: boolean }[]): Record<string, number> {
   const out: Record<string, number> = {};
-  order.forEach((it, k) => { out[it.id] = k + 1; });
+  sortItems(items.filter(i => !i.dropped)).forEach((it, k) => { out[it.id] = k + 1; });
   return out;
 }
 
@@ -45,7 +51,7 @@ export type LineSheet = {
 };
 
 // NEW / UPDATED badges on the published view: they last until the client has
-// looked (mig 214: thumbed, commented or opened it full screen on that
+// looked (mig 214: gave a verdict, noted or opened it full screen on that
 // version or later), however many versions get published in between. v1
 // pieces are never NEW: the whole sheet was new then.
 export function badgeFor(item: Pick<SheetItem, "added_in" | "updated_in" | "client_seen_version">): "new" | "updated" | null {
@@ -64,7 +70,7 @@ export const newImageId = () => Math.random().toString(36).slice(2, 9);
 
 // ── THE CLIENT VIEW (Jon, Oct 1 2026: "publishing should only be for new
 // uploads, not organizing") ────────────────────────────────────────────────
-// Organizing is LIVE: names, shelves, order, grouping, drops show the moment
+// Organizing is LIVE: names, order, grouping, drops and verdicts show the moment
 // they're saved. Only NEW ART waits for a publish: an item is visible once it
 // has been published (added_in set), and an image only once it appeared in a
 // published snapshot, so a new upload grouped onto a live item stays hidden
@@ -80,25 +86,23 @@ export async function publishedImageIds(db: Db, sheetId: string): Promise<Set<st
 
 export async function clientSheetView(db: Db, sheet: { id: string; current_version: number }) {
   const n = sheet.current_version;
-  const [{ data: secs }, { data: rows }, { data: v }, published] = await Promise.all([
-    db.from("line_sheet_sections").select("id, name, sort").eq("sheet_id", sheet.id).order("sort"),
-    db.from("line_sheet_items").select("id, section_id, name, item_no, sort, images, added_in, updated_in, dropped, client_thumb, client_note, client_note_version, client_seen_version").eq("sheet_id", sheet.id).order("sort"),
+  const [{ data: rows }, { data: v }, published] = await Promise.all([
+    db.from("line_sheet_items").select("id, name, item_no, sort, images, added_in, updated_in, dropped, client_verdict, client_verdict_by, client_note, client_note_version, client_seen_version").eq("sheet_id", sheet.id),
     db.from("line_sheet_versions").select("n, note, published_at").eq("sheet_id", sheet.id).eq("n", n).maybeSingle(),
     publishedImageIds(db, sheet.id),
   ]);
-  const items = ((rows || []) as any[])
+  const items = sortItems(((rows || []) as any[]))
     .filter(it => !it.dropped && it.added_in != null)
     .map(it => ({ ...it, images: (it.images || []).map((img: SheetImage) => published.has(img.driveId) ? img
       : img.replaces && published.has(img.replaces.driveId) ? { id: img.id, driveId: img.replaces.driveId, name: img.replaces.name } : null).filter(Boolean) }))
     .filter(it => it.images.length > 0)
     .map(it => ({
-      id: it.id, section_id: it.section_id, name: it.name, item_no: it.item_no, sort: it.sort, images: it.images,
-      badge: badgeFor(it), thumb: it.client_thumb ?? null, note: it.client_note ?? null,
-      noteStale: noteIsStale(it),
+      id: it.id, name: it.name, item_no: it.item_no, sort: it.sort, images: it.images,
+      badge: badgeFor(it), verdict: (it.client_verdict ?? null) as Verdict | null, verdictBy: it.client_verdict_by ?? null,
+      note: it.client_note ?? null, noteStale: noteIsStale(it),
     }));
   return {
     version: { n, note: (v as any)?.note || null, published_at: (v as any)?.published_at || null },
-    sections: ((secs || []) as any[]).map(s => ({ id: s.id, name: s.name, sort: s.sort })),
     items,
   };
 }

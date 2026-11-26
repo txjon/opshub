@@ -1,19 +1,20 @@
 // LINE SHEET DOWNLOADS — the sheet is where the mockup files live (Jon, Nov
 // 2026: create in Photoshop, drop on the sheet, delete from the desktop). Any
 // set of a sheet's mockups comes back out, full res, named by the item:
-//   approved → every thumbs-up item (creative director ask, Oct 15 2026). Only
-//              art the client has SEEN counts: an image uploaded after their
-//              thumb but not yet published isn't what they approved.
+//   approved → every Good to go (As is, mig 215) item (creative director ask,
+//              Oct 15 2026). Only art the client has SEEN counts: an image
+//              uploaded after the verdict but not yet published isn't what
+//              they approved.
 //   all      → every live (not dropped) item, published or not
 //   items    → the chosen item ids (selection, or one card's ↓)
-// One file comes back as itself; more come back as a ZIP with a folder per
-// shelf. Streams Drive → archive → browser, STORE not DEFLATE (art is
+// One file comes back as itself; more come back as one flat ZIP in list
+// order. Streams Drive → archive → browser, STORE not DEFLATE (art is
 // already compressed), like the designer package.
 // @ts-ignore — plain-JS lib, no declarations
 import archiver from "archiver";
 import { Readable } from "stream";
 import { driveFileMeta, driveFileStream } from "@/lib/drive-proxy";
-import { publishedImageIds, type SheetImage } from "@/lib/line-sheets";
+import { publishedImageIds, sortItems, type SheetImage } from "@/lib/line-sheets";
 import { safeName } from "@/lib/design-work-orders-packet";
 
 type Db = any;
@@ -35,31 +36,26 @@ export function imageFileBases(it: { name?: string | null; item_no?: number | nu
 }
 
 export async function sheetMocks(db: Db, sheetId: string, pick: MockPick) {
-  const [{ data: sheet }, { data: secs }, { data: rows }] = await Promise.all([
+  const [{ data: sheet }, { data: rows }] = await Promise.all([
     db.from("line_sheets").select("id, title, clients(name)").eq("id", sheetId).maybeSingle(),
-    db.from("line_sheet_sections").select("id, name, sort").eq("sheet_id", sheetId).order("sort"),
-    db.from("line_sheet_items").select("id, section_id, name, item_no, sort, images, dropped, client_thumb").eq("sheet_id", sheetId).order("sort"),
+    db.from("line_sheet_items").select("id, name, item_no, sort, images, dropped, client_verdict").eq("sheet_id", sheetId),
   ]);
   if (!sheet) return null;
   const published = pick.mode === "approved" ? await publishedImageIds(db, sheetId) : null;
   const wanted = pick.mode === "items" ? new Set(pick.ids) : null;
-  const secName = new Map(((secs || []) as any[]).map(s => [s.id, s.name]));
-  const secSort = new Map(((secs || []) as any[]).map(s => [s.id, s.sort]));
-  const items = ((rows || []) as any[])
+  const items = sortItems((rows || []) as any[])
     .filter(it => !it.dropped)
-    .filter(it => pick.mode === "approved" ? it.client_thumb === "up" : wanted ? wanted.has(it.id) : true)
-    // approved = what the client gave a 👍, so a pending Replace downloads the
+    .filter(it => pick.mode === "approved" ? it.client_verdict === "asis" : wanted ? wanted.has(it.id) : true)
+    // approved = what they said is good as is, so a pending Replace downloads the
     // picture they actually saw (its stand-in), never nothing
     .map(it => ({ ...it, images: ((it.images || []) as SheetImage[]).map(img => !published || !img?.driveId || published.has(img.driveId) ? img
       : img.replaces && published.has(img.replaces.driveId) ? { ...img, driveId: img.replaces.driveId, name: img.replaces.name ?? img.name } : null)
       .filter((img): img is SheetImage => !!img?.driveId) }))
-    .filter(it => it.images.length > 0)
-    .sort((a, b) => (secSort.get(a.section_id) ?? 1e9) - (secSort.get(b.section_id) ?? 1e9) || a.sort - b.sort);
+    .filter(it => it.images.length > 0);
   const files: { driveId: string; folder: string; base: string }[] = [];
   for (const it of items) {
     const bases = imageFileBases(it);
-    const folder = it.section_id && secName.get(it.section_id) ? safeName(secName.get(it.section_id)).replace(/^\.+$/, "_") + "/" : "";
-    it.images.forEach((img: SheetImage, i: number) => files.push({ driveId: img.driveId, folder, base: bases[i] }));
+    it.images.forEach((img: SheetImage, i: number) => files.push({ driveId: img.driveId, folder: "", base: bases[i] }));
   }
   const title = [(sheet as any).clients?.name, (sheet as any).title].filter(Boolean).join(" - ");
   return { title, items: items.length, files };

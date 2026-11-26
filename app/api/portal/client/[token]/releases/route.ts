@@ -64,21 +64,19 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     }
     // Line sheet (mig 192) — the release's proposal stage, read through THE
     // client view (lib/line-sheets clientSheetView: organizing live, art only
-    // once published). covers = first image of the first few pieces, shelf order.
+    // once published). covers = first image of the first few pieces, in order.
     const sheetByRelease: Record<string, any> = {};
     if (ids.length) {
       const { data: sheets } = await db.from("line_sheets")
         .select("id, release_id, current_version").in("release_id", ids).gt("current_version", 0).is("archived_at", null);
       for (const sh of (sheets || []) as any[]) {
         const view = await clientSheetView(db, sh);
-        const secSort: Record<string, number> = {};
-        for (const sec of view.sections) secSort[sec.id] = sec.sort;
-        const pieces = [...view.items].sort((x: any, y: any) =>
-          ((secSort[x.section_id ?? ""] ?? 1e9) - (secSort[y.section_id ?? ""] ?? 1e9)) || (x.sort - y.sort));
-        const thumbs = pieces.filter(i => i.thumb);
+        const pieces = view.items;
+        // reacted = answered; an old thumbs-up (liked) still waits on As is / Change
+        const answered = pieces.filter(i => i.verdict && i.verdict !== "liked");
         sheetByRelease[sh.release_id] = {
           version: sh.current_version, publishedAt: view.version.published_at,
-          pieces: pieces.length, reacted: thumbs.length, kept: thumbs.filter(i => i.thumb === "up").length,
+          pieces: pieces.length, reacted: answered.length, kept: answered.filter(i => i.verdict === "asis").length,
           covers: pieces.map(i => i.images[0]?.driveId).filter(Boolean).slice(0, 8),
         };
       }

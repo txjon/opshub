@@ -259,8 +259,9 @@ export default function StudioPage() {
                     {sh.current_version > 0
                       ? <span style={{ color: H.blue, fontWeight: 700 }}>v{sh.current_version} live in their hub</span>
                       : <span style={{ color: H.amber, fontWeight: 700 }}>draft · not published</span>}
-                    {sh._counts.thumbsUp > 0 && <span style={{ color: H.green }}>▲ {sh._counts.thumbsUp}</span>}
-                    {sh._counts.thumbsDown > 0 && <span style={{ color: H.red }}>▼ {sh._counts.thumbsDown}</span>}
+                    {sh._counts.asis > 0 && <span style={{ color: H.green }}>{sh._counts.asis} as is</span>}
+                    {sh._counts.change > 0 && <span style={{ color: H.amber }}>{sh._counts.change} to change</span>}
+                    {sh._counts.pass > 0 && <span style={{ color: H.red }}>{sh._counts.pass} passed</span>}
                   </div>
                 </a>
               ))}

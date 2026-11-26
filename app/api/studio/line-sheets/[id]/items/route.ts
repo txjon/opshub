@@ -2,25 +2,31 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { studioUser, lineSheetInCompany } from "@/lib/studio-access";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { newImageId, publishedImageIds } from "@/lib/line-sheets";
+import { newImageId, publishedImageIds, verdictPatch, SETTABLE_VERDICTS } from "@/lib/line-sheets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Items on a sheet (the draft side — the client only ever sees snapshots).
-// POST  → { images: [{driveId, name}] } register uploads: one new TRAY item
-//         per image (grouping happens after, like sorting the desktop folder)
-// PATCH → { id, name? , sectionId?(null→tray), sort?, images?, drop?, restore?,
-//           mergeFrom?, replaceImage? } mergeFrom = another item id whose
-//         images fold into this one (front+back become one product; the donor
-//         item is removed if it was never published, else dropped).
-//         clearThumb = HPD clears the client's thumb (back to its shelf, no
-//         verdict), e.g. a pick that turned into a request for new variants;
-//         the client's comment stays (Jon, Nov 25).
+// Items on a sheet: one list of concepts, ordered by sort (shelves retired
+// Nov 26 2026).
+// POST  → { images: [{driveId, name}] } register uploads: one new item per
+//         image (grouping happens after, like sorting the desktop folder).
+//         Before the first publish they join the end of the list (the sheet
+//         is being laid out in order); after it, the top, where HPD sees them.
+// PATCH → { id, name?, sort?, images?, drop?, restore?, mergeFrom?,
+//           replaceImage?, verdict?, note? } mergeFrom = another item id
+//         whose images fold into this one (front+back become one product; the
+//         donor item is removed if it was never published, else dropped).
+//         verdict = HPD sets the client's verdict (mig 215): "asis" | "change"
+//         | "pass", or null = back to Concepts. "change" takes a note (what
+//         should change), saved as the item's note. Jon, Nov 26: "Both
+//         internal and client should have control of moving things between
+//         as is, change, and pass." An item already on an order stays there.
 //         replaceImage = { at, driveId, name, size } swaps one mockup in place
-//         (Jon, Nov 25): the item keeps its thumb, comment, number and name.
-//         Until the next publish the client keeps seeing the picture it
-//         replaced (image.replaces, read by lib/line-sheets clientSheetView).
+//         (Jon, Nov 25): the item keeps its number and name, and its verdict
+//         until the next publish asks again. Until then the client keeps
+//         seeing the picture it replaced (image.replaces, read by
+//         lib/line-sheets clientSheetView).
 // DELETE → { id } hard-remove a never-published item
 const admin = () => createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 // Signed-in studio user AND this sheet is the request's company's.
@@ -50,27 +56,33 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const imgs = Array.isArray(b.images) ? b.images.filter((i: any) => i?.driveId) : [];
   if (!imgs.length) return NextResponse.json({ error: "No images" }, { status: 400 });
   const db = admin();
-  const { data: maxRow } = await db.from("line_sheet_items").select("sort").eq("sheet_id", params.id).order("sort", { ascending: false }).limit(1).maybeSingle();
-  let sort = ((maxRow as any)?.sort || 0) + 1;
   // splitFrom = unpair. Splitting is organizing (live, Oct 1 2026): the new
-  // singles inherit the source's published state + shelf and get their own
-  // numbers, so they stay on the client's sheet instead of vanishing until
-  // the next publish. Plain uploads stay drafts (added_in null).
+  // singles inherit the source's published state, sit right after it and get
+  // their own numbers, so they stay on the client's sheet instead of
+  // vanishing until the next publish. Plain uploads stay drafts (added_in null).
   let from: any = null;
   if (b.splitFrom) {
-    const { data } = await db.from("line_sheet_items").select("section_id, added_in, sort").eq("id", b.splitFrom).eq("sheet_id", params.id).maybeSingle();
+    const { data } = await db.from("line_sheet_items").select("added_in, sort").eq("id", b.splitFrom).eq("sheet_id", params.id).maybeSingle();
     from = data;
   }
+  const { data: sheetRow } = await db.from("line_sheets").select("current_version").eq("id", params.id).maybeSingle();
+  const live = ((sheetRow as any)?.current_version || 0) > 0;
+  const { data: edge } = await db.from("line_sheet_items").select("sort").eq("sheet_id", params.id).order("sort", { ascending: !from && live }).limit(1).maybeSingle();
+  const edgeSort = Number((edge as any)?.sort) || 0;
+  // a split: just after its source (sorts are spaced by 10, so they fit; a
+  // tie still orders by id); a fresh upload on a live sheet: above
+  // everything; otherwise after everything
+  const sortAt = (k: number) => from ? (Number(from.sort) || 0) + 1 + k : live ? edgeSort - imgs.length + k : edgeSort + 1 + k;
   let nextNo = 0;
   if (from?.added_in != null) {
     const { data: maxNo } = await db.from("line_sheet_items").select("item_no").eq("sheet_id", params.id).not("item_no", "is", null).order("item_no", { ascending: false }).limit(1).maybeSingle();
     nextNo = (((maxNo as any)?.item_no) || 0) + 1;
   }
-  const rows = imgs.map((i: any) => ({
+  const rows = imgs.map((i: any, k: number) => ({
     // A plain upload is named by its file, minus the extension (Jon, Nov 2026:
     // mockups are saved with descriptive names). A split stays unnamed.
-    sheet_id: params.id, section_id: from ? from.section_id : null,
-    name: from ? null : (String(i.name || "").replace(/\.[a-z0-9]{2,5}$/i, "").trim().slice(0, 140) || null), sort: sort++,
+    sheet_id: params.id,
+    name: from ? null : (String(i.name || "").replace(/\.[a-z0-9]{2,5}$/i, "").trim().slice(0, 140) || null), sort: sortAt(k),
     // a split keeps a pending Replace's stand-in, so the client still sees a picture
     images: [{ id: newImageId(), driveId: String(i.driveId), name: i.name || null, ...(Number(i.size) > 0 ? { size: Number(i.size) } : {}), ...(from && i.replaces?.driveId ? { replaces: { driveId: String(i.replaces.driveId), name: i.replaces.name || null } } : {}) }],
     ...(from?.added_in != null ? { added_in: from.added_in, item_no: nextNo++ } : {}),
@@ -84,7 +96,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   if (!(await authed(params.id))) return NextResponse.json({ error: "Sign in" }, { status: 401 });
   const b = await req.json().catch(() => ({} as any));
-  // Drag-to-reorder: { reorder: [{id, sort}] } — one shelf's new order.
+  // Drag-to-reorder: { reorder: [{id, sort}] } — the list's new order.
   if (Array.isArray(b.reorder)) {
     const db = admin();
     for (const r of (b.reorder as any[]).slice(0, 500)) {
@@ -104,32 +116,25 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const { data: donor } = await db.from("line_sheet_items").select("*").eq("id", b.mergeFrom).eq("sheet_id", params.id).maybeSingle();
     if (!donor) return NextResponse.json({ error: "Merge source not found" }, { status: 404 });
     const merged = [ ...((item as any).images || []), ...((donor as any).images || []) ];
-    // Grouping is organizing (live): the client's reaction survives it. The
-    // kept item inherits the donor's thumb, and separately its comment, when
+    // Grouping is organizing (live): the client's verdict survives it. The
+    // kept item inherits the donor's verdict, and separately its note, when
     // it has none of its own.
-    const keepThumb = (item as any).client_thumb ? {} : (donor as any).client_thumb ? {
-      client_thumb: (donor as any).client_thumb, client_thumb_at: (donor as any).client_thumb_at, client_thumb_version: (donor as any).client_thumb_version,
-      // the look that came with that thumb comes too (mig 214)
+    const keepVerdict = (item as any).client_verdict ? {} : (donor as any).client_verdict ? {
+      client_verdict: (donor as any).client_verdict, client_verdict_at: (donor as any).client_verdict_at,
+      client_verdict_version: (donor as any).client_verdict_version, client_verdict_by: (donor as any).client_verdict_by,
+      // the look that came with that verdict comes too (mig 214)
       client_seen_version: Math.max((item as any).client_seen_version || 0, (donor as any).client_seen_version || 0) || null,
     } : {};
     const keepNote = (item as any).client_note ? {} : (donor as any).client_note ? {
       client_note: (donor as any).client_note, client_note_version: (donor as any).client_note_version,
     } : {};
-    await db.from("line_sheet_items").update({ images: merged, name: pairName((item as any).name, (donor as any).name), ...keepThumb, ...keepNote } as never).eq("id", b.id);
+    await db.from("line_sheet_items").update({ images: merged, name: pairName((item as any).name, (donor as any).name), ...keepVerdict, ...keepNote } as never).eq("id", b.id);
     if ((donor as any).added_in == null) await db.from("line_sheet_items").delete().eq("id", b.mergeFrom);
     else await db.from("line_sheet_items").update({ dropped: true } as never).eq("id", b.mergeFrom);
   }
 
   const patch: Record<string, any> = {};
   if (b.name !== undefined) patch.name = b.name ? String(b.name).trim().slice(0, 140) : null;
-  if (b.sectionId !== undefined) {
-    patch.section_id = b.sectionId || null;
-    // landing on a shelf mints the item's permanent number — never reshuffled
-    if (b.sectionId && (item as any).item_no == null) {
-      const { data: maxRow } = await db.from("line_sheet_items").select("item_no").eq("sheet_id", params.id).not("item_no", "is", null).order("item_no", { ascending: false }).limit(1).maybeSingle();
-      patch.item_no = (((maxRow as any)?.item_no) || 0) + 1;
-    }
-  }
   if (b.sort !== undefined) patch.sort = Number(b.sort) || 0;
   if (b.images !== undefined && Array.isArray(b.images)) patch.images = b.images.filter((i: any) => i?.driveId).map((i: any) => ({ id: i.id || newImageId(), driveId: String(i.driveId), name: i.name || null, ...(Number(i.size) > 0 ? { size: Number(i.size) } : {}), ...(i.replaces?.driveId ? { replaces: { driveId: String(i.replaces.driveId), name: i.replaces.name || null } } : {}) }));
   if (b.replaceImage) {
@@ -144,7 +149,16 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     imgs[at] = { id: newImageId(), driveId: String(r.driveId), name: r.name || null, ...(Number(r.size) > 0 ? { size: Number(r.size) } : {}), ...(shown ? { replaces: shown } : {}) };
     patch.images = imgs;
   }
-  if (b.clearThumb) { patch.client_thumb = null; patch.client_thumb_at = null; patch.client_thumb_version = null; }
+  if (b.verdict !== undefined) {
+    const v = b.verdict ?? null;
+    if (v !== null && !(SETTABLE_VERDICTS as readonly string[]).includes(v)) return NextResponse.json({ error: "Bad verdict" }, { status: 400 });
+    const { data: sh } = await db.from("line_sheets").select("current_version").eq("id", params.id).maybeSingle();
+    const version = (sh as any)?.current_version || 0;
+    const note = String(b.note || "").replace(/\s*\n\s*/g, " ").trim().slice(0, 500) || null;
+    if (v === "change" && !note) return NextResponse.json({ error: "Say what should change" }, { status: 400 });
+    Object.assign(patch, verdictPatch(v, "hpd", version));
+    if (note) { patch.client_note = note; patch.client_note_version = version; }
+  }
   if (b.drop) { patch.dropped = true; }
   if (b.restore) { patch.dropped = false; patch.dropped_in = null; }
   if (Object.keys(patch).length) {

@@ -10,13 +10,16 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // LINE SHEET → ORDER (Nov 2026; first run by hand on HPD-2611-022).
-// GET  → { job: {id, job_number} | null, pending } — the sheet's order, and how
-//        many thumbs-up items aren't on it yet.
+// GET  → { job: {id, job_number} | null, pending, ordered } — the sheet's
+//        order, how many Good to go (As is, mig 215) items aren't on it yet,
+//        and the ids that are.
 // POST → first time: births ONE intake job for the sheet's client (on the
-//        sheet's release) with an item per thumbs-up, each carrying its line
-//        sheet mockups. Item and file take the sheet's item name. After that: adds only the thumbs-ups not yet ordered
-//        to that same job. type_meta.line_sheet_item_ids is the ordered set.
-// Items are NOT art-approved: a thumbs-up on a comp isn't a print proof.
+//        sheet's release) with an item per As is, each carrying its line
+//        sheet mockups. Item and file take the sheet's item name. After
+//        that: adds only the As is items not yet ordered to that same job.
+//        type_meta.line_sheet_item_ids is the ordered set. Only As is: a
+//        Change still has work to do (Jon, Nov 26).
+// Items are NOT art-approved: an As is on a comp isn't a print proof.
 const admin = () => createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
 async function sheetOrder(db: any, sheetId: string) {
@@ -25,9 +28,9 @@ async function sheetOrder(db: any, sheetId: string) {
     .order("created_at", { ascending: true }).limit(1);
   return ((data || []) as any[])[0] || null;
 }
-async function thumbsUp(db: any, sheetId: string) {
+async function goodToGo(db: any, sheetId: string) {
   const { data } = await db.from("line_sheet_items").select("*").eq("sheet_id", sheetId)
-    .eq("client_thumb", "up").eq("dropped", false).order("item_no");
+    .eq("client_verdict", "asis").eq("dropped", false).order("item_no");
   return (data || []) as any[];
 }
 
@@ -41,11 +44,12 @@ async function guard(id: string) {
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const denied = await guard(params.id); if (denied) return denied;
   const db = admin();
-  const [job, ups] = await Promise.all([sheetOrder(db, params.id), thumbsUp(db, params.id)]);
+  const [job, ups] = await Promise.all([sheetOrder(db, params.id), goodToGo(db, params.id)]);
   const ordered = new Set<string>(job?.type_meta?.line_sheet_item_ids || []);
   return NextResponse.json({
     job: job ? { id: job.id, job_number: job.job_number } : null,
     pending: ups.filter(i => !ordered.has(i.id)).length,
+    ordered: Array.from(ordered),
   });
 }
 
@@ -59,12 +63,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
 
   let job = await sheetOrder(db, params.id);
   const ordered = new Set<string>(job?.type_meta?.line_sheet_item_ids || []);
-  const picks = (await thumbsUp(db, params.id)).filter(i => !ordered.has(i.id));
-  if (!picks.length) return NextResponse.json({ error: job ? `Every thumbs-up is already on ${job.job_number}` : "No thumbs-up items yet" }, { status: 400 });
-
-  const { data: secs } = await db.from("line_sheet_sections").select("id, name").eq("sheet_id", params.id);
-  const secName: Record<string, string> = {};
-  for (const x of (secs || []) as any[]) secName[x.id] = x.name;
+  const picks = (await goodToGo(db, params.id)).filter(i => !ordered.has(i.id));
+  if (!picks.length) return NextResponse.json({ error: job ? `Everything good to go is already on ${job.job_number}` : "Nothing is good to go yet" }, { status: 400 });
 
   const born = !job;
   if (!job) {
@@ -101,13 +101,13 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   for (const it of picks) {
     const no = it.item_no != null ? String(it.item_no).padStart(2, "0") : null;
     // The sheet's name IS the product name (Jon, Nov 2026), and the mockup
-    // file carries it too. Unnamed → shelf and number.
-    const name = ((it.name || "").trim() || `${secName[it.section_id] || "Item"}${no ? ` #${no}` : ""}`).slice(0, 120);
+    // file carries it too. Unnamed → its number.
+    const name = ((it.name || "").trim() || `Item${no ? ` #${no}` : ""}`).slice(0, 120);
     const imgs = ((it.images || []) as any[]).filter(img => img?.driveId);
     const bases = imageFileBases({ name: it.name, item_no: it.item_no, images: imgs });
     const { data: item, error: iErr } = await db.from("items").insert({
       job_id: job.id, company_id: s.clients?.company_id || undefined, name, status: "tbd", sort_order: sort++, pipeline_stage: null,
-      notes: `From line sheet${no ? ` #${no}` : ""} (client thumbs up)`,
+      notes: `From line sheet${no ? ` #${no}` : ""} (good to go as is)`,
     } as never).select("id").single();
     if (iErr || !item) { failed++; continue; }
     for (const [k, img] of imgs.entries()) {
@@ -133,8 +133,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   if (done.some(id => !saved.has(id))) return NextResponse.json({ error: "Items added, but the order record didn't save. Don't press again; tell Jon.", jobId: job.id, jobNumber: job.job_number }, { status: 500 });
   try {
     await logJobActivityServer(job.id, born
-      ? `Job created from line sheet "${s.title}": ${done.length} thumbs-up item${done.length === 1 ? "" : "s"} with their mockups.`
-      : `${done.length} more thumbs-up item${done.length === 1 ? "" : "s"} added from line sheet "${s.title}".`);
+      ? `Job created from line sheet "${s.title}": ${done.length} good-to-go item${done.length === 1 ? "" : "s"} with their mockups.`
+      : `${done.length} more good-to-go item${done.length === 1 ? "" : "s"} added from line sheet "${s.title}".`);
   } catch {}
   if (failed) return NextResponse.json({ error: `${failed} item${failed === 1 ? "" : "s"} failed; press again to retry`, jobId: job.id, jobNumber: job.job_number, added: done.length }, { status: 500 });
   if (noMock) return NextResponse.json({ error: `Order ${job.job_number} made, but ${noMock} mockup${noMock === 1 ? "" : "s"} didn't attach. Add ${noMock === 1 ? "it" : "them"} on the order.`, jobId: job.id, jobNumber: job.job_number, added: done.length }, { status: 207 });

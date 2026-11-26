@@ -22,7 +22,7 @@ export default function LineSheetsPage() {
       </div>
       {archived && <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginBottom: 12 }}>Archived · open one to unarchive</div>}
       {archived && sheets.length === 0 && <div style={{ color: H.faint, fontSize: 13 }}>No archived sheets.</div>}
-      {!archived && sheets.length === 0 && <div style={{ color: H.faint, fontSize: 13 }}>Nothing yet. A line sheet is a client&rsquo;s whole product line — sections, items, versions — presented like a webstore.</div>}
+      {!archived && sheets.length === 0 && <div style={{ color: H.faint, fontSize: 13 }}>Nothing yet. A line sheet is a client&rsquo;s line of concepts, presented like a webstore: they say As is, Change or Pass on each.</div>}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 14 }}>
         {sheets.map(s => (
           <a key={s.id} href={`/studio/line-sheets/${s.id}`} style={{ background: H.panel, border: `1px solid ${H.line}`, borderRadius: 14, padding: "16px 18px", color: H.text, textDecoration: "none" }}>
@@ -33,8 +33,9 @@ export default function LineSheetsPage() {
             <div style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint, marginTop: 4 }}>{s.client_name}{s.release_title ? ` · ${s.release_title}` : ""}</div>
             <div style={{ fontSize: 11, color: H.dim, marginTop: 10, display: "flex", gap: 14 }}>
               <span>{s._counts.items} item{s._counts.items === 1 ? "" : "s"}</span>
-              {s._counts.thumbsUp > 0 && <span style={{ color: H.green }}>👍 {s._counts.thumbsUp}</span>}
-              {s._counts.thumbsDown > 0 && <span style={{ color: H.red }}>👎 {s._counts.thumbsDown}</span>}
+              {s._counts.asis > 0 && <span style={{ color: H.green }}>{s._counts.asis} as is</span>}
+              {s._counts.change > 0 && <span style={{ color: H.amber }}>{s._counts.change} to change</span>}
+              {s._counts.pass > 0 && <span style={{ color: H.red }}>{s._counts.pass} passed</span>}
               <span style={{ marginLeft: "auto", fontFamily: H.mono, color: H.faint }}>{fmtStamp(s.updated_at)}</span>
             </div>
           </a>

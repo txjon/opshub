@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { studioUser, lineSheetInCompany } from "@/lib/studio-access";
 import { createClient as createAdmin } from "@supabase/supabase-js";
-import { publishedImageIds, shelfNumbering } from "@/lib/line-sheets";
+import { publishedImageIds, layoutNumbering, verdictPatch } from "@/lib/line-sheets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // One line sheet.
-// GET    → sheet + sections + items (live draft) + version history.
+// GET    → sheet + items (live draft) + version history.
 // PATCH  → { title? } meta edits
 //          { publish: true, note? } → stamp the next version (see below)
 //          { finalize: true } / { reopen: true } → status
@@ -28,12 +28,11 @@ async function me() {
 async function loadFull(db: any, id: string) {
   const { data: sheet } = await db.from("line_sheets").select("*, clients(id, name, portal_token), releases(id, title, status)").eq("id", id).maybeSingle();
   if (!sheet) return null;
-  const [{ data: sections }, { data: items }, { data: versions }] = await Promise.all([
-    db.from("line_sheet_sections").select("*").eq("sheet_id", id).order("sort"),
+  const [{ data: items }, { data: versions }] = await Promise.all([
     db.from("line_sheet_items").select("*").eq("sheet_id", id).order("sort"),
     db.from("line_sheet_versions").select("id, n, note, published_at, published_by").eq("sheet_id", id).order("n"),
   ]);
-  return { sheet, sections: sections || [], items: items || [], versions: versions || [] };
+  return { sheet, items: items || [], versions: versions || [] };
 }
 
 const ownSheet = lineSheetInCompany;
@@ -68,13 +67,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (b.publish) {
     const n = ((sheet as any).current_version || 0) + 1;
     const { data: items } = await db.from("line_sheet_items").select("*").eq("sheet_id", params.id).order("sort");
-    const { data: sections } = await db.from("line_sheet_sections").select("*").eq("sheet_id", params.id).order("sort");
-    // every image any version ever showed the client — the carry rule's
-    // baseline. Organizing (grouping a front with its back) is live and never
-    // touches a thumb. NEW ART on an existing item keeps a thumbs-up (a
-    // revision he asked for is still his pick) and resets a thumbs-down so the
-    // rework goes back on its shelf for a fresh look (Jon, Nov 25 2026). The
-    // comment always stays (lib/line-sheets noteIsStale).
+    // every image any version ever showed the client — the baseline for "new
+    // art". Organizing (grouping a front with its back) is live and never
+    // touches a verdict. NEW ART on an existing item clears its verdict (Jon,
+    // Nov 26 2026): he's asked again about the new picture, back in Concepts.
+    // His note stays, shown as what he asked for (lib/line-sheets noteIsStale).
     const published = await publishedImageIds(db, params.id);
     let added = 0, updated = 0, droppedN = 0;
     for (const it of (items || []) as any[]) {
@@ -83,9 +80,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       if (!it.dropped) {
         if (it.added_in == null) { patch.added_in = n; added++; }
         else if ((it.images || []).some((img: any) => !published.has(img.driveId))) {
-          // new art landed on it → UPDATED badge; a thumbs-down resets
+          // new art landed on it → UPDATED badge, and he's asked again
           patch.updated_in = n;
-          if (it.client_thumb === "down") { patch.client_thumb = null; patch.client_thumb_at = null; patch.client_thumb_version = null; }
+          if (it.client_verdict) Object.assign(patch, verdictPatch(null, "hpd", n));
           updated++;
         }
       }
@@ -97,12 +94,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     // never sees an untitled item, the number IS the default name
     let { data: fresh } = await db.from("line_sheet_items").select("*").eq("sheet_id", params.id).order("sort");
     if (n === 1) {
-      // FIRST publish: stamp numbers in shelf order (what the builder showed),
+      // FIRST publish: stamp numbers in list order (what the builder showed),
       // replacing the landing-order numbers nobody outside has seen. Cleared
       // first: (sheet_id, item_no) is unique.
       const { error: cErr } = await db.from("line_sheet_items").update({ item_no: null } as never).eq("sheet_id", params.id);
       if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 });
-      const nums = shelfNumbering((sections || []) as any[], (fresh || []) as any[], true);
+      const nums = layoutNumbering((fresh || []) as any[]);
       for (const it of (fresh || []) as any[]) {
         it.item_no = nums[it.id] ?? null;
         if (it.item_no == null) continue;
@@ -117,9 +114,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       it.item_no = nextNo++;
     }
     const snapshot = {
-      sections: (sections || []).map((s: any) => ({ id: s.id, name: s.name, sort: s.sort })),
       items: ((fresh || []) as any[]).filter(i => !i.dropped).map(i => ({
-        id: i.id, section_id: i.section_id, name: i.name, item_no: i.item_no, sort: i.sort, images: i.images,
+        id: i.id, name: i.name, item_no: i.item_no, sort: i.sort, images: i.images,
         added_in: i.added_in, updated_in: i.updated_in,
       })),
     };

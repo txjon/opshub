@@ -44,18 +44,20 @@ export async function GET(req: NextRequest) {
   const { data } = await q.order("updated_at", { ascending: false });
   const sheets = ((data || []) as any[]);
   const ids = sheets.map(s => s.id);
-  const counts: Record<string, { items: number; thumbsUp: number; thumbsDown: number }> = {};
+  // verdict counts (mig 215): liked = an old thumbs-up still waiting on an answer
+  const zero = () => ({ items: 0, asis: 0, change: 0, pass: 0, liked: 0 });
+  const counts: Record<string, ReturnType<typeof zero>> = {};
   if (ids.length) {
-    const { data: items } = await db.from("line_sheet_items").select("sheet_id, dropped, client_thumb").in("sheet_id", ids);
+    const { data: items } = await db.from("line_sheet_items").select("sheet_id, dropped, client_verdict").in("sheet_id", ids);
     for (const it of (items || []) as any[]) {
-      const c = (counts[it.sheet_id] ||= { items: 0, thumbsUp: 0, thumbsDown: 0 });
+      const c = (counts[it.sheet_id] ||= zero());
       if (it.dropped) continue;
       c.items++;
-      if (it.client_thumb === "up") c.thumbsUp++;
-      if (it.client_thumb === "down") c.thumbsDown++;
+      const v = it.client_verdict as "asis" | "change" | "pass" | "liked" | null;
+      if (v) c[v]++;
     }
   }
-  return NextResponse.json({ sheets: sheets.map(s => ({ ...s, client_name: s.clients?.name || null, clients: undefined, release_title: s.releases?.title || null, releases: undefined, _counts: counts[s.id] || { items: 0, thumbsUp: 0, thumbsDown: 0 } })) });
+  return NextResponse.json({ sheets: sheets.map(s => ({ ...s, client_name: s.clients?.name || null, clients: undefined, release_title: s.releases?.title || null, releases: undefined, _counts: counts[s.id] || zero() })) });
 }
 
 export async function POST(req: NextRequest) {
