@@ -33,14 +33,13 @@ export default function ReleaseLineSheet({ params }: { params: { token: string; 
   async function save(b: SaveBody): Promise<true | string> {
     const r = await fetch(api, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: data?.version?.n, ...b }) }).catch(() => null);
     if (r && r.ok) return true;
-    if (!b.seen) load();
     const j = r ? await r.json().catch(() => null) : null;
     return j?.error || "That didn't save. Check your connection and try again.";
   }
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "26px 18px 90px" }}>
-      <LineSheetView items={items} stamp={data} save={save} stickyTop={52} head={<>
+      <LineSheetView items={items} stamp={data} save={save} onSettled={failed => { if (failed) load(); }} stickyTop={52} head={<>
         {back}
         <h1 style={{ fontSize: "clamp(26px,4.5vw,40px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.02em", margin: "8px 0 0", fontFamily: C.font, color: C.text }}>{sheet.title}</h1>
         <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap", marginTop: 8, fontSize: 11, fontFamily: C.mono, color: C.faint }}>

@@ -464,12 +464,12 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
       {err && <div style={{ color: H.red, fontSize: 12, marginBottom: 12 }}>{err}</div>}
 
       {/* the client's view, with HPD's tools on top */}
-      {items.length === 0 && (
+      {items.length === 0 && !sheet.archived_at && (
         <div style={{ border: `2px dashed ${H.line}`, borderRadius: 14, padding: "40px 20px", textAlign: "center", color: H.dim, fontSize: 13, marginTop: 10 }}>
           Drop mockups anywhere on this page, or <button onClick={() => fileIn.current?.click()} style={{ background: "none", border: "none", padding: 0, color: H.blue, cursor: "pointer", fontSize: 13, fontFamily: H.font, textDecoration: "underline" }}>pick files</button>. They land in Concepts, named by file.
         </div>
       )}
-      <LineSheetView items={view} stamp={data} save={saveFromView} onSettled={load} readOnly={!!sheet.archived_at} head={null} staff={{
+      <LineSheetView items={view} stamp={data} save={saveFromView} onSettled={() => { load(); }} readOnly={!!sheet.archived_at} head={null} staff={{
         selected,
         onSelect: (id, shift) => { if (!justDragged.current) toggleSel(id, shift); },
         numberOf: v => { const it = raw.get(v.id); return it ? noOf(it) : null; },

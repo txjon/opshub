@@ -32,8 +32,10 @@ type Group = "fresh" | "asis" | "change" | "liked" | "concepts" | "pass";
 // NEW or UPDATED and not answered yet: up top, so a change he asked for comes
 // back where he'll see it, not buried in Concepts (Jon, Nov 26). Answering
 // moves it to its verdict's group and retires the badge.
-const groupOf = (it: ViewItem): Group => it.verdict === "asis" || it.verdict === "change" || it.verdict === "liked" || it.verdict === "pass" ? it.verdict
-  : it.badge === "new" || it.badge === "updated" ? "fresh" : "concepts";
+// `fresh` = the badge as LOADED: a look retires the badge on screen but only
+// an answer moves the card (the next load knows about the look).
+const groupOf = (it: ViewItem, fresh: Set<string>): Group => it.verdict === "asis" || it.verdict === "change" || it.verdict === "liked" || it.verdict === "pass" ? it.verdict
+  : fresh.has(it.id) ? "fresh" : "concepts";
 // top to bottom: what's new to look at, what's decided, what's being worked,
 // what needs an answer, the open concepts, and what he passed on
 const GROUPS: { id: Group; name: string; hint?: string }[] = [
@@ -50,7 +52,7 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
   stamp: unknown;                              // changes on every fresh load (the parent's data object)
   head: React.ReactNode;                       // title, version line, note (each seat its own)
   save: (b: SaveBody) => Promise<true | string>;   // the write; a string = it failed, and why
-  onSettled?: () => void;                      // every queued write is done (HPD reloads here, once)
+  onSettled?: (hadFailure: boolean) => void;   // every queued write is done (reload here, once)
   readOnly?: boolean;                          // archived: look, don't touch
   stickyTop?: number;                          // the group chips stick under the seat's own top bar
   staff?: {
@@ -69,6 +71,8 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
   const [patches, setPatches] = useState<Record<string, Partial<ViewItem>>>({});
   useEffect(() => { setPatches({}); }, [stamp]);
   const items = itemsIn.map(it => patches[it.id] ? { ...it, ...patches[it.id] } : it);
+  const freshIds = new Set(itemsIn.filter(it => it.badge === "new" || it.badge === "updated").map(it => it.id));
+  const groupOfIt = (it: ViewItem) => groupOf(it, freshIds);
   const [filter, setFilter] = useState<Group | null>(null);      // null = everything
   // the note box open on one card: "change" = what should change (a Change
   // saves with it), "note" = editing a note that's there
@@ -91,25 +95,26 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
   useEffect(() => { if (!err) return; const t = setTimeout(() => setErr(""), 6000); return () => clearTimeout(t); }, [err]);
 
   const who = staff ? "hpd" as const : "client" as const;
-  const shownGroup = (it: ViewItem): Group => hold && hold.id === it.id ? hold.group : groupOf(it);
+  const shownGroup = (it: ViewItem): Group => hold && hold.id === it.id ? hold.group : groupOfIt(it);
   const byGroup: Record<Group, ViewItem[]> = { fresh: [], asis: [], change: [], liked: [], concepts: [], pass: [] };
   for (const it of items) byGroup[shownGroup(it)].push(it);
 
   // pending = writes still queued; the parent hears once when they're all
   // done, so a reload never wipes an edit that hasn't been sent yet
   const pending = useRef(0);
+  const failed = useRef(false);
   const post = (body: SaveBody): Promise<boolean> => {
     pending.current++;
     const run = chain.current.then(async () => {
       const r = await save(body).catch(() => "That didn't save. Check your connection and try again.");
-      if (r !== true) setErr(r);
+      if (r !== true) { setErr(r); failed.current = true; }
       return r === true;
-    }).finally(() => { if (--pending.current === 0) onSettled?.(); });
+    }).finally(() => { if (--pending.current === 0) { const f = failed.current; failed.current = false; onSettled?.(f); } });
     chain.current = run;
     return run;
   };
   const patchLocal = (id: string, p: Partial<ViewItem>) => setPatches(m => ({ ...m, [id]: { ...m[id], ...p } }));
-  const keepSpot = (it: ViewItem) => setHold({ id: it.id, group: hold && hold.id === it.id ? hold.group : groupOf(it) });
+  const keepSpot = (it: ViewItem) => setHold({ id: it.id, group: hold && hold.id === it.id ? hold.group : groupOfIt(it) });
   // acting on a card lets the last one answered move to its group
   const touch = (it: ViewItem) => { if (hold && hold.id !== it.id) setHold(null); if (noteFor && noteFor.id !== it.id) setNoteFor(null); };
   // a verdict or note from the client retires the badge; HPD's never does
@@ -259,7 +264,7 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
               onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } if (e.key === "Escape") { e.currentTarget.dataset.cancel = "1"; setNoteFor(null); } }}
               style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 8, background: C.surface, border: `1px solid ${open.mode === "change" ? C.amber : C.line}`, borderRadius: 8, outline: "none", color: C.text, fontSize: 16, fontFamily: C.font, padding: "7px 9px", resize: "none", lineHeight: 1.35 }} />
           ) : it.note && shownNotes.includes(it.id) ? (
-            <button onClick={() => { touch(it); setNoteFor({ id: it.id, mode: it.verdict === "change" ? "change" : "note" }); }} title="Edit"
+            <button disabled={readOnly} onClick={() => { touch(it); setNoteFor({ id: it.id, mode: it.verdict === "change" ? "change" : "note" }); }} title={readOnly ? undefined : "Edit"}
               style={{ display: "block", width: "100%", textAlign: "left", marginTop: 8, background: "none", border: "none", padding: 0, cursor: "pointer", color: C.dim, fontSize: 12, fontFamily: C.font, lineHeight: 1.4 }}>
               {/* the note on the picture on screen, or what was asked on the one before it */}
               {it.noteStale ? cap(it.verdict ? (staff ? "Asked on the last version" : "You asked, on the last version") : (staff ? "Asked. New version is up" : "You asked. Updated, good now?"), it.verdict ? C.faint : C.amber) : it.verdict === "change" ? cap("What to change", C.amber) : null}
