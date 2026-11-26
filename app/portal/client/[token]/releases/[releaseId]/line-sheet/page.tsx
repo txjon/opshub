@@ -133,8 +133,9 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
           })()}
           {noteFor === it.id ? (
             <textarea autoFocus rows={2} defaultValue={it.note || ""} placeholder="Add a comment" maxLength={500} aria-label="Comment"
-              onBlur={e => saveNote(it, e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); } if (e.key === "Escape") setNoteFor(null); }}
+              // Escape cancels: flag it so the blur that follows doesn't save
+              onBlur={e => { if (e.currentTarget.dataset.cancel) return; saveNote(it, e.target.value); }}
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } if (e.key === "Escape") { e.currentTarget.dataset.cancel = "1"; setNoteFor(null); } }}
               style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 8, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 8, outline: "none", color: C.text, fontSize: 16, fontFamily: C.font, padding: "7px 9px", resize: "none", lineHeight: 1.35 }} />
           ) : it.note ? (
             <button onClick={() => openNote(it)} title="Edit comment" style={{ display: "block", width: "100%", textAlign: "left", marginTop: 8, background: "none", border: "none", padding: 0, cursor: "pointer", color: C.dim, fontSize: 12, fontFamily: C.font, lineHeight: 1.4 }}>
@@ -147,8 +148,8 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
     );
   };
 
-  const renderShelf = (title: string, list: any[]) => list.length ? (
-    <section key={title} style={{ marginTop: 30 }}>
+  const renderShelf = (id: string, title: string, list: any[]) => list.length ? (
+    <section key={id} style={{ marginTop: 30 }}>
       <h2 style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.02em", margin: "0 0 12px", color: C.text }}>{title}</h2>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 12 }}>{list.map(itemCard)}</div>
     </section>
@@ -203,7 +204,7 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
           ))}
         </nav>
       )}
-      {shelves.filter(f => active === null || f.id === active).map(f => renderShelf(f.name, f.list))}
+      {shelves.filter(f => active === null || f.id === active).map(f => renderShelf(f.id, f.name, f.list))}
       {zoom && (
         <ImageLightbox preview driveFileId={zoom.images[0].driveId} more={zoom.images.slice(1).map((m: any) => m.driveId)}
           title={zoom.name || undefined} onClose={() => setZoom(null)} />
