@@ -97,11 +97,15 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     if (!donor) return NextResponse.json({ error: "Merge source not found" }, { status: 404 });
     const merged = [ ...((item as any).images || []), ...((donor as any).images || []) ];
     // Grouping is organizing (live): the client's reaction survives it. The
-    // kept item inherits the donor's thumb when it has none of its own.
+    // kept item inherits the donor's thumb, and separately its comment, when
+    // it has none of its own.
     const keepThumb = (item as any).client_thumb ? {} : (donor as any).client_thumb ? {
-      client_thumb: (donor as any).client_thumb, client_thumb_at: (donor as any).client_thumb_at, client_thumb_version: (donor as any).client_thumb_version, client_thumb_note: (donor as any).client_thumb_note,
+      client_thumb: (donor as any).client_thumb, client_thumb_at: (donor as any).client_thumb_at, client_thumb_version: (donor as any).client_thumb_version,
     } : {};
-    await db.from("line_sheet_items").update({ images: merged, name: pairName((item as any).name, (donor as any).name), ...keepThumb } as never).eq("id", b.id);
+    const keepNote = (item as any).client_note ? {} : (donor as any).client_note ? {
+      client_note: (donor as any).client_note, client_note_version: (donor as any).client_note_version,
+    } : {};
+    await db.from("line_sheet_items").update({ images: merged, name: pairName((item as any).name, (donor as any).name), ...keepThumb, ...keepNote } as never).eq("id", b.id);
     if ((donor as any).added_in == null) await db.from("line_sheet_items").delete().eq("id", b.mergeFrom);
     else await db.from("line_sheet_items").update({ dropped: true } as never).eq("id", b.mergeFrom);
   }

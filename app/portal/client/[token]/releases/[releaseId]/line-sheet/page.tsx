@@ -20,8 +20,8 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
   const [missing, setMissing] = useState(false);
   // Shelf filter — null = the whole line. "__more" = unshelved pieces.
   const [shelf, setShelf] = useState<string | null>(null);
-  const [noteFor, setNoteFor] = useState<string | null>(null);   // item whose "why" field is open
-  const [hold, setHold] = useState<string | null>(null);         // fresh 👎 holding its shelf spot until its why closes
+  const [noteFor, setNoteFor] = useState<string | null>(null);   // item whose comment field is open
+  const [hold, setHold] = useState<string | null>(null);         // just-thumbed item holding its shelf spot until he moves on
   const [zoom, setZoom] = useState<any>(null);                    // item open full screen
   useNoPageZoom();                                                // app feel: the page doesn't pinch; the viewer does
   const load = () => fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`).then(r => r.json()).then(j => { if (j.error) setMissing(true); else setData(j); }).catch(() => setMissing(true));
@@ -33,38 +33,52 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
   const items: any[] = data.items;
   const bySection: Record<string, any[]> = {};
   const loose: any[] = [];
-  // Thumbs-down pieces stay on the line but sit in their own "Not approved"
-  // bucket at the bottom (Jon, Oct 1); their shelf is untouched, so a change
-  // of heart puts them straight back. A fresh 👎 holds its place while its
-  // optional "why" is open, so the field doesn't jump off-screen.
+  // Thumbed pieces leave their shelf for a bucket: thumbs-up to "Selections"
+  // at the top (Jon, Nov 25), thumbs-down to "Not approved" at the bottom
+  // (Oct 1). The shelf itself is untouched, so Clear puts a piece straight
+  // back. A fresh thumb holds its spot until he acts on another piece, so the
+  // card never jumps out from under his finger.
+  const selections: any[] = [];
   const notApproved: any[] = [];
   for (const it of items) {
+    if (it.thumb === "up" && hold !== it.id) { selections.push(it); continue; }
     if (it.thumb === "down" && hold !== it.id) { notApproved.push(it); continue; }
     if (it.section_id && sections.some((s: any) => s.id === it.section_id)) (bySection[it.section_id] ||= []).push(it); else loose.push(it);
   }
   const newCount = items.filter(i => i.badge === "new").length;
   const updCount = items.filter(i => i.badge === "updated").length;
 
-  async function react(it: any, thumb: "up" | "down") {
-    const next = it.thumb === thumb ? null : thumb;
-    // a thumbs-down offers the optional why right there; any other change closes it
-    setNoteFor(next === "down" ? it.id : null);
-    setHold(next === "down" ? it.id : null);
-    setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, thumb: next, note: null } : x) }));
+  // On a shelf: 👍 / 👎 (tap again to undo). In a bucket: thumb = null is
+  // Clear, back to its shelf with both thumbs open. The comment is untouched.
+  async function react(it: any, thumb: "up" | "down" | null) {
+    const next = thumb && it.thumb === thumb ? null : thumb;
+    if (noteFor !== it.id) setNoteFor(null);
+    setHold(thumb ? it.id : null);
+    setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, thumb: next } : x) }));
     const r = await fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: it.id, thumb: next }) }).catch(() => null);
     if (!r || !r.ok) load();
   }
 
-  // Optional "why" on a thumbs-down (mig 195): saves on blur/Enter, never
-  // required, empty clears it.
+  // His comment (mig 213): any piece, any time, thumb or not. Saves on
+  // blur/Enter; empty clears it. A fresh one is about the current picture.
+  function openNote(it: any) {
+    if (hold && hold !== it.id) setHold(null);
+    setNoteFor(noteFor === it.id ? null : it.id);
+  }
   async function saveNote(it: any, raw: string) {
-    const note = raw.trim() || null;
-    setNoteFor(null); setHold(null);
+    const note = raw.replace(/\s*\n\s*/g, " ").trim() || null;
+    setNoteFor(null);
     if ((it.note || null) === note) return;
-    setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, note } : x) }));
+    setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, note, noteStale: false } : x) }));
     const r = await fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: it.id, note }) }).catch(() => null);
     if (!r || !r.ok) load();
   }
+
+  const NoteIcon = ({ filled, size = 15 }: { filled: boolean; size?: number }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: "middle" }} aria-hidden>
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
 
 const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transform: dir === "down" ? "rotate(180deg)" : undefined, verticalAlign: "middle" }} aria-hidden>
@@ -90,20 +104,44 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
         </div>
         <div style={{ padding: "10px 12px 12px" }}>
           <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25 }}>{it.name || (it.item_no ? String(it.item_no).padStart(2, "0") : "Untitled")}</div>
-          <div style={{ display: "flex", gap: 8, marginTop: 9 }}>
-            <button onClick={() => react(it, "up")} aria-label="Thumbs up" style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: `1px solid ${it.thumb === "up" ? C.green : C.line}`, background: it.thumb === "up" ? "rgba(88,201,60,.14)" : "transparent", cursor: "pointer", opacity: it.thumb === "down" ? 0.45 : 1, color: it.thumb === "up" ? C.green : C.dim, display: "grid", placeItems: "center" }}><ThumbIcon dir="up" /></button>
-            <button onClick={() => react(it, "down")} aria-label="Thumbs down" style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: `1px solid ${it.thumb === "down" ? C.red : C.line}`, background: it.thumb === "down" ? "rgba(255,90,110,.12)" : "transparent", cursor: "pointer", opacity: it.thumb === "up" ? 0.45 : 1, color: it.thumb === "down" ? C.red : C.dim, display: "grid", placeItems: "center" }}><ThumbIcon dir="down" /></button>
-          </div>
-          {it.thumb === "down" && (noteFor === it.id ? (
-            <input defaultValue={it.note || ""} placeholder="Why? (optional)" maxLength={500} aria-label="Why the thumbs down (optional)"
+          {(() => {
+            const btn = (on: boolean, col: string, wash: string): React.CSSProperties => ({ flex: 1, padding: "7px 0", borderRadius: 8, border: `1px solid ${on ? col : C.line}`, background: on ? wash : "transparent", cursor: "pointer", color: on ? col : C.dim, display: "grid", placeItems: "center", fontFamily: C.font });
+            const noteBtn = <button onClick={() => openNote(it)} aria-label={it.note ? "Edit comment" : "Add a comment"} aria-expanded={noteFor === it.id}
+              style={{ ...btn(!!it.note, C.text, "rgba(255,255,255,.08)"), flex: "0 0 44px" }}><NoteIcon filled={!!it.note} /></button>;
+            // in a bucket (Selections / Not approved): the verdict, the comment, Clear
+            if (it.thumb && hold !== it.id) {
+              const up = it.thumb === "up";
+              return (
+                <div style={{ display: "flex", gap: 8, marginTop: 9, alignItems: "center" }}>
+                  {/* the bucket heading names it; the card shows which way (shape, not just colour) */}
+                  <span role="img" aria-label={up ? "Selected" : "Not approved"} style={{ flex: 1, display: "flex", alignItems: "center", paddingLeft: 4, color: up ? C.green : C.red }}>
+                    <ThumbIcon dir={up ? "up" : "down"} size={16} />
+                  </span>
+                  {noteBtn}
+                  <button onClick={() => react(it, null)} aria-label="Clear: back to its shelf"
+                    style={{ ...btn(false, C.text, ""), flex: "0 0 auto", padding: "7px 12px", fontSize: 11, fontWeight: 700 }}>Clear</button>
+                </div>
+              );
+            }
+            return (
+              <div style={{ display: "flex", gap: 8, marginTop: 9 }}>
+                <button onClick={() => react(it, "up")} aria-label="Thumbs up" aria-pressed={it.thumb === "up"} style={btn(it.thumb === "up", C.green, "rgba(88,201,60,.14)")}><ThumbIcon dir="up" /></button>
+                <button onClick={() => react(it, "down")} aria-label="Thumbs down" aria-pressed={it.thumb === "down"} style={btn(it.thumb === "down", C.red, "rgba(255,90,110,.12)")}><ThumbIcon dir="down" /></button>
+                {noteBtn}
+              </div>
+            );
+          })()}
+          {noteFor === it.id ? (
+            <textarea autoFocus rows={2} defaultValue={it.note || ""} placeholder="Add a comment" maxLength={500} aria-label="Comment"
               onBlur={e => saveNote(it, e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") { setNoteFor(null); setHold(null); } }}
-              style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 8, background: "transparent", border: "none", borderBottom: `1px solid ${C.line}`, outline: "none", color: C.dim, fontSize: 12, fontFamily: C.font, padding: "4px 0" }} />
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); } if (e.key === "Escape") setNoteFor(null); }}
+              style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 8, background: C.surface, border: `1px solid ${C.line}`, borderRadius: 8, outline: "none", color: C.text, fontSize: 16, fontFamily: C.font, padding: "7px 9px", resize: "none", lineHeight: 1.35 }} />
           ) : it.note ? (
-            <button onClick={() => setNoteFor(it.id)} title="Edit" style={{ display: "block", width: "100%", textAlign: "left", marginTop: 8, background: "none", border: "none", padding: 0, cursor: "pointer", color: C.dim, fontSize: 12, fontStyle: "italic", fontFamily: C.font, lineHeight: 1.4 }}>&ldquo;{it.note}&rdquo;</button>
-          ) : (
-            <button onClick={() => setNoteFor(it.id)} style={{ marginTop: 7, background: "none", border: "none", padding: 0, cursor: "pointer", color: C.faint, fontSize: 11, fontFamily: C.font }}>+ why</button>
-          ))}
+            <button onClick={() => openNote(it)} title="Edit comment" style={{ display: "block", width: "100%", textAlign: "left", marginTop: 8, background: "none", border: "none", padding: 0, cursor: "pointer", color: C.dim, fontSize: 12, fontFamily: C.font, lineHeight: 1.4 }}>
+              <span style={{ fontStyle: "italic", overflowWrap: "anywhere" }}>&ldquo;{it.note}&rdquo;</span>
+              {it.noteStale && <span style={{ display: "block", marginTop: 3, fontSize: 9.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: C.faint }}>On the previous version</span>}
+            </button>
+          ) : null}
         </div>
       </div>
     );
@@ -117,6 +155,7 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
   ) : null;
 
   const shelves = [
+    { id: "__up", name: "Selections", list: selections },
     ...sections.map((s: any) => ({ id: s.id as string, name: s.name as string, list: bySection[s.id] || [] })),
     { id: "__more", name: sections.length ? "More" : "The line", list: loose },
     { id: "__down", name: "Not approved", list: notApproved },
@@ -125,7 +164,7 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
   // Picking a shelf keeps the filter row in view instead of leaving the
   // client staring at the bottom of a shorter page.
   function pick(id: string | null) {
-    setShelf(id);
+    setShelf(id); setHold(null);
     const bar = document.querySelector(".lsx-filters") as HTMLElement | null;
     if (bar && bar.getBoundingClientRect().top <= parseFloat(getComputedStyle(bar).top || "0") + 1) {
       const y = (bar.parentElement?.querySelector(".lsx-anchor") as HTMLElement | null)?.getBoundingClientRect().top;
@@ -152,7 +191,7 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
         {updCount > 0 && <span style={{ color: C.amber }}>{updCount} updated</span>}
       </div>
       {version.note && <div style={{ marginTop: 10, padding: "11px 14px", background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.blue}`, borderRadius: 10, fontSize: 13, color: C.dim, maxWidth: 640 }}>{version.note}</div>}
-      <div style={{ marginTop: 6, fontSize: 11.5, color: C.faint }}>Thumb anything up or down. We see it instantly.</div>
+      <div style={{ marginTop: 6, fontSize: 11.5, color: C.faint }}>Thumb anything up or down, or leave a comment. We see it instantly.</div>
       <div className="lsx-anchor" />
       {shelves.length > 1 && (
         <nav className="lsx-filters" aria-label="Shelves">

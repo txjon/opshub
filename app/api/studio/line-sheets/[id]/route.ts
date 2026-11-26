@@ -71,7 +71,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const { data: sections } = await db.from("line_sheet_sections").select("*").eq("sheet_id", params.id).order("sort");
     // every image any version ever showed the client — the carry rule's
     // baseline. Organizing (grouping a front with its back) is live and never
-    // resets a thumb; only NEW ART on an existing item does (Oct 1 2026).
+    // touches a thumb. NEW ART on an existing item keeps a thumbs-up (a
+    // revision he asked for is still his pick) and resets a thumbs-down so the
+    // rework goes back on its shelf for a fresh look (Jon, Nov 25 2026). The
+    // comment always stays (lib/line-sheets noteIsStale).
     const published = await publishedImageIds(db, params.id);
     let added = 0, updated = 0, droppedN = 0;
     for (const it of (items || []) as any[]) {
@@ -80,10 +83,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       if (!it.dropped) {
         if (it.added_in == null) { patch.added_in = n; added++; }
         else if ((it.images || []).some((img: any) => !published.has(img.driveId))) {
-          // new art landed on it → UPDATED badge, and the thumb resets: the
-          // client is judging a new picture (the carry rule).
+          // new art landed on it → UPDATED badge; a thumbs-down resets
           patch.updated_in = n;
-          patch.client_thumb = null; patch.client_thumb_at = null; patch.client_thumb_version = null; patch.client_thumb_note = null;
+          if (it.client_thumb === "down") { patch.client_thumb = null; patch.client_thumb_at = null; patch.client_thumb_version = null; }
           updated++;
         }
       }

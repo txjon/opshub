@@ -9,10 +9,10 @@ export const dynamic = "force-dynamic";
 // A release's line sheet, the client's view (mig 192: the sheet is the
 // proposal stage of ONE release). Rides the 'releases' grant.
 // GET  → the client view: organizing live, art only once published.
-// POST → { itemId, note } = optional why on a thumbs-down (mig 195), or
-// POST → { itemId, thumb: "up" | "down" | null } — the one-tap reaction. It
-//        rides the ITEM across versions (the carry rule); tapping the same
-//        thumb again clears it.
+// POST → { itemId, note } = the client's comment on an item (mig 213): any
+//        time, with or without a thumb; empty clears it. Or
+// POST → { itemId, thumb: "up" | "down" | null } — the one-tap reaction,
+//        null = Clear (back to its shelf). The comment is untouched by it.
 const admin = () => createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 async function sheetFor(db: any, token: string, releaseId: string) {
   const { data: client } = await hubClientLookup(db, token, "id, name, portal_features");
@@ -45,12 +45,9 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   const b = await req.json().catch(() => ({} as any));
   const { data: item } = await db.from("line_sheet_items").select("id, dropped, added_in, client_thumb").eq("id", b.itemId || "").eq("sheet_id", sheet.id).maybeSingle();
   if (!item || (item as any).dropped || (item as any).added_in == null) return NextResponse.json({ error: "Not on the sheet" }, { status: 404 });
-  // { itemId, note } alone = the optional "why" on an existing thumbs-down
-  // (Oct 1 2026, mig 195). Never required; only a down carries one.
   if (b.thumb === undefined && b.note !== undefined) {
-    if ((item as any).client_thumb !== "down") return NextResponse.json({ error: "Notes ride a thumbs-down" }, { status: 400 });
     const note = String(b.note || "").trim().slice(0, 500) || null;
-    const { error } = await db.from("line_sheet_items").update({ client_thumb_note: note } as never).eq("id", b.itemId);
+    const { error } = await db.from("line_sheet_items").update({ client_note: note, client_note_version: note ? sheet.current_version : null } as never).eq("id", b.itemId);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true, note });
   }
@@ -59,8 +56,6 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     client_thumb: b.thumb ?? null,
     client_thumb_at: b.thumb ? new Date().toISOString() : null,
     client_thumb_version: b.thumb ? sheet.current_version : null,
-    // the why belongs to the down it explained: any thumb change clears it
-    client_thumb_note: null,
   } as never).eq("id", b.itemId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true, thumb: b.thumb ?? null });

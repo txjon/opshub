@@ -8,7 +8,7 @@ import { T } from "@/lib/theme";   // T.accent = the confirm dialog's dark-text 
 import { useConfirm } from "@/components/useConfirm";
 // @ts-ignore — plain-JS lib, no declarations
 import { uploadToDrive } from "@/lib/drive-upload-client";
-import { shelfNumbering } from "@/lib/line-sheets";
+import { shelfNumbering, noteIsStale } from "@/lib/line-sheets";
 
 // THE LINE SHEET BUILDER (mig 190, selection-first rework Oct 1).
 // Tap cards to select; a sticky action bar does the rest:
@@ -329,9 +329,12 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
           onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }}
           onBlur={e => { const v = e.target.value.replace(/\s*\n\s*/g, " ").trim(); if (v !== (it.name || "")) { patchItem({ id: it.id, name: v }).then(load); } }}
           style={{ width: "100%", boxSizing: "border-box", background: H.ink, border: `1px solid ${H.line2}`, borderRadius: 6, color: H.text, fontSize: 11.5, fontWeight: 700, lineHeight: 1.35, padding: "5px 7px", outline: "none", fontFamily: H.font, marginTop: 8, resize: "none", overflow: "hidden", display: "block" }} />
-        {/* the client's optional why on a thumbs-down (mig 195) */}
-        {it.client_thumb === "down" && it.client_thumb_note && (
-          <div title="Client's note on the thumbs-down" style={{ marginTop: 6, fontSize: 11, color: H.red, lineHeight: 1.35, fontStyle: "italic", overflowWrap: "anywhere" }}>&ldquo;{it.client_thumb_note}&rdquo;</div>
+        {/* the client's comment (mig 213), any thumb or none */}
+        {it.client_note && (
+          <div title="Client's comment" style={{ marginTop: 6, fontSize: 11, color: H.dim, lineHeight: 1.35, overflowWrap: "anywhere" }}>
+            <span style={{ fontStyle: "italic" }}>💬 &ldquo;{it.client_note}&rdquo;</span>
+            {noteIsStale(it) && <span style={{ display: "block", marginTop: 2, fontSize: 9.5, color: H.faint, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>on the previous version</span>}
+          </div>
         )}
       </div>
     );

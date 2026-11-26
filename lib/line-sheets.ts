@@ -1,7 +1,9 @@
 // THE LINE SHEET — shared, client-safe model (mig 190, design map artifact
 // 4931e236). A client-level product line: sections of named items with
-// persistent identity, published versions, and a client thumb per item that
-// carries across versions until the item visually changes.
+// persistent identity, published versions, a client thumb per item and an
+// optional client comment. New art on an item keeps a thumbs-up (a revision
+// he asked for is still his pick) and resets a thumbs-down (he gets a fresh
+// look at the rework); the comment stays, read as "on the previous version".
 export type SheetImage = { id: string; driveId: string; name?: string | null };
 export type SheetItem = {
   id: string; sheet_id: string; section_id: string | null; name: string | null; sort: number;
@@ -9,7 +11,8 @@ export type SheetItem = {
   added_in: number | null; updated_in: number | null;
   dropped: boolean; dropped_in: number | null;
   client_thumb: "up" | "down" | null; client_thumb_at: string | null; client_thumb_version: number | null;
-  client_thumb_note: string | null;   // optional why on a thumbs-down (mig 195)
+  client_note: string | null;           // the client's comment, any thumb or none (mig 213)
+  client_note_version: number | null;   // published version it was written on
 };
 export type SheetSection = { id: string; sheet_id: string; name: string; sort: number };
 // Item numbers before the FIRST publish follow the shelves (Jon, Nov 2026):
@@ -45,6 +48,11 @@ export function badgeFor(item: Pick<SheetItem, "added_in" | "updated_in">, n: nu
   return null;
 }
 
+// A comment written before the item's latest new art is about the old picture.
+export function noteIsStale(it: { client_note?: string | null; client_note_version?: number | null; updated_in?: number | null }): boolean {
+  return !!it.client_note && it.updated_in != null && it.client_note_version != null && it.updated_in > it.client_note_version;
+}
+
 export const newImageId = () => Math.random().toString(36).slice(2, 9);
 
 // ── THE CLIENT VIEW (Jon, Oct 1 2026: "publishing should only be for new
@@ -67,7 +75,7 @@ export async function clientSheetView(db: Db, sheet: { id: string; current_versi
   const n = sheet.current_version;
   const [{ data: secs }, { data: rows }, { data: v }, published] = await Promise.all([
     db.from("line_sheet_sections").select("id, name, sort").eq("sheet_id", sheet.id).order("sort"),
-    db.from("line_sheet_items").select("id, section_id, name, item_no, sort, images, added_in, updated_in, dropped, client_thumb, client_thumb_note").eq("sheet_id", sheet.id).order("sort"),
+    db.from("line_sheet_items").select("id, section_id, name, item_no, sort, images, added_in, updated_in, dropped, client_thumb, client_note, client_note_version").eq("sheet_id", sheet.id).order("sort"),
     db.from("line_sheet_versions").select("n, note, published_at").eq("sheet_id", sheet.id).eq("n", n).maybeSingle(),
     publishedImageIds(db, sheet.id),
   ]);
@@ -77,7 +85,8 @@ export async function clientSheetView(db: Db, sheet: { id: string; current_versi
     .filter(it => it.images.length > 0)
     .map(it => ({
       id: it.id, section_id: it.section_id, name: it.name, item_no: it.item_no, sort: it.sort, images: it.images,
-      badge: badgeFor(it, n), thumb: it.client_thumb ?? null, note: it.client_thumb_note ?? null,
+      badge: badgeFor(it, n), thumb: it.client_thumb ?? null, note: it.client_note ?? null,
+      noteStale: noteIsStale(it),
     }));
   return {
     version: { n, note: (v as any)?.note || null, published_at: (v as any)?.published_at || null },
