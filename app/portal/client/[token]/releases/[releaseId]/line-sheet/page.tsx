@@ -48,6 +48,8 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
   const noteClosed = useRef<{ id: string; at: number } | null>(null);
   // one write at a time, in order: a note save and the tap after it can't race
   const chain = useRef<Promise<unknown>>(Promise.resolve());
+  const noteRef = useRef<HTMLTextAreaElement | null>(null);       // the open note box, read when a verdict is tapped
+  useEffect(() => { if (!err) return; const t = setTimeout(() => setErr(""), 6000); return () => clearTimeout(t); }, [err]);
   useNoPageZoom();                                                // app feel: the page doesn't pinch; the viewer does
   const load = () => fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`).then(r => r.json()).then(j => { if (j.error) setMissing(true); else setData(j); }).catch(() => setMissing(true));
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [releaseId]);
@@ -81,6 +83,30 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
   // As is / Pass save at once; tapping the one he picked undoes it. Change
   // opens the note box: it saves when he says what should change.
   async function pick(it: any, v: "asis" | "change" | "pass") {
+    // The note box on this card is still open (the tap didn't take focus):
+    // the tap is the answer, with what's typed in the box.
+    const el = noteFor?.id === it.id ? noteRef.current : null;
+    if (el && noteFor) {
+      const mode = noteFor.mode;
+      const text = el.value.replace(/\s*\n\s*/g, " ").trim();
+      el.dataset.cancel = "1";             // its unmount blur must not save again
+      setErr("");
+      if (mode === "change" && v === "change") { if (text) await saveNote(it, text, "change"); else setNoteFor(null); return; }
+      if (mode === "change") {
+        // typed a change, then picked As is / Pass: that verdict, note kept
+        setNoteFor(null);
+        setHold({ id: it.id, group: hold && hold.id === it.id ? hold.group : groupOf(it) });
+        patchLocal(it.id, { verdict: v, verdictBy: "client", ...(text ? { note: text, noteStale: false } : {}), badge: null });
+        if (text) await post({ itemId: it.id, note: text });
+        await post({ itemId: it.id, verdict: v });
+        return;
+      }
+      // a plain note: save it; tapping the verdict he has confirms, another one switches
+      await saveNote(it, text, "note");
+      noteClosed.current = null;
+      if (v === it.verdict || v === "change") return;
+      // (falls through to set As is / Pass below)
+    }
     const nc = noteClosed.current;
     const afterNote = !!nc && nc.id === it.id && Date.now() - nc.at < 700;
     noteClosed.current = null;
@@ -145,7 +171,7 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
         <div style={{ padding: "10px 12px 12px", flex: 1, display: "flex", flexDirection: "column" }}>
           <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25 }}>{it.name || (it.item_no ? String(it.item_no).padStart(2, "0") : "Untitled")}</div>
           {open ? (
-            <textarea autoFocus rows={2} defaultValue={open.mode === "change" && it.noteStale ? "" : it.note || ""} maxLength={500}
+            <textarea ref={noteRef} autoFocus rows={2} defaultValue={open.mode === "change" && it.noteStale ? "" : it.note || ""} maxLength={500}
               placeholder={open.mode === "change" ? "What should change?" : "Add a note"} aria-label={open.mode === "change" ? "What should change?" : "Note"}
               // Escape cancels: flag it so the blur that follows doesn't save
               onBlur={e => { if (e.currentTarget.dataset.cancel) return; saveNote(it, e.target.value, open.mode); }}

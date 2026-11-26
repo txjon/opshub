@@ -9,6 +9,7 @@ import { useConfirm } from "@/components/useConfirm";
 // @ts-ignore — plain-JS lib, no declarations
 import { uploadToDrive } from "@/lib/drive-upload-client";
 import { layoutNumbering, noteIsStale } from "@/lib/line-sheets";
+import { VerdictRow } from "@/components/LineSheetVerdicts";
 
 // THE LINE SHEET BUILDER (mig 190, selection-first rework Oct 1; one list of
 // concepts + verdicts Nov 26 2026). Everything lands in Concepts; the
@@ -64,6 +65,8 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     const t = setTimeout(() => document.addEventListener("click", close), 0);
     return () => { clearTimeout(t); document.removeEventListener("click", close); };
   }, [pickSide]);
+  // the bar's Change box belongs to the selection it was opened on
+  useEffect(() => { setChangeNote(null); }, [selected]);
   const dataRef = useRef<any>(null);
   const queueRef = useRef<QFile[]>([]);
   const pumping = useRef(false);
@@ -235,8 +238,11 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     const ids = [...selected];
     setChangeNote(null); setBusy(true); setErr("");
     try {
-      for (const id of ids) { const r = await patchItem({ id, verdict: v, ...(note ? { note } : {}) }); if (r?.error) break; }
-      setSelected([]); await load();
+      // a failure stops here and keeps the selection, so it's clear what's left
+      let ok = true;
+      for (const id of ids) { const r = await patchItem({ id, verdict: v, ...(note ? { note } : {}) }); if (r?.error) { ok = false; break; } }
+      if (ok) setSelected([]);
+      await load();
     } finally { setBusy(false); }
   }
 
@@ -394,7 +400,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const uploadingNames = queue.filter(q => q.status === "uploading").map(q => q.file.name);
 
   return (
-    <div style={{ maxWidth: 1240, margin: "0 auto", padding: "26px 20px 140px", background: H.ink, minHeight: "100vh", color: H.text, fontFamily: H.font }}>
+    <div style={{ maxWidth: 1240, margin: "0 auto", padding: "26px 20px 220px", background: H.ink, minHeight: "100vh", color: H.text, fontFamily: H.font }}>
       {confirmEl}
       {/* ↻ / ↓ show on hover (always on touch screens), so the board reads as pictures, not buttons */}
       <style>{`.ls-card .ls-tool{opacity:0;transition:opacity .12s}.ls-card:hover .ls-tool,.ls-card .ls-tool:focus-visible{opacity:1}@media (hover:none){.ls-card .ls-tool{opacity:1}}`}</style>
@@ -529,35 +535,52 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         </div>
       )}
 
-      {/* ── THE SELECTION BAR ── */}
-      {selected.length > 0 && (
-        <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 250, background: "rgba(10,10,10,.97)", borderTop: `1px solid ${H.line}`, padding: "12px 18px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", justifyContent: "center" }}>
-          <span style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em" }}>{selected.length} selected</span>
-          {/* the verdict, set for the client (e.g. they answered by text) */}
-          {!sheet.archived_at && (changeNote !== null ? (
-            <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <input autoFocus value={changeNote} onChange={e => setChangeNote(e.target.value)} placeholder="What should change? (their words)" maxLength={500}
-                onKeyDown={e => { if (e.key === "Enter" && changeNote.trim()) setVerdicts("change", changeNote.trim()); if (e.key === "Escape") setChangeNote(null); }}
-                style={{ ...inp, width: 280, fontSize: 12, padding: "8px 10px", borderColor: H.amber }} />
-              <button disabled={busy || !changeNote.trim()} onClick={() => setVerdicts("change", changeNote.trim())} style={{ ...ghostBtn, color: H.amber, borderColor: H.amber }}>Save change</button>
-              <button onClick={() => setChangeNote(null)} style={{ ...ghostBtn, border: "none", color: H.faint }}>Cancel</button>
-            </span>
-          ) : (
-            <span style={{ display: "flex", gap: 6, alignItems: "center", paddingRight: 6, borderRight: `1px solid ${H.line}` }}>
-              <button disabled={busy} onClick={() => setVerdicts("asis")} title="Good to go: what Create order takes" style={{ ...ghostBtn, color: H.green, borderColor: "rgba(88,201,60,.45)" }}>✓ As is</button>
-              <button disabled={busy} onClick={() => { const one = selected.length === 1 ? items.find(i => i.id === selected[0]) : null; setChangeNote(one && one.client_note && !noteIsStale(one) ? one.client_note : ""); }} title="They like it but want something changed" style={{ ...ghostBtn, color: H.amber, borderColor: "rgba(244,178,43,.45)" }}>✎ Change</button>
-              <button disabled={busy} onClick={() => setVerdicts("pass")} style={{ ...ghostBtn, color: H.red, borderColor: "rgba(255,90,110,.4)" }}>✕ Pass</button>
-              {selected.some(id => items.find(i => i.id === id)?.client_verdict) && <button disabled={busy} onClick={() => setVerdicts(null)} title="Back to Concepts, where it was (their note stays). Already on an order? It stays there." style={ghostBtn}>↩ Concepts</button>}
-            </span>
-          ))}
-          {selected.length === 1 && (items.find(i => i.id === selected[0])?.images?.length || 0) > 1 && <button disabled={busy} onClick={async () => { const it = items.find(i => i.id === selected[0]); setBusy(true); try { await unpairItem(it); setSelected([]); } finally { setBusy(false); } }} style={{ ...ghostBtn, color: H.blue, borderColor: "rgba(143,199,216,.4)" }}>Unpair ({items.find(i => i.id === selected[0])?.images?.length})</button>}
-          {selected.length === 2 && <button disabled={busy} onClick={pairSelected} style={{ ...primaryBtn, background: H.blue, color: H.ink }}>Pair → one product</button>}
-          {selected.length > 2 && <button disabled={busy} onClick={groupSelected} style={{ ...ghostBtn, color: H.blue, borderColor: "rgba(143,199,216,.4)" }}>Group {selected.length} as one</button>}
-          <a href={`/api/studio/line-sheets/${params.id}/download?pick=${selected.join(",")}`} download style={{ ...ghostBtn, textDecoration: "none" }}>↓ Download ({selected.length})</a>
-          <button disabled={busy} onClick={dropSelected} style={{ ...ghostBtn, color: H.red, borderColor: "rgba(255,90,110,.4)" }}>Remove</button>
-          <button onClick={() => { setSelected([]); setChangeNote(null); }} style={{ ...ghostBtn, border: "none", color: H.faint }}>Clear</button>
-        </div>
-      )}
+      {/* ── THE SELECTION BAR (Jon, Nov 26: one clean card) ──
+          header: how many + close · their answer, the same As is / Change /
+          Pass row the client sees (tap the lit one again = back to Concepts)
+          · quiet links for the rest. */}
+      {selected.length > 0 && (() => {
+        const sel = selected.map(id => items.find(i => i.id === id)).filter(Boolean) as any[];
+        // the lit answer: the one every selected card shares (an old Liked reads as none)
+        const shared = sel.length && sel.every(i => i.client_verdict === sel[0].client_verdict) && sel[0].client_verdict !== "liked" ? sel[0].client_verdict : null;
+        const one = sel.length === 1 ? sel[0] : null;
+        const link: React.CSSProperties = { background: "none", border: "none", padding: "4px 2px", cursor: "pointer", fontFamily: H.font, fontSize: 12.5, fontWeight: 700, color: H.dim, textDecoration: "none" };
+        const close = () => { setSelected([]); setChangeNote(null); };
+        return (
+          <div role="dialog" aria-label={`${selected.length} selected`} style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 16, zIndex: 250, width: "min(460px, calc(100vw - 32px))", boxSizing: "border-box", background: "#161616", border: `1px solid ${H.line}`, borderRadius: 16, boxShadow: "0 18px 50px rgba(0,0,0,.6)", padding: "12px 14px 10px" }}>
+            <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.text }}>{one ? (one.name || (noOf(one) ? `#${noOf(one)}` : "1 selected")) : `${selected.length} selected`}</span>
+              <button onClick={close} aria-label="Close" title="Close (deselect)" style={{ marginLeft: "auto", background: "none", border: "none", color: H.faint, fontSize: 16, lineHeight: 1, cursor: "pointer", padding: 4 }}>✕</button>
+            </div>
+            {!sheet.archived_at && (changeNote !== null ? (
+              <div>
+                <input autoFocus value={changeNote} onChange={e => setChangeNote(e.target.value)} placeholder="What should change? (their words)" maxLength={500}
+                  onKeyDown={e => { if (e.key === "Enter" && changeNote.trim()) setVerdicts("change", changeNote.trim()); if (e.key === "Escape") setChangeNote(null); }}
+                  style={{ ...inp, width: "100%", boxSizing: "border-box", fontSize: 13, padding: "10px 12px", borderColor: H.amber }} />
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <button onClick={() => setChangeNote(null)} style={{ ...ghostBtn, border: "none", color: H.faint }}>Cancel</button>
+                  <button disabled={busy || !changeNote.trim()} onClick={() => setVerdicts("change", changeNote.trim())} style={{ ...primaryBtn, marginLeft: "auto", background: H.amber, color: H.ink, padding: "9px 18px" }}>Save change</button>
+                </div>
+              </div>
+            ) : (
+              <VerdictRow disabled={busy} value={shared} onPick={v => {
+                if (v === shared) return setVerdicts(null);
+                if (v !== "change") return setVerdicts(v);
+                // a Change is one card's own note
+                if (!one) { setErr("Change one card at a time: it carries that card's note"); return; }
+                setChangeNote(one.client_note && !noteIsStale(one) ? one.client_note : "");
+              }} p={{ line: H.line, dim: H.dim, ink: H.ink, green: H.green, amber: H.amber, red: H.red, font: H.font }} />
+            ))}
+            <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", marginTop: 10, paddingTop: 8, borderTop: `1px solid ${H.line2}` }}>
+              {one && (one.images?.length || 0) > 1 && <button disabled={busy} onClick={async () => { setBusy(true); try { await unpairItem(one); setSelected([]); } finally { setBusy(false); } }} style={link}>Unpair ({one.images.length})</button>}
+              {selected.length === 2 && <button disabled={busy} onClick={pairSelected} title="First tapped = front" style={{ ...link, color: H.blue }}>Pair as one product</button>}
+              {selected.length > 2 && <button disabled={busy} onClick={groupSelected} style={{ ...link, color: H.blue }}>Group as one</button>}
+              <a href={`/api/studio/line-sheets/${params.id}/download?pick=${selected.join(",")}`} download style={link}>↓ Download</a>
+              <button disabled={busy} onClick={dropSelected} style={{ ...link, color: H.red, marginLeft: "auto" }}>Remove</button>
+            </div>
+          </div>
+        );
+      })()}
 
       {publishOpen && (
         <div onClick={e => { if (e.target === e.currentTarget) setPublishOpen(false); }} style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(0,0,0,.8)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>

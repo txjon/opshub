@@ -33,7 +33,9 @@ export function VerdictRow({ value, pending, onPick, p, compact, disabled }: {
           <button key={v} type="button" disabled={disabled} aria-pressed={on}
             title={on ? `${VERDICT_WORD[v]} · tap again to undo` : VERDICT_WORD[v]}
             onClick={e => { e.stopPropagation(); onPick(v); }}
-            onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}
+            // preventDefault: the tap never steals focus, so an open note box
+            // stays open and the page reads what's in it (no blur-vs-tap race)
+            onMouseDown={e => { e.preventDefault(); e.stopPropagation(); }} onTouchStart={e => e.stopPropagation()}
             style={{
               flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
               padding: compact ? "5px 0 4px" : "7px 0 6px", borderRadius: 8, cursor: disabled ? "default" : "pointer", fontFamily: p.font,
