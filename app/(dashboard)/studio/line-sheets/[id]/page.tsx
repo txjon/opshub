@@ -147,7 +147,9 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const notApproved = items.filter(i => i.client_thumb === "down");
   const approvedN = selections.length;
   const onShelf = (i: any) => !i.client_thumb;
-  const tray = items.filter(i => !i.section_id && onShelf(i));
+  // no shelf, or a shelf since removed: both publish shelf-less (boxOf agrees)
+  const shelfless = (i: any) => !(i.section_id && sections.some((x: any) => x.id === i.section_id));
+  const tray = items.filter(i => shelfless(i) && onShelf(i));
   // Organizing is live in their hub; only never-published uploads wait (Oct 1 2026).
   const unpublished = items.filter(i => !i.dropped && i.added_in == null).length;
   // Never published → numbers follow the shelves (lib/line-sheets shelfNumbering);
@@ -546,7 +548,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
           <div style={{ background: "#161616", border: `1px solid ${H.line}`, borderRadius: 18, width: "100%", maxWidth: 460, padding: "20px 22px" }}>
             <div style={{ fontSize: 15, fontWeight: 900, textTransform: "uppercase" }}>Publish v{sheet.current_version + 1}</div>
             <div style={{ fontSize: 12, color: H.dim, marginTop: 6, lineHeight: 1.5 }}>New uploads go live in their hub{unpublished ? ` (${unpublished} waiting)` : ""}. Names, shelves and grouping are already live without publishing. New items get a NEW badge; items with new art get UPDATED. New art keeps a 👍 and resets a 👎 (back on its shelf for a fresh look). Comments stay.</div>
-            {tray.length > 0 && <div style={{ fontSize: 12, color: H.amber, marginTop: 8 }}>Heads up: {tray.length} item{tray.length === 1 ? " is" : "s are"} still in the tray — they publish shelf-less at the bottom.</div>}
+            {(() => { const n = items.filter(shelfless).length; return n > 0 && <div style={{ fontSize: 12, color: H.amber, marginTop: 8 }}>Heads up: {n} item{n === 1 ? " has" : "s have"} no shelf. They publish shelf-less at the bottom.</div>; })()}
             <label style={{ ...lbl, marginTop: 12 }}>What changed <span style={{ color: H.faint }}>(the client sees this)</span></label>
             <textarea value={publishNote} onChange={e => setPublishNote(e.target.value)} rows={2} placeholder="e.g. your swaps are in, added the M81 and a popup sticker pack" style={{ ...inp, resize: "vertical" }} />
             <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
