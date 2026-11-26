@@ -9,13 +9,13 @@ import { useConfirm } from "@/components/useConfirm";
 // @ts-ignore — plain-JS lib, no declarations
 import { uploadToDrive } from "@/lib/drive-upload-client";
 import { layoutNumbering, noteIsStale } from "@/lib/line-sheets";
-import { VerdictRow } from "@/components/LineSheetVerdicts";
 
 // THE LINE SHEET BUILDER (mig 190, selection-first rework Oct 1; one list of
 // concepts + verdicts Nov 26 2026). Everything lands in Concepts; the
 // client's verdicts (or HPD's) move a card up to Good to go / Changes asked
-// or down to Passed, and ↩ / tapping the verdict again sends it back. Tap
-// cards to select; a sticky action bar does the rest: Pair (2 selected → one
+// or down to Passed. Cards only SHOW state (Jon: the per-card buttons were
+// overwhelming); tap cards to select and the sticky action bar does the
+// rest: As is / Change / Pass / ↩ Concepts, Pair (2 selected → one
 // product), Group, Download, Remove. Uploads are bulletproof: 3-at-a-time,
 // each file registers the moment it lands (a crash keeps everything landed),
 // re-dropping the same folder skips what's already on the sheet, and a
@@ -28,7 +28,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [selected, setSelected] = useState<string[]>([]);   // ordered — first tap = front
-  const [changeFor, setChangeFor] = useState<string | null>(null);   // card whose "what should change?" box is open
+  const [changeNote, setChangeNote] = useState<string | null>(null);   // the bar's "what should change?" box (null = closed)
   const [publishOpen, setPublishOpen] = useState(false);
   const [publishNote, setPublishNote] = useState("");
   const [queue, setQueue] = useState<QFile[]>([]);
@@ -228,16 +228,16 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     finally { setReplacing(r => r.filter(x => x !== t.id)); await load(); }
   }
   async function patchItem(body: any) { const r = await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(x => x.json()); if (r.error) setErr(r.error); return r; }
-  // HPD sets the verdict (Jon, Nov 26: both sides move things between As is,
-  // Change and Pass). Tapping the one it has undoes it; Change asks what.
-  async function setVerdict(it: any, v: "asis" | "change" | "pass" | null, note?: string) {
-    setChangeFor(null); setBusy(true); setErr("");
-    try { await patchItem({ id: it.id, verdict: v, ...(note ? { note } : {}) }); await load(); } finally { setBusy(false); }
-  }
-  function pickVerdict(it: any, v: "asis" | "change" | "pass") {
-    if (it.client_verdict === v) return setVerdict(it, null);
-    if (v === "change") return setChangeFor(changeFor === it.id ? null : it.id);
-    return setVerdict(it, v);
+  // HPD sets the verdict on the selected cards (Jon, Nov 26: both sides move
+  // things between As is, Change and Pass). null = back to Concepts. Change
+  // carries one note, what should change, onto each.
+  async function setVerdicts(v: "asis" | "change" | "pass" | null, note?: string) {
+    const ids = [...selected];
+    setChangeNote(null); setBusy(true); setErr("");
+    try {
+      for (const id of ids) { const r = await patchItem({ id, verdict: v, ...(note ? { note } : {}) }); if (r?.error) break; }
+      setSelected([]); await load();
+    } finally { setBusy(false); }
   }
 
   const visualOrder = [...goodToGo, ...changes, ...liked, ...concepts, ...passed].map(i => i.id);
@@ -314,7 +314,8 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     const selIdx = selected.indexOf(it.id);
     const on = selIdx >= 0;
     return (
-      <div key={it.id} onClick={e => { if (!justDragged.current) toggleSel(it.id, e.shiftKey); }}
+      <div key={it.id} className="ls-card" onClick={e => { if (!justDragged.current) toggleSel(it.id, e.shiftKey); }}
+        title={it.client_verdict && it.client_verdict !== "liked" ? `Set by ${it.client_verdict_by === "hpd" ? "HPD" : "the client"}${it.client_verdict_at ? `, ${fmtStamp(it.client_verdict_at)}` : ""}` : undefined}
         style={{ background: H.panel, border: `1px solid ${on ? H.blue : H.line}`, outline: on ? `2px solid ${H.blue}` : "none", outlineOffset: -1, borderRadius: 12, padding: 10, width: 172, cursor: "pointer", position: "relative", userSelect: "none" }}>
         {/* tight pair render: front left, back tucked right — the PDF look */}
         <div {...(handle?.attributes || {})} {...(handle?.listeners || {})} style={{ position: "relative", height: 122, background: "#fff", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", cursor: handle ? "grab" : "pointer", touchAction: handle ? "manipulation" : undefined, WebkitTouchCallout: "none" }}>
@@ -330,7 +331,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
           {/* this item's file(s), named by the item (one = the file, more = a ZIP) */}
           {/* ↻ Replace: swap the mockup in place (a front/back pair asks which) */}
           {!on && imgs.length > 0 && !sheet.archived_at && <button onClick={e => { e.stopPropagation(); if (imgs.length === 1) startReplace(it, 0); else setPickSide(pickSide === it.id ? null : it.id); }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}
-            disabled={replacing.includes(it.id)} title={imgs.length === 1 ? "Replace this mockup" : "Replace one of these mockups"} aria-label="Replace mockup"
+            disabled={replacing.includes(it.id)} title={imgs.length === 1 ? "Replace this mockup" : "Replace one of these mockups"} aria-label="Replace mockup" className={replacing.includes(it.id) ? undefined : "ls-tool"}
             style={{ position: "absolute", right: 37, top: 5, zIndex: 3, color: "#555", background: "rgba(255,255,255,.92)", border: "none", borderRadius: 6, minWidth: 28, height: 28, display: "grid", placeItems: "center", fontSize: 14, fontWeight: 800, cursor: "pointer", padding: 0 }}>{replacing.includes(it.id) ? "…" : "↻"}</button>}
           {pickSide === it.id && (
             <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} style={{ position: "absolute", left: 4, right: 4, top: 4, maxHeight: 114, overflowY: "auto", zIndex: 4, background: "#161616", border: `1px solid ${H.line}`, borderRadius: 8, padding: 4, display: "flex", flexDirection: "column", gap: 2 }}>
@@ -343,7 +344,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
               ))}
             </div>
           )}
-          {!on && imgs.length > 0 && <a href={`/api/studio/line-sheets/${params.id}/download?pick=${it.id}`} download onClick={e => e.stopPropagation()} title={imgs.length > 1 ? `Download ${imgs.length} files` : "Download file"} style={{ position: "absolute", right: 5, top: 5, zIndex: 3, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 6, minWidth: 28, height: 28, display: "grid", placeItems: "center", fontSize: 13, fontWeight: 800, textDecoration: "none" }}>↓</a>}
+          {!on && imgs.length > 0 && <a className="ls-tool" href={`/api/studio/line-sheets/${params.id}/download?pick=${it.id}`} download onClick={e => e.stopPropagation()} title={imgs.length > 1 ? `Download ${imgs.length} files` : "Download file"} style={{ position: "absolute", right: 5, top: 5, zIndex: 3, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 6, minWidth: 28, height: 28, display: "grid", placeItems: "center", fontSize: 13, fontWeight: 800, textDecoration: "none" }}>↓</a>}
           {on && <span style={{ position: "absolute", right: 5, top: 5, background: H.blue, color: H.ink, borderRadius: 999, width: 20, height: 20, display: "grid", placeItems: "center", fontSize: 11, fontWeight: 900, zIndex: 3 }}>{selIdx + 1}</span>}
           {imgs.length > 2 && <span style={{ position: "absolute", right: 5, bottom: 5, ...tag("#555", 8.5), background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>+{imgs.length - 2}</span>}
           {/* what the client sees of this card right now */}
@@ -360,35 +361,20 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
           onBlur={e => { const v = e.target.value.replace(/\s*\n\s*/g, " ").trim(); if (v !== (it.name || "")) { patchItem({ id: it.id, name: v }).then(load); } }}
           style={{ width: "100%", boxSizing: "border-box", background: H.ink, border: `1px solid ${H.line2}`, borderRadius: 6, color: H.text, fontSize: 11.5, fontWeight: 700, lineHeight: 1.35, padding: "5px 7px", outline: "none", fontFamily: H.font, marginTop: 8, resize: "none", overflow: "hidden", display: "block" }} />
         {/* the client's note (mig 213): what to change, or what they asked on the last picture */}
-        {it.client_note && changeFor !== it.id && (
-          <div title="Client's note" style={{ marginTop: 6, fontSize: 11, color: H.dim, lineHeight: 1.35, overflowWrap: "anywhere" }}>
+        {it.client_note && (
+          <div style={{ marginTop: 6, fontSize: 11, color: H.dim, lineHeight: 1.35, overflowWrap: "anywhere" }}>
             {noteIsStale(it)
               ? <span style={{ display: "block", marginBottom: 2, fontSize: 9.5, color: it.client_verdict ? H.faint : H.amber, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>{it.client_verdict ? "asked, on the last version" : "asked · new version is up"}</span>
               : it.client_verdict === "change" && <span style={{ display: "block", marginBottom: 2, fontSize: 9.5, color: H.amber, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 700 }}>what to change</span>}
-            <span style={{ fontStyle: "italic" }}>&ldquo;{it.client_note}&rdquo;</span>
+            <span title={it.client_note} style={{ fontStyle: "italic", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>&ldquo;{it.client_note}&rdquo;</span>
           </div>
         )}
-        {changeFor === it.id && (
-          <textarea autoFocus rows={2} defaultValue={noteIsStale(it) ? "" : it.client_note || ""} placeholder="What should change? (their words)" maxLength={500} aria-label="What should change?"
-            onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}
-            onBlur={e => { if (e.currentTarget.dataset.cancel) return; const v = e.target.value.replace(/\s*\n\s*/g, " ").trim(); if (v) setVerdict(it, "change", v); else setChangeFor(null); }}
-            onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } if (e.key === "Escape") { e.currentTarget.dataset.cancel = "1"; setChangeFor(null); } }}
-            style={{ width: "100%", boxSizing: "border-box", marginTop: 6, background: H.ink, border: `1px solid ${H.amber}`, borderRadius: 6, color: H.text, fontSize: 11.5, lineHeight: 1.35, padding: "5px 7px", outline: "none", fontFamily: H.font, resize: "none" }} />
-        )}
-        {it.client_verdict === "liked" && <div style={{ marginTop: 6, fontSize: 10.5, color: H.blue, lineHeight: 1.35 }}>Old thumbs-up: they&rsquo;re asked As is or Change</div>}
         {ordered.has(it.id) && order?.job && <div style={{ marginTop: 6, fontSize: 9.5, fontFamily: H.mono, color: H.faint }}>on {order.job.job_number}</div>}
-        {!sheet.archived_at && (
-          <div style={{ marginTop: 8 }}>
-            <VerdictRow compact disabled={busy} value={it.client_verdict === "liked" ? null : it.client_verdict} pending={changeFor === it.id} onPick={v => pickVerdict(it, v)}
-              p={{ line: H.line, dim: H.dim, ink: H.ink, green: H.green, amber: H.amber, red: H.red, font: H.font }} />
-            {it.client_verdict && it.client_verdict !== "liked" && <div style={{ marginTop: 4, fontSize: 9, fontFamily: H.mono, color: H.faint }}>{it.client_verdict_by === "hpd" ? "set by HPD" : "set by client"}{it.client_verdict_at ? ` · ${fmtStamp(it.client_verdict_at)}` : ""}</div>}
-          </div>
-        )}
       </div>
     );
   };
 
-  // The verdict groups (not drag lists). ↩ sends a card back to Concepts.
+  // The verdict groups (not drag lists). Select → ↩ Concepts sends a card back.
   const bucket = (title: string, color: string, list: any[], hint: string) => list.length > 0 && (
     <section style={{ marginBottom: 26 }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
@@ -396,18 +382,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         <span style={{ fontSize: 10.5, color: H.faint }}>{list.length} · {hint}</span>
       </div>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", borderLeft: `2px solid ${color}`, paddingLeft: 12 }}>
-        {list.map(it => (
-          <div key={it.id}>
-            {card(it)}
-            {!sheet.archived_at && (
-              <div style={{ display: "flex", marginTop: 4, width: 172 }}>
-                <button disabled={busy} onClick={() => setVerdict(it, null)}
-                  title="Back to Concepts, where it was (clears the verdict; their note stays). Already on an order? It stays there." aria-label="Back to Concepts"
-                  style={{ marginLeft: "auto", background: "none", border: `1px solid ${H.line}`, borderRadius: 6, color: H.faint, fontSize: 11, lineHeight: 1, padding: "4px 7px", cursor: "pointer", fontFamily: H.font }}>↩ Concepts</button>
-              </div>
-            )}
-          </div>
-        ))}
+        {list.map(it => card(it))}
       </div>
     </section>
   );
@@ -421,6 +396,8 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   return (
     <div style={{ maxWidth: 1240, margin: "0 auto", padding: "26px 20px 140px", background: H.ink, minHeight: "100vh", color: H.text, fontFamily: H.font }}>
       {confirmEl}
+      {/* ↻ / ↓ show on hover (always on touch screens), so the board reads as pictures, not buttons */}
+      <style>{`.ls-card .ls-tool{opacity:0;transition:opacity .12s}.ls-card:hover .ls-tool,.ls-card .ls-tool:focus-visible{opacity:1}@media (hover:none){.ls-card .ls-tool{opacity:1}}`}</style>
       {dragging && (
         <div style={{ position: "fixed", inset: 0, zIndex: 400, pointerEvents: "none", background: "rgba(10,10,10,.72)", display: "grid", placeItems: "center", padding: 24 }}>
           <div style={{ border: `2px dashed ${H.blue}`, borderRadius: 18, padding: "46px 60px", textAlign: "center", background: "rgba(22,22,22,.9)" }}>
@@ -512,10 +489,20 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         </div>
       </div>
       {err && <div style={{ color: H.red, fontSize: 12, marginBottom: 12 }}>{err}</div>}
+      {/* where things stand, in one line: what's yours to do comes first */}
+      {items.length > 0 && (
+        <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "baseline", margin: "-8px 0 22px", fontSize: 13 }}>
+          {changes.length > 0 && <span style={{ color: H.amber, fontWeight: 800 }}>{changes.length} change{changes.length === 1 ? "" : "s"} to make</span>}
+          {goN > 0 && <span style={{ color: H.green, fontWeight: 700 }}>{goN} good to go{order?.pending ? ` · ${order.pending} not on an order yet` : ""}</span>}
+          {liked.length > 0 && <span style={{ color: H.blue }}>{liked.length} waiting on their answer</span>}
+          <span style={{ color: H.dim }}>{concepts.length} in concepts</span>
+          {passed.length > 0 && <span style={{ color: H.faint }}>{passed.length} passed</span>}
+        </div>
+      )}
 
       {bucket("Good to go", H.green, goodToGo, "As is · what Create order takes")}
       {bucket("Changes asked", H.amber, changes, "your to-do · Replace for a fix, new upload for a new color or blank")}
-      {bucket("Liked", H.blue, liked, "old thumbs-ups · they're asked As is or Change")}
+      {bucket("Liked", H.blue, liked, "old thumbs-ups · waiting on them: As is or Change")}
       {/* CONCEPTS: the one list. Everything lands here; verdicts move cards out. */}
       <section style={{ border: `2px dashed ${H.line}`, borderRadius: 14, padding: 14, marginBottom: 26 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: concepts.length ? 12 : 0, flexWrap: "wrap" }}>
@@ -546,12 +533,29 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
       {selected.length > 0 && (
         <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 250, background: "rgba(10,10,10,.97)", borderTop: `1px solid ${H.line}`, padding: "12px 18px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", justifyContent: "center" }}>
           <span style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em" }}>{selected.length} selected</span>
+          {/* the verdict, set for the client (e.g. they answered by text) */}
+          {!sheet.archived_at && (changeNote !== null ? (
+            <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input autoFocus value={changeNote} onChange={e => setChangeNote(e.target.value)} placeholder="What should change? (their words)" maxLength={500}
+                onKeyDown={e => { if (e.key === "Enter" && changeNote.trim()) setVerdicts("change", changeNote.trim()); if (e.key === "Escape") setChangeNote(null); }}
+                style={{ ...inp, width: 280, fontSize: 12, padding: "8px 10px", borderColor: H.amber }} />
+              <button disabled={busy || !changeNote.trim()} onClick={() => setVerdicts("change", changeNote.trim())} style={{ ...ghostBtn, color: H.amber, borderColor: H.amber }}>Save change</button>
+              <button onClick={() => setChangeNote(null)} style={{ ...ghostBtn, border: "none", color: H.faint }}>Cancel</button>
+            </span>
+          ) : (
+            <span style={{ display: "flex", gap: 6, alignItems: "center", paddingRight: 6, borderRight: `1px solid ${H.line}` }}>
+              <button disabled={busy} onClick={() => setVerdicts("asis")} title="Good to go: what Create order takes" style={{ ...ghostBtn, color: H.green, borderColor: "rgba(88,201,60,.45)" }}>✓ As is</button>
+              <button disabled={busy} onClick={() => { const one = selected.length === 1 ? items.find(i => i.id === selected[0]) : null; setChangeNote(one && one.client_note && !noteIsStale(one) ? one.client_note : ""); }} title="They like it but want something changed" style={{ ...ghostBtn, color: H.amber, borderColor: "rgba(244,178,43,.45)" }}>✎ Change</button>
+              <button disabled={busy} onClick={() => setVerdicts("pass")} style={{ ...ghostBtn, color: H.red, borderColor: "rgba(255,90,110,.4)" }}>✕ Pass</button>
+              {selected.some(id => items.find(i => i.id === id)?.client_verdict) && <button disabled={busy} onClick={() => setVerdicts(null)} title="Back to Concepts, where it was (their note stays). Already on an order? It stays there." style={ghostBtn}>↩ Concepts</button>}
+            </span>
+          ))}
           {selected.length === 1 && (items.find(i => i.id === selected[0])?.images?.length || 0) > 1 && <button disabled={busy} onClick={async () => { const it = items.find(i => i.id === selected[0]); setBusy(true); try { await unpairItem(it); setSelected([]); } finally { setBusy(false); } }} style={{ ...ghostBtn, color: H.blue, borderColor: "rgba(143,199,216,.4)" }}>Unpair ({items.find(i => i.id === selected[0])?.images?.length})</button>}
           {selected.length === 2 && <button disabled={busy} onClick={pairSelected} style={{ ...primaryBtn, background: H.blue, color: H.ink }}>Pair → one product</button>}
           {selected.length > 2 && <button disabled={busy} onClick={groupSelected} style={{ ...ghostBtn, color: H.blue, borderColor: "rgba(143,199,216,.4)" }}>Group {selected.length} as one</button>}
           <a href={`/api/studio/line-sheets/${params.id}/download?pick=${selected.join(",")}`} download style={{ ...ghostBtn, textDecoration: "none" }}>↓ Download ({selected.length})</a>
           <button disabled={busy} onClick={dropSelected} style={{ ...ghostBtn, color: H.red, borderColor: "rgba(255,90,110,.4)" }}>Remove</button>
-          <button onClick={() => setSelected([])} style={{ ...ghostBtn, border: "none", color: H.faint }}>Clear</button>
+          <button onClick={() => { setSelected([]); setChangeNote(null); }} style={{ ...ghostBtn, border: "none", color: H.faint }}>Clear</button>
         </div>
       )}
 
