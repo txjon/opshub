@@ -71,7 +71,7 @@ export async function resolveOwners(db: any, driveFileId: string): Promise<Owner
     db.from(table).select(select).eq(column, driveFileId).limit(25)
       .then((r: any) => { if (r.error) throw new Error(`${table}.${column}: ${r.error.message}`); return r.data || []; });
 
-  const [items, briefs, briefPreviews, lineups, lineupPreviews, clientDocs, legacy, products, lab, proofPdfs, proofMockups, sheetItems] = await Promise.all([
+  const [items, briefs, briefPreviews, lineups, lineupPreviews, clientDocs, legacy, products, lab, proofPdfs, proofMockups, sheetItems, sheetStandIns, sheetVersions] = await Promise.all([
     rows("item_files", "drive_file_id", "id, item_id, stage, superseded_at"),
     rows("art_brief_files", "drive_file_id", "id, brief_id"),
     rows("art_brief_files", "preview_drive_file_id", "id, brief_id"),
@@ -95,6 +95,15 @@ export async function resolveOwners(db: any, driveFileId: string): Promise<Owner
     db.from("line_sheet_items").select("id, sheet_id")
       .contains("images", JSON.stringify([{ driveId: driveFileId }])).limit(25)
       .then((r: any) => { if (r.error) throw new Error(`line_sheet_items: ${r.error.message}`); return r.data || []; }),
+    // ...or it is the published picture a Replace swapped out, which the client
+    // keeps seeing until the next publish (image.replaces, Nov 2026)...
+    db.from("line_sheet_items").select("id, sheet_id")
+      .contains("images", JSON.stringify([{ replaces: { driveId: driveFileId } }])).limit(25)
+      .then((r: any) => { if (r.error) throw new Error(`line_sheet_items.replaces: ${r.error.message}`); return r.data || []; }),
+    // ...or it only lives on in a published version's snapshot.
+    db.from("line_sheet_versions").select("id, sheet_id")
+      .contains("snapshot", JSON.stringify({ items: [{ images: [{ driveId: driveFileId }] }] })).limit(25)
+      .then((r: any) => { if (r.error) throw new Error(`line_sheet_versions: ${r.error.message}`); return r.data || []; }),
   ]);
 
   const out: Owner[] = [];
@@ -110,7 +119,7 @@ export async function resolveOwners(db: any, driveFileId: string): Promise<Owner
   for (const v of [...proofPdfs, ...proofMockups]) {
     out.push({ kind: "item_file", id: v.id, itemId: v.item_id, stage: "proof", superseded: false });
   }
-  for (const s of sheetItems) out.push({ kind: "line_sheet_item", id: s.id, sheetId: s.sheet_id });
+  for (const s of [...sheetItems, ...sheetStandIns, ...sheetVersions]) out.push({ kind: "line_sheet_item", id: s.id, sheetId: s.sheet_id });
   return out;
 }
 

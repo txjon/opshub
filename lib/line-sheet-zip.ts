@@ -48,7 +48,11 @@ export async function sheetMocks(db: Db, sheetId: string, pick: MockPick) {
   const items = ((rows || []) as any[])
     .filter(it => !it.dropped)
     .filter(it => pick.mode === "approved" ? it.client_thumb === "up" : wanted ? wanted.has(it.id) : true)
-    .map(it => ({ ...it, images: ((it.images || []) as SheetImage[]).filter(img => img?.driveId && (!published || published.has(img.driveId))) }))
+    // approved = what the client gave a 👍, so a pending Replace downloads the
+    // picture they actually saw (its stand-in), never nothing
+    .map(it => ({ ...it, images: ((it.images || []) as SheetImage[]).map(img => !published || !img?.driveId || published.has(img.driveId) ? img
+      : img.replaces && published.has(img.replaces.driveId) ? { ...img, driveId: img.replaces.driveId, name: img.replaces.name ?? img.name } : null)
+      .filter((img): img is SheetImage => !!img?.driveId) }))
     .filter(it => it.images.length > 0)
     .sort((a, b) => (secSort.get(a.section_id) ?? 1e9) - (secSort.get(b.section_id) ?? 1e9) || a.sort - b.sort);
   const files: { driveId: string; folder: string; base: string }[] = [];

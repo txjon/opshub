@@ -68,7 +68,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // mockups are saved with descriptive names). A split stays unnamed.
     sheet_id: params.id, section_id: from ? from.section_id : null,
     name: from ? null : (String(i.name || "").replace(/\.[a-z0-9]{2,5}$/i, "").trim().slice(0, 140) || null), sort: sort++,
-    images: [{ id: newImageId(), driveId: String(i.driveId), name: i.name || null, ...(Number(i.size) > 0 ? { size: Number(i.size) } : {}) }],
+    // a split keeps a pending Replace's stand-in, so the client still sees a picture
+    images: [{ id: newImageId(), driveId: String(i.driveId), name: i.name || null, ...(Number(i.size) > 0 ? { size: Number(i.size) } : {}), ...(from && i.replaces?.driveId ? { replaces: { driveId: String(i.replaces.driveId), name: i.replaces.name || null } } : {}) }],
     ...(from?.added_in != null ? { added_in: from.added_in, item_no: nextNo++ } : {}),
   }));
   const { data, error } = await db.from("line_sheet_items").insert(rows as never).select("*");

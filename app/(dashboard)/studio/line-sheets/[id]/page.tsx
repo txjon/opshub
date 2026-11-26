@@ -54,8 +54,15 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   // Replace (Nov 25): swap one mockup on an item in place
   const replaceIn = useRef<HTMLInputElement | null>(null);
   const replaceTarget = useRef<{ id: string; at: number } | null>(null);
-  const [replacing, setReplacing] = useState<string | null>(null);   // item id mid-upload
+  const [replacing, setReplacing] = useState<string[]>([]);         // item ids mid-upload
   const [pickSide, setPickSide] = useState<string | null>(null);     // multi-image item asking which one
+  useEffect(() => {
+    // any click outside the "Replace which?" picker closes it (clicks inside stop at React's root)
+    if (!pickSide) return;
+    const close = () => setPickSide(null);
+    const t = setTimeout(() => document.addEventListener("click", close), 0);
+    return () => { clearTimeout(t); document.removeEventListener("click", close); };
+  }, [pickSide]);
   const dataRef = useRef<any>(null);
   const queueRef = useRef<QFile[]>([]);
   const pumping = useRef(false);
@@ -157,6 +164,9 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const tray = items.filter(i => shelfless(i) && onShelf(i));
   // Organizing is live in their hub; only never-published uploads wait (Oct 1 2026).
   const unpublished = items.filter(i => !i.dropped && i.added_in == null).length;
+  // live pieces whose art was replaced: the client sees the old picture until a publish
+  const replacedN = items.filter(i => i.added_in != null && (i.images || []).some((im: any) => im.replaces)).length;
+  const waiting = unpublished + replacedN;
   // Never published → numbers follow the shelves (lib/line-sheets shelfNumbering);
   // once published, the stamped item_no is permanent.
   const draftNo = sheet.current_version ? null : shelfNumbering(sections, data.items);
@@ -208,13 +218,14 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   async function doReplace(file: File) {
     const t = replaceTarget.current; replaceTarget.current = null;
     const sheet = dataRef.current?.sheet;
-    if (!t || !sheet || !file.type.startsWith("image/")) return;
-    setReplacing(t.id); setErr("");
+    if (!t || !sheet) return;
+    if (file.type && !file.type.startsWith("image/")) { setErr("Replace takes an image file"); return; }
+    setReplacing(r => [...r, t.id]); setErr("");
     try {
       const up = await uploadToDrive({ blob: file, fileName: file.name, mimeType: file.type || "image/png", itemId: null, clientName: sheet?.clients?.name || "Studio", projectTitle: "Line Sheets", itemName: sheet?.title || "Line Sheet", onProgress: undefined });
       await patchItem({ id: t.id, replaceImage: { at: t.at, driveId: up.fileId, name: file.name, size: file.size } });
     } catch (e: any) { setErr(`Replace failed: ${e?.message || "upload failed"}`); }
-    finally { setReplacing(null); await load(); }
+    finally { setReplacing(r => r.filter(x => x !== t.id)); await load(); }
   }
   async function patchItem(body: any) { const r = await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(x => x.json()); if (r.error) setErr(r.error); }
 
@@ -262,7 +273,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     const [first, ...rest] = it.images || [];
     if (!rest.length) return;
     await patchItem({ id: it.id, images: [first] });
-    await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ splitFrom: it.id, images: rest.map((r: any) => ({ driveId: r.driveId, name: r.name, size: r.size })) }) });
+    await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ splitFrom: it.id, images: rest.map((r: any) => ({ driveId: r.driveId, name: r.name, size: r.size, replaces: r.replaces })) }) });
     await load();
   }
 
@@ -344,10 +355,10 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
           {/* this item's file(s), named by the item (one = the file, more = a ZIP) */}
           {/* ↻ Replace: swap the mockup in place (a front/back pair asks which) */}
           {!on && imgs.length > 0 && !sheet.archived_at && <button onClick={e => { e.stopPropagation(); if (imgs.length === 1) startReplace(it, 0); else setPickSide(pickSide === it.id ? null : it.id); }} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}
-            disabled={replacing === it.id} title={imgs.length === 1 ? "Replace this mockup" : "Replace one of these mockups"} aria-label="Replace mockup"
-            style={{ position: "absolute", right: 37, top: 5, zIndex: 3, color: "#555", background: "rgba(255,255,255,.92)", border: "none", borderRadius: 6, minWidth: 28, height: 28, display: "grid", placeItems: "center", fontSize: 14, fontWeight: 800, cursor: "pointer", padding: 0 }}>{replacing === it.id ? "…" : "↻"}</button>}
+            disabled={replacing.includes(it.id)} title={imgs.length === 1 ? "Replace this mockup" : "Replace one of these mockups"} aria-label="Replace mockup"
+            style={{ position: "absolute", right: 37, top: 5, zIndex: 3, color: "#555", background: "rgba(255,255,255,.92)", border: "none", borderRadius: 6, minWidth: 28, height: 28, display: "grid", placeItems: "center", fontSize: 14, fontWeight: 800, cursor: "pointer", padding: 0 }}>{replacing.includes(it.id) ? "…" : "↻"}</button>}
           {pickSide === it.id && (
-            <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} style={{ position: "absolute", right: 5, top: 37, zIndex: 4, background: "#161616", border: `1px solid ${H.line}`, borderRadius: 8, padding: 4, display: "flex", flexDirection: "column", gap: 2, minWidth: 120 }}>
+            <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()} style={{ position: "absolute", left: 4, right: 4, top: 4, maxHeight: 114, overflowY: "auto", zIndex: 4, background: "#161616", border: `1px solid ${H.line}`, borderRadius: 8, padding: 4, display: "flex", flexDirection: "column", gap: 2 }}>
               <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.faint, padding: "4px 7px" }}>Replace which?</span>
               {imgs.map((im: any, k: number) => (
                 <button key={im.id || k} onClick={() => startReplace(it, k)} title={im.name || undefined}
@@ -444,12 +455,12 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
       {/* Not-published alert (Jon, Oct 1): organizing is live in their hub,
           but new uploads aren't — say so up top until they're published.
           DESIGN.md: 3px accent rail, no color wash. */}
-      {unpublished > 0 && !sheet.archived_at && (
+      {waiting > 0 && !sheet.archived_at && (
         <div role="status" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", borderLeft: `3px solid ${H.amber}`, background: H.panel, borderRadius: "0 10px 10px 0", padding: "11px 14px", marginBottom: 16 }}>
           <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.amber }}>Not published</span>
           <span style={{ fontSize: 12.5, color: H.text }}>
             {sheet.current_version
-              ? `${unpublished} new upload${unpublished === 1 ? " isn't" : "s aren't"} in their hub yet. Organizing is already live.`
+              ? [unpublished ? `${unpublished} new upload${unpublished === 1 ? " isn't" : "s aren't"} in their hub yet.` : "", replacedN ? `${replacedN} replaced mockup${replacedN === 1 ? " is" : "s are"} waiting: they still see the old one.` : "", "Organizing is already live."].filter(Boolean).join(" ")
               : `The client can't see this sheet yet: ${unpublished} item${unpublished === 1 ? "" : "s"} waiting for the first publish.`}
           </span>
           <button disabled={busy} onClick={() => setPublishOpen(true)} style={{ ...primaryBtn, padding: "8px 16px", marginLeft: "auto" }}>Publish {sheet.current_version ? `v${sheet.current_version + 1}` : "v1"} →</button>
@@ -584,7 +595,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         <div onClick={e => { if (e.target === e.currentTarget) setPublishOpen(false); }} style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(0,0,0,.8)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
           <div style={{ background: "#161616", border: `1px solid ${H.line}`, borderRadius: 18, width: "100%", maxWidth: 460, padding: "20px 22px" }}>
             <div style={{ fontSize: 15, fontWeight: 900, textTransform: "uppercase" }}>Publish v{sheet.current_version + 1}</div>
-            <div style={{ fontSize: 12, color: H.dim, marginTop: 6, lineHeight: 1.5 }}>New uploads go live in their hub{unpublished ? ` (${unpublished} waiting)` : ""}. Names, shelves and grouping are already live without publishing. New items get a NEW badge; items with new art get UPDATED. New art keeps a 👍 and resets a 👎 (back on its shelf for a fresh look). Comments stay.</div>
+            <div style={{ fontSize: 12, color: H.dim, marginTop: 6, lineHeight: 1.5 }}>New uploads and replaced mockups go live in their hub{waiting ? ` (${waiting} waiting)` : ""}. Names, shelves and grouping are already live without publishing. New items get a NEW badge; items with new art get UPDATED. New art keeps a 👍 and resets a 👎 (back on its shelf for a fresh look). Comments stay.</div>
             {(() => { const n = items.filter(shelfless).length; return n > 0 && <div style={{ fontSize: 12, color: H.amber, marginTop: 8 }}>Heads up: {n} item{n === 1 ? " has" : "s have"} no shelf. They publish shelf-less at the bottom.</div>; })()}
             <label style={{ ...lbl, marginTop: 12 }}>What changed <span style={{ color: H.faint }}>(the client sees this)</span></label>
             <textarea value={publishNote} onChange={e => setPublishNote(e.target.value)} rows={2} placeholder="e.g. your swaps are in, added the M81 and a popup sticker pack" style={{ ...inp, resize: "vertical" }} />
