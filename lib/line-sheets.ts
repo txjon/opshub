@@ -15,6 +15,7 @@ export type SheetItem = {
   client_thumb: "up" | "down" | null; client_thumb_at: string | null; client_thumb_version: number | null;
   client_note: string | null;           // the client's comment, any thumb or none (mig 213)
   client_note_version: number | null;   // published version it was written on
+  client_seen_version: number | null;   // last version the client looked at it on (mig 214)
 };
 export type SheetSection = { id: string; sheet_id: string; name: string; sort: number };
 // Item numbers before the FIRST publish follow the shelves (Jon, Nov 2026):
@@ -43,10 +44,14 @@ export type LineSheet = {
   created_by: string | null; created_at: string; updated_at: string;
 };
 
-// NEW / UPDATED badges on the published view, relative to version n.
-export function badgeFor(item: Pick<SheetItem, "added_in" | "updated_in">, n: number): "new" | "updated" | null {
-  if (item.added_in === n && n > 1) return "new";
-  if (item.updated_in === n && item.added_in !== n) return "updated";
+// NEW / UPDATED badges on the published view: they last until the client has
+// looked (mig 214: thumbed, commented or opened it full screen on that
+// version or later), however many versions get published in between. v1
+// pieces are never NEW: the whole sheet was new then.
+export function badgeFor(item: Pick<SheetItem, "added_in" | "updated_in" | "client_seen_version">): "new" | "updated" | null {
+  const seen = item.client_seen_version ?? 0;
+  if (item.added_in != null && item.added_in > 1 && seen < item.added_in) return "new";
+  if (item.updated_in != null && item.updated_in !== item.added_in && seen < item.updated_in) return "updated";
   return null;
 }
 
@@ -77,7 +82,7 @@ export async function clientSheetView(db: Db, sheet: { id: string; current_versi
   const n = sheet.current_version;
   const [{ data: secs }, { data: rows }, { data: v }, published] = await Promise.all([
     db.from("line_sheet_sections").select("id, name, sort").eq("sheet_id", sheet.id).order("sort"),
-    db.from("line_sheet_items").select("id, section_id, name, item_no, sort, images, added_in, updated_in, dropped, client_thumb, client_note, client_note_version").eq("sheet_id", sheet.id).order("sort"),
+    db.from("line_sheet_items").select("id, section_id, name, item_no, sort, images, added_in, updated_in, dropped, client_thumb, client_note, client_note_version, client_seen_version").eq("sheet_id", sheet.id).order("sort"),
     db.from("line_sheet_versions").select("n, note, published_at").eq("sheet_id", sheet.id).eq("n", n).maybeSingle(),
     publishedImageIds(db, sheet.id),
   ]);
@@ -88,7 +93,7 @@ export async function clientSheetView(db: Db, sheet: { id: string; current_versi
     .filter(it => it.images.length > 0)
     .map(it => ({
       id: it.id, section_id: it.section_id, name: it.name, item_no: it.item_no, sort: it.sort, images: it.images,
-      badge: badgeFor(it, n), thumb: it.client_thumb ?? null, note: it.client_note ?? null,
+      badge: badgeFor(it), thumb: it.client_thumb ?? null, note: it.client_note ?? null,
       noteStale: noteIsStale(it),
     }));
   return {

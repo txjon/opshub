@@ -54,9 +54,18 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
     const next = thumb && it.thumb === thumb ? null : thumb;
     if (noteFor !== it.id) setNoteFor(null);
     setHold(thumb ? it.id : null);
-    setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, thumb: next } : x) }));
+    setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, thumb: next, badge: null } : x) }));
     const r = await fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: it.id, thumb: next }) }).catch(() => null);
     if (!r || !r.ok) load();
+  }
+
+  // Opening a piece full screen = he looked: its NEW / UPDATED badge retires
+  // (mig 214). Fire and forget; the server ignores HPD's own previews.
+  function openZoom(it: any) {
+    setZoom(it);
+    if (!it.badge) return;
+    setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, badge: null } : x) }));
+    fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: it.id, seen: true }) }).catch(() => {});
   }
 
   // His comment (mig 213): any piece, any time, thumb or not. Saves on
@@ -69,7 +78,7 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
     const note = raw.replace(/\s*\n\s*/g, " ").trim() || null;
     setNoteFor(null);
     if ((it.note || null) === note) return;
-    setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, note, noteStale: false } : x) }));
+    setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, note, noteStale: false, badge: null } : x) }));
     const r = await fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: it.id, note }) }).catch(() => null);
     if (!r || !r.ok) load();
   }
@@ -90,7 +99,7 @@ const ThumbIcon = ({ dir, size = 15 }: { dir: "up" | "down"; size?: number }) =>
     const imgs = it.images || [];
     return (
       <div key={it.id} style={{ background: C.panel, border: `1px solid ${C.line}`, borderRadius: 14, overflow: "hidden", width: "100%", display: "flex", flexDirection: "column" }}>
-        <div onClick={() => imgs[0] && setZoom(it)} role={imgs[0] ? "button" : undefined} aria-label={imgs[0] ? "View larger" : undefined}
+        <div onClick={() => imgs[0] && openZoom(it)} role={imgs[0] ? "button" : undefined} aria-label={imgs[0] ? "View larger" : undefined}
           style={{ position: "relative", aspectRatio: "1", width: "100%", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: imgs[0] ? "zoom-in" : undefined }}>
           {imgs.length > 1 ? (
             <>
