@@ -10,7 +10,8 @@ import { LineSheetView, LS as C, type SaveBody } from "@/components/LineSheetVie
 // release, so it lives under that release. The cards, groups and every
 // interaction are components/LineSheetView, the same view HPD's builder
 // renders (Jon, Nov 26: "we see it internally how he sees it").
-const fmt = (iso?: string) => iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+// "Nov 26, 3:31 PM" in his own time zone
+const fmt = (iso?: string) => iso ? new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
 
 export default function ReleaseLineSheet({ params }: { params: { token: string; releaseId: string } }) {
   const { token, releaseId } = params;
@@ -44,7 +45,7 @@ export default function ReleaseLineSheet({ params }: { params: { token: string; 
         <h1 style={{ fontSize: "clamp(26px,4.5vw,40px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.02em", margin: "8px 0 0", fontFamily: C.font, color: C.text }}>{sheet.title}</h1>
         <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap", marginTop: 8, fontSize: 11, fontFamily: C.mono, color: C.faint }}>
           <span style={{ color: C.blue, fontWeight: 700 }}>v{version.n}</span>
-          <span>published {fmt(version.published_at)}</span>
+          <span>updated {fmt(version.published_at)}</span>
           {newCount > 0 && <span style={{ color: C.green }}>{newCount} new</span>}
           {updCount > 0 && <span style={{ color: C.amber }}>{updCount} updated</span>}
         </div>
