@@ -246,7 +246,9 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     } finally { setBusy(false); }
   }
 
-  const visualOrder = [...goodToGo, ...changes, ...liked, ...concepts, ...passed].map(i => i.id);
+  // the view's order (components/LineSheetView GROUPS), for shift-select runs
+  const fresh = (it: any) => !it.client_verdict && it.added_in != null && !(it.images || []).some((im: any) => im.replaces) && !!badgeFor(it);
+  const visualOrder = [...concepts.filter(fresh), ...goodToGo, ...changes, ...liked, ...concepts.filter(i => !fresh(i)), ...passed].map(i => i.id);
   const toggleSel = (id: string, shift = false) => setSelected(prev => {
     if (shift && prev.length) {
       // shift-click = select the whole run between the last tap and this one

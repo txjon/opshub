@@ -28,11 +28,16 @@ type Settable = "asis" | "change" | "pass";
 export type SaveBody = { itemId: string; verdict?: Settable | null; note?: string | null; seen?: true };
 type Handle = { listeners?: any; attributes?: any };
 
-type Group = "asis" | "change" | "liked" | "concepts" | "pass";
-const groupOf = (it: ViewItem): Group => it.verdict === "asis" || it.verdict === "change" || it.verdict === "liked" || it.verdict === "pass" ? it.verdict : "concepts";
-// top to bottom: what's decided, what's being worked, what needs an answer,
-// the open concepts, and what he passed on
+type Group = "fresh" | "asis" | "change" | "liked" | "concepts" | "pass";
+// NEW or UPDATED and not answered yet: up top, so a change he asked for comes
+// back where he'll see it, not buried in Concepts (Jon, Nov 26). Answering
+// moves it to its verdict's group and retires the badge.
+const groupOf = (it: ViewItem): Group => it.verdict === "asis" || it.verdict === "change" || it.verdict === "liked" || it.verdict === "pass" ? it.verdict
+  : it.badge === "new" || it.badge === "updated" ? "fresh" : "concepts";
+// top to bottom: what's new to look at, what's decided, what's being worked,
+// what needs an answer, the open concepts, and what he passed on
 const GROUPS: { id: Group; name: string; hint?: string }[] = [
+  { id: "fresh", name: "New & updated" },
   { id: "asis", name: "Good to go" },
   { id: "change", name: "Changes asked", hint: "We're on these. We'll post the new version here." },
   { id: "liked", name: "You liked these", hint: "As is, or change something?" },
@@ -87,7 +92,7 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
 
   const who = staff ? "hpd" as const : "client" as const;
   const shownGroup = (it: ViewItem): Group => hold && hold.id === it.id ? hold.group : groupOf(it);
-  const byGroup: Record<Group, ViewItem[]> = { asis: [], change: [], liked: [], concepts: [], pass: [] };
+  const byGroup: Record<Group, ViewItem[]> = { fresh: [], asis: [], change: [], liked: [], concepts: [], pass: [] };
   for (const it of items) byGroup[shownGroup(it)].push(it);
 
   // pending = writes still queued; the parent hears once when they're all
