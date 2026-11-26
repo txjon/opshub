@@ -29,11 +29,12 @@ export default function ReleaseLineSheet({ params }: { params: { token: string; 
   const updCount = items.filter(i => i.badge === "updated").length;
 
   // every write: the version he had loaded rides along (mig 214 seen stamps)
-  async function save(b: SaveBody): Promise<boolean> {
+  async function save(b: SaveBody): Promise<true | string> {
     const r = await fetch(api, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: data?.version?.n, ...b }) }).catch(() => null);
     if (r && r.ok) return true;
     if (!b.seen) load();
-    return false;
+    const j = r ? await r.json().catch(() => null) : null;
+    return j?.error || "That didn't save. Check your connection and try again.";
   }
 
   return (

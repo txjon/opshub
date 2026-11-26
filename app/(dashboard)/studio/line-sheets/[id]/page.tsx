@@ -325,11 +325,14 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     verdict: it.client_verdict ?? null, verdictBy: it.client_verdict_by ?? null,
     note: it.client_note ?? null, noteStale: noteIsStale(it),
   }));
-  async function saveFromView(b: SaveBody): Promise<boolean> {
+  // One card write from the view. No reload here: the view queues writes and
+  // calls onSettled (load) once they're all done, so a reload never wipes an
+  // edit still waiting its turn. A failure comes back as the message.
+  async function saveFromView(b: SaveBody): Promise<true | string> {
     if (b.seen) return true;   // HPD looking never counts as the client looking
-    const r = await patchItem({ id: b.itemId, ...(b.verdict !== undefined ? { verdict: b.verdict } : {}), ...(b.note !== undefined ? { note: b.note } : {}) });
-    await load();
-    return !r?.error;
+    const r = await fetch(`/api/studio/line-sheets/${params.id}/items`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: b.itemId, ...(b.verdict !== undefined ? { verdict: b.verdict } : {}), ...(b.note !== undefined ? { note: b.note } : {}) }) })
+      .then(x => x.json()).catch(() => ({ error: "That didn't save. Check your connection and try again." }));
+    return r?.error || true;
   }
   const tool: React.CSSProperties = { position: "absolute", top: 8, zIndex: 3, color: "#555", background: "rgba(255,255,255,.92)", border: "none", borderRadius: 6, minWidth: 28, height: 28, display: "grid", placeItems: "center", fontSize: 14, fontWeight: 800, cursor: "pointer", padding: 0, textDecoration: "none" };
   const stop = { onClick: (e: React.MouseEvent) => e.stopPropagation(), onMouseDown: (e: React.MouseEvent) => e.stopPropagation(), onTouchStart: (e: React.TouchEvent) => e.stopPropagation(), onPointerDown: (e: React.PointerEvent) => e.stopPropagation() };
@@ -459,7 +462,12 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
       {err && <div style={{ color: H.red, fontSize: 12, marginBottom: 12 }}>{err}</div>}
 
       {/* the client's view, with HPD's tools on top */}
-      <LineSheetView items={view} stamp={data} save={saveFromView} head={null} staff={{
+      {items.length === 0 && (
+        <div style={{ border: `2px dashed ${H.line}`, borderRadius: 14, padding: "40px 20px", textAlign: "center", color: H.dim, fontSize: 13, marginTop: 10 }}>
+          Drop mockups anywhere on this page, or <button onClick={() => fileIn.current?.click()} style={{ background: "none", border: "none", padding: 0, color: H.blue, cursor: "pointer", fontSize: 13, fontFamily: H.font, textDecoration: "underline" }}>pick files</button>. They land in Concepts, named by file.
+        </div>
+      )}
+      <LineSheetView items={view} stamp={data} save={saveFromView} onSettled={load} readOnly={!!sheet.archived_at} head={null} staff={{
         selected,
         onSelect: (id, shift) => { if (!justDragged.current) toggleSel(id, shift); },
         numberOf: v => { const it = raw.get(v.id); return it ? noOf(it) : null; },

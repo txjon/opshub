@@ -40,11 +40,13 @@ const GROUPS: { id: Group; name: string; hint?: string }[] = [
   { id: "pass", name: "Passed" },
 ];
 
-export function LineSheetView({ items: itemsIn, stamp, head, save, stickyTop = 0, staff }: {
+export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, stickyTop = 0, readOnly, staff }: {
   items: ViewItem[];
   stamp: unknown;                              // changes on every fresh load (the parent's data object)
   head: React.ReactNode;                       // title, version line, note (each seat its own)
-  save: (b: SaveBody) => Promise<boolean>;     // the write; false = failed (the parent reloads)
+  save: (b: SaveBody) => Promise<true | string>;   // the write; a string = it failed, and why
+  onSettled?: () => void;                      // every queued write is done (HPD reloads here, once)
+  readOnly?: boolean;                          // archived: look, don't touch
   stickyTop?: number;                          // the group chips stick under the seat's own top bar
   staff?: {
     selected: string[];
@@ -88,12 +90,16 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, stickyTop = 0
   const byGroup: Record<Group, ViewItem[]> = { asis: [], change: [], liked: [], concepts: [], pass: [] };
   for (const it of items) byGroup[shownGroup(it)].push(it);
 
+  // pending = writes still queued; the parent hears once when they're all
+  // done, so a reload never wipes an edit that hasn't been sent yet
+  const pending = useRef(0);
   const post = (body: SaveBody): Promise<boolean> => {
+    pending.current++;
     const run = chain.current.then(async () => {
-      const ok = await save(body).catch(() => false);
-      if (!ok) setErr("That didn't save. Check your connection and try again.");
-      return ok;
-    });
+      const r = await save(body).catch(() => "That didn't save. Check your connection and try again.");
+      if (r !== true) setErr(r);
+      return r === true;
+    }).finally(() => { if (--pending.current === 0) onSettled?.(); });
     chain.current = run;
     return run;
   };
@@ -221,7 +227,7 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, stickyTop = 0
         </div>
         <div style={{ padding: "10px 12px 12px", flex: 1, display: "flex", flexDirection: "column" }}>
           <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-            {staff ? (
+            {staff && !readOnly ? (
               // Wraps and grows; one logical line: Enter finishes, no newlines saved
               <textarea key={`${it.id}:${it.name || ""}`} rows={1} defaultValue={it.name || ""} placeholder="Name it" aria-label="Name"
                 ref={el => { if (el) { el.style.height = "auto"; el.style.height = `${el.scrollHeight}px`; } }}
@@ -251,13 +257,13 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, stickyTop = 0
             <button onClick={() => { touch(it); setNoteFor({ id: it.id, mode: it.verdict === "change" ? "change" : "note" }); }} title="Edit"
               style={{ display: "block", width: "100%", textAlign: "left", marginTop: 8, background: "none", border: "none", padding: 0, cursor: "pointer", color: C.dim, fontSize: 12, fontFamily: C.font, lineHeight: 1.4 }}>
               {/* the note on the picture on screen, or what was asked on the one before it */}
-              {it.noteStale ? cap(it.verdict ? "Asked on the last version" : "Asked. Updated, good now?", it.verdict ? C.faint : C.amber) : it.verdict === "change" ? cap("What to change", C.amber) : null}
+              {it.noteStale ? cap(it.verdict ? (staff ? "Asked on the last version" : "You asked, on the last version") : (staff ? "Asked. New version is up" : "You asked. Updated, good now?"), it.verdict ? C.faint : C.amber) : it.verdict === "change" ? cap("What to change", C.amber) : null}
               {quote(it.note)}
             </button>
           ) : null}
           {foot}
           {/* actions pinned to the card's foot: every card in a row lines up, whatever the name or note length */}
-          <div style={{ marginTop: "auto", paddingTop: 10 }}>
+          <div style={{ marginTop: "auto", paddingTop: 10, ...(readOnly ? { pointerEvents: "none", opacity: 0.6 } : {}) }}>
             <VerdictRow value={it.verdict === "liked" ? null : it.verdict} pending={open?.mode === "change"} onPick={v => pick(it, v)}
               p={{ line: C.line, dim: C.dim, ink: C.bg, green: C.green, amber: C.amber, red: C.red, font: C.font }} />
             {it.verdictBy === "hpd" && it.verdict && it.verdict !== "liked" && <div style={{ marginTop: 6, fontSize: 9.5, color: C.faint, letterSpacing: "0.04em" }}>Marked by HPD</div>}
@@ -290,8 +296,8 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, stickyTop = 0
         .lsx-card .lsx-tool{opacity:0;transition:opacity .12s}.lsx-card:hover .lsx-tool,.lsx-card .lsx-tool:focus-visible{opacity:1}@media (hover:none){.lsx-card .lsx-tool{opacity:1}}
       ` }} />
       {head}
-      <div style={{ marginTop: 6, fontSize: 11.5, color: C.faint }}>Tap As is, Change or Pass on anything. Tap it again to undo. We see it instantly.</div>
-      {err && <div role="alert" onClick={() => setErr("")} style={{ position: "fixed", left: 16, right: 16, bottom: 84, zIndex: 260, maxWidth: 520, margin: "0 auto", background: C.surface, border: `1px solid ${C.red}`, borderRadius: 10, padding: "11px 14px", fontSize: 13, color: C.text }}>{err}</div>}
+      {!staff && <div style={{ marginTop: 6, fontSize: 11.5, color: C.faint }}>Tap As is, Change or Pass on anything. Tap it again to undo. We see it instantly.</div>}
+      {err && <div role="alert" onClick={() => setErr("")} style={{ position: "fixed", left: 16, right: 16, bottom: staff ? 190 : 84, zIndex: 260, maxWidth: 520, margin: "0 auto", background: C.surface, border: `1px solid ${C.red}`, borderRadius: 10, padding: "11px 14px", fontSize: 13, color: C.text }}>{err}</div>}
       <div className="lsx-anchor" />
       {groups.length > 1 && (
         <nav className="lsx-filters" aria-label="Groups">
