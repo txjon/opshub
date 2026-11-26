@@ -90,7 +90,8 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
       const other = items.find(x => x.id === noteFor.id);
       const el = noteRef.current;
       el.dataset.cancel = "1";
-      if (other) await saveNote(other, el.value, noteFor.mode);
+      // not awaited: saveNote queues its write synchronously, so order holds
+      if (other) void saveNote(other, el.value, noteFor.mode);
       else setNoteFor(null);
     }
     // The note box on this card is still open (the tap didn't take focus):
@@ -187,7 +188,7 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
         <div style={{ padding: "10px 12px 12px", flex: 1, display: "flex", flexDirection: "column" }}>
           <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25 }}>{it.name || (it.item_no ? String(it.item_no).padStart(2, "0") : "Untitled")}</div>
           {open ? (
-            <textarea ref={noteRef} autoFocus rows={2} defaultValue={open.mode === "change" && (it.noteStale || it.verdict !== "change") ? "" : it.note || ""} maxLength={500}
+            <textarea key={open.mode} ref={noteRef} autoFocus rows={2} defaultValue={open.mode === "change" && (it.noteStale || it.verdict !== "change") ? "" : it.note || ""} maxLength={500}
               placeholder={open.mode === "change" ? "What should change?" : "Add a note"} aria-label={open.mode === "change" ? "What should change?" : "Note"}
               // Escape cancels: flag it so the blur that follows doesn't save
               onBlur={e => { if (e.currentTarget.dataset.cancel) return; saveNote(it, e.target.value, open.mode); }}
