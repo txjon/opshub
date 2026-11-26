@@ -419,7 +419,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
             <input ref={fileIn} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { if (e.target.files?.length) enqueue(e.target.files); if (fileIn.current) fileIn.current.value = ""; }} />
             {!sheet.archived_at && <button disabled={busy} onClick={() => setPublishOpen(true)} style={{ ...primaryBtn, padding: "11px 20px" }}>Publish {sheet.current_version ? `v${sheet.current_version + 1}` : "v1"} →</button>}
             <span style={{ position: "relative" }}>
-              <button disabled={busy} onClick={() => setMenuOpen(o => !o)} title="More" aria-haspopup="menu" aria-expanded={menuOpen} style={{ ...ghostBtn, padding: "9px 13px" }}>⋯</button>
+              <button disabled={busy} onClick={() => setMenuOpen(o => !o)} title="More" aria-haspopup="menu" aria-expanded={menuOpen} style={{ ...ghostBtn, padding: "6px 14px", fontSize: 17, lineHeight: 1, border: `1.5px solid ${H.blue}`, color: menuOpen ? H.ink : H.blue, background: menuOpen ? H.blue : "rgba(143,199,216,.12)" }}>⋯</button>
               {menuOpen && (<>
                 <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
                 <div role="menu" onClick={() => setMenuOpen(false)} style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 41, background: "#161616", border: `1px solid ${H.line}`, borderRadius: 10, padding: 5, minWidth: 220 }}>
