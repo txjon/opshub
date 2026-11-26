@@ -41,6 +41,8 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
   const [hold, setHold] = useState<{ id: string; group: Group } | null>(null);
   const [zoom, setZoom] = useState<any>(null);                    // item open full screen
   const [err, setErr] = useState("");
+  // notes stay folded behind a comment icon (Jon, Nov 26); tap it to read
+  const [shownNotes, setShownNotes] = useState<string[]>([]);
   // On a phone the note box's blur lands just BEFORE the tap that caused it.
   // noteClosed remembers that blur for a moment, so the tap that follows
   // (Change to confirm, As is after a note, Change again to back out) never
@@ -186,7 +188,16 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
           {it.badge && <span style={{ position: "absolute", top: 8, left: 8, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: it.badge === "new" ? C.green : C.amber, background: "rgba(10,10,10,.85)", borderRadius: 6, padding: "3px 8px", zIndex: 3 }}>{it.badge}</span>}
         </div>
         <div style={{ padding: "10px 12px 12px", flex: 1, display: "flex", flexDirection: "column" }}>
-          <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25 }}>{it.name || (it.item_no ? String(it.item_no).padStart(2, "0") : "Untitled")}</div>
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+            <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25 }}>{it.name || (it.item_no ? String(it.item_no).padStart(2, "0") : "Untitled")}</div>
+            {it.note && !open && (
+              <button onClick={() => setShownNotes(n => n.includes(it.id) ? n.filter(x => x !== it.id) : [...n, it.id])}
+                aria-label={shownNotes.includes(it.id) ? "Hide note" : "Show note"} aria-expanded={shownNotes.includes(it.id)}
+                style={{ flex: "none", margin: "-6px -6px 0 0", padding: 6, background: "none", border: "none", cursor: "pointer", color: shownNotes.includes(it.id) ? C.text : C.dim, display: "grid", placeItems: "center" }}>
+                <svg width={16} height={16} viewBox="0 0 24 24" fill={shownNotes.includes(it.id) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+              </button>
+            )}
+          </div>
           {open ? (
             <textarea key={open.mode} ref={noteRef} autoFocus rows={2} defaultValue={open.mode === "change" && (it.noteStale || it.verdict !== "change") ? "" : it.note || ""} maxLength={500}
               placeholder={open.mode === "change" ? "What should change?" : "Add a note"} aria-label={open.mode === "change" ? "What should change?" : "Note"}
@@ -194,7 +205,7 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
               onBlur={e => { if (e.currentTarget.dataset.cancel) return; saveNote(it, e.target.value, open.mode); }}
               onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } if (e.key === "Escape") { e.currentTarget.dataset.cancel = "1"; setNoteFor(null); } }}
               style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 8, background: C.surface, border: `1px solid ${open.mode === "change" ? C.amber : C.line}`, borderRadius: 8, outline: "none", color: C.text, fontSize: 16, fontFamily: C.font, padding: "7px 9px", resize: "none", lineHeight: 1.35 }} />
-          ) : it.note ? (
+          ) : it.note && shownNotes.includes(it.id) ? (
             <button onClick={() => { touch(it); setNoteFor({ id: it.id, mode: it.verdict === "change" ? "change" : "note" }); }} title="Edit"
               style={{ display: "block", width: "100%", textAlign: "left", marginTop: 8, background: "none", border: "none", padding: 0, cursor: "pointer", color: C.dim, fontSize: 12, fontFamily: C.font, lineHeight: 1.4 }}>
               {/* the note on the picture he's looking at, or what he asked for on the one before it */}
@@ -202,12 +213,8 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
               {quote(it.note)}
             </button>
           ) : null}
-          {it.verdict === "liked" && !open && <div style={{ marginTop: 8, fontSize: 11.5, color: C.blue, lineHeight: 1.35 }}>You liked this. As is, or change something?</div>}
           {/* actions pinned to the card's foot: every card in a row lines up, whatever the name or note length */}
           <div style={{ marginTop: "auto", paddingTop: 10 }}>
-            {(it.verdict === "asis" || it.verdict === "pass") && !it.note && !open && (
-              <button onClick={() => { touch(it); setNoteFor({ id: it.id, mode: "note" }); }} style={{ display: "block", background: "none", border: "none", padding: "0 0 8px", cursor: "pointer", color: C.faint, fontSize: 11, fontFamily: C.font }}>+ Add a note</button>
-            )}
             <VerdictRow value={it.verdict === "liked" ? null : it.verdict} pending={open?.mode === "change"} onPick={v => pick(it, v)}
               p={{ line: C.line, dim: C.dim, ink: C.bg, green: C.green, amber: C.amber, red: C.red, font: C.font }} />
             {it.verdictBy === "hpd" && it.verdict && it.verdict !== "liked" && <div style={{ marginTop: 6, fontSize: 9.5, color: C.faint, letterSpacing: "0.04em" }}>Marked by HPD</div>}
