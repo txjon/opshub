@@ -168,7 +168,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     const sh = dataRef.current?.sheet;
     if (!sh) return;
     const n = (dataRef.current?.items || []).length;
-    if (!await confirm({ title: `Delete "${sh.title}" for good?`, message: `This removes ${n} item${n === 1 ? "" : "s"}, every version, and the client's thumbs, and takes it out of their hub. The mockup files stay in Drive, but OpsHub loses track of them: download what you need first (↓ All). It can't be undone. To just put it away, use Archive.`, confirmLabel: "Delete", confirmColor: H.red })) return;
+    if (!await confirm({ title: `Delete "${sh.title}" for good?`, message: `This removes ${n} item${n === 1 ? "" : "s"}, every version, and the client's thumbs, and takes it out of their hub. The mockup files stay in Drive, but OpsHub loses track of them: download what you need first (⋯ → Download all). It can't be undone. To just put it away, use Archive.`, confirmLabel: "Delete", confirmColor: H.red })) return;
     setBusy(true);
     try {
       const r = await fetch(`/api/studio/line-sheets/${params.id}`, { method: "DELETE" }).then(x => x.json()).catch(() => ({ error: "Delete failed" }));
@@ -411,7 +411,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
             {order?.job && <a href={`/jobs/${order.job.id}`} style={{ fontSize: 10.5, fontFamily: H.mono, color: H.dim, textDecoration: "none", borderBottom: "1px dotted rgba(255,255,255,.3)" }}>Order {order.job.job_number} →</a>}
           </div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 7 }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 7, marginLeft: "auto" }}>
           <span style={tag(sheet.archived_at ? H.faint : sheet.current_version ? H.blue : H.amber, 9.5)}>
             {sheet.archived_at ? "Archived · hidden from their hub" : sheet.current_version ? `v${sheet.current_version} live in their hub` : "Draft · never published"}
           </span>

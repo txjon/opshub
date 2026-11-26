@@ -252,7 +252,7 @@ export default function StudioPage() {
             <div className="st-grid">
               {inProgress.map(sh => (
                 <a key={sh.id} href={`/studio/line-sheets/${sh.id}`} style={{ display: "block", background: H.panel, border: `1px solid ${H.line}`, borderRadius: 14, padding: "14px 16px", textDecoration: "none", color: H.text }}>
-                  <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint }}>{sh.client_name || "—"}{sh.season ? ` · ${sh.season}` : ""}</div>
+                  <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint }}>{sh.client_name || "—"}</div>
                   <div style={{ fontSize: 15.5, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em", marginTop: 4 }}>{sh.title}</div>
                   <div style={{ display: "flex", gap: 12, marginTop: 8, fontSize: 10, fontFamily: H.mono, color: H.dim, alignItems: "baseline", flexWrap: "wrap" }}>
                     <span>{sh._counts.items} item{sh._counts.items === 1 ? "" : "s"}</span>
