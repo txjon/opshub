@@ -568,10 +568,14 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
                 if (v !== "change") return setVerdicts(v);
                 // a Change is one card's own note
                 if (!one) { setErr("Change one card at a time: it carries that card's note"); return; }
+                setErr("");
                 setChangeNote(one.client_note && !noteIsStale(one) ? one.client_note : "");
               }} p={{ line: H.line, dim: H.dim, ink: H.ink, green: H.green, amber: H.amber, red: H.red, font: H.font }} />
             ))}
+            {err && <div role="alert" style={{ color: H.red, fontSize: 12, marginTop: 8 }}>{err}</div>}
             <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", marginTop: 10, paddingTop: 8, borderTop: `1px solid ${H.line2}` }}>
+              {/* a Change's note, reworded (tapping the lit Change would send it back to Concepts) */}
+              {one && one.client_verdict === "change" && changeNote === null && !sheet.archived_at && <button disabled={busy} onClick={() => setChangeNote(noteIsStale(one) ? "" : one.client_note || "")} style={{ ...link, color: H.amber }}>Edit what to change</button>}
               {one && (one.images?.length || 0) > 1 && <button disabled={busy} onClick={async () => { setBusy(true); try { await unpairItem(one); setSelected([]); } finally { setBusy(false); } }} style={link}>Unpair ({one.images.length})</button>}
               {selected.length === 2 && <button disabled={busy} onClick={pairSelected} title="First tapped = front" style={{ ...link, color: H.blue }}>Pair as one product</button>}
               {selected.length > 2 && <button disabled={busy} onClick={groupSelected} style={{ ...link, color: H.blue }}>Group as one</button>}

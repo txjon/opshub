@@ -83,6 +83,16 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
   // As is / Pass save at once; tapping the one he picked undoes it. Change
   // opens the note box: it saves when he says what should change.
   async function pick(it: any, v: "asis" | "change" | "pass") {
+    // A note box open on ANOTHER card: the tap doesn't blur it (the buttons
+    // never take focus), so save what's typed there first; the chain keeps
+    // the order.
+    if (noteFor && noteFor.id !== it.id && noteRef.current) {
+      const other = items.find(x => x.id === noteFor.id);
+      const el = noteRef.current;
+      el.dataset.cancel = "1";
+      if (other) await saveNote(other, el.value, noteFor.mode);
+      else setNoteFor(null);
+    }
     // The note box on this card is still open (the tap didn't take focus):
     // the tap is the answer, with what's typed in the box.
     const el = noteFor?.id === it.id ? noteRef.current : null;
@@ -101,10 +111,16 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
         await post({ itemId: it.id, verdict: v });
         return;
       }
+      // a plain note, then Change: that note IS what should change (empty:
+      // ask for it)
+      if (v === "change") {
+        if (text) await saveNote(it, text, "change"); else setNoteFor({ id: it.id, mode: "change" });
+        return;
+      }
       // a plain note: save it; tapping the verdict he has confirms, another one switches
       await saveNote(it, text, "note");
       noteClosed.current = null;
-      if (v === it.verdict || v === "change") return;
+      if (v === it.verdict) return;
       // (falls through to set As is / Pass below)
     }
     const nc = noteClosed.current;
@@ -171,7 +187,7 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
         <div style={{ padding: "10px 12px 12px", flex: 1, display: "flex", flexDirection: "column" }}>
           <div style={{ fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.25 }}>{it.name || (it.item_no ? String(it.item_no).padStart(2, "0") : "Untitled")}</div>
           {open ? (
-            <textarea ref={noteRef} autoFocus rows={2} defaultValue={open.mode === "change" && it.noteStale ? "" : it.note || ""} maxLength={500}
+            <textarea ref={noteRef} autoFocus rows={2} defaultValue={open.mode === "change" && (it.noteStale || it.verdict !== "change") ? "" : it.note || ""} maxLength={500}
               placeholder={open.mode === "change" ? "What should change?" : "Add a note"} aria-label={open.mode === "change" ? "What should change?" : "Note"}
               // Escape cancels: flag it so the blur that follows doesn't save
               onBlur={e => { if (e.currentTarget.dataset.cancel) return; saveNote(it, e.target.value, open.mode); }}
