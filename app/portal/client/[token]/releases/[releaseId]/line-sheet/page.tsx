@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ImageLightbox } from "@/components/DriveThumb";
 import { useNoPageZoom } from "@/lib/useNoPageZoom";
 import { VerdictRow } from "@/components/LineSheetVerdicts";
@@ -40,6 +40,14 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
   // never jumps out from under his finger
   const [hold, setHold] = useState<{ id: string; group: Group } | null>(null);
   const [zoom, setZoom] = useState<any>(null);                    // item open full screen
+  const [err, setErr] = useState("");
+  // On a phone the note box's blur lands just BEFORE the tap that caused it.
+  // noteClosed remembers that blur for a moment, so the tap that follows
+  // (Change to confirm, As is after a note, Change again to back out) never
+  // undoes or reopens what the blur just did.
+  const noteClosed = useRef<{ id: string; at: number } | null>(null);
+  // one write at a time, in order: a note save and the tap after it can't race
+  const chain = useRef<Promise<unknown>>(Promise.resolve());
   useNoPageZoom();                                                // app feel: the page doesn't pinch; the viewer does
   const load = () => fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`).then(r => r.json()).then(j => { if (j.error) setMissing(true); else setData(j); }).catch(() => setMissing(true));
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [releaseId]);
@@ -54,7 +62,18 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
   const newCount = items.filter(i => i.badge === "new").length;
   const updCount = items.filter(i => i.badge === "updated").length;
 
-  const post = (body: any) => fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: data?.version?.n, ...body }) }).catch(() => null);
+  const post = (body: any): Promise<boolean> => {
+    const run = chain.current.then(async () => {
+      const r = await fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: data?.version?.n, ...body }) }).catch(() => null);
+      if (r && r.ok) return true;
+      const j = r ? await r.json().catch(() => null) : null;
+      setErr(j?.error || "That didn't save. Check your connection and try again.");
+      load();
+      return false;
+    });
+    chain.current = run;
+    return run;
+  };
   const patchLocal = (id: string, p: any) => setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === id ? { ...x, ...p } : x) }));
   // acting on a card lets the last one he answered move to its group
   const touch = (it: any) => { if (hold && hold.id !== it.id) setHold(null); if (noteFor && noteFor.id !== it.id) setNoteFor(null); };
@@ -62,14 +81,20 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
   // As is / Pass save at once; tapping the one he picked undoes it. Change
   // opens the note box: it saves when he says what should change.
   async function pick(it: any, v: "asis" | "change" | "pass") {
+    const nc = noteClosed.current;
+    const afterNote = !!nc && nc.id === it.id && Date.now() - nc.at < 700;
+    noteClosed.current = null;
+    // the tap that closed the note box: Change confirmed (or backed out of),
+    // or the verdict he already has. Nothing more to do.
+    if (afterNote && (v === "change" || v === it.verdict)) return;
+    setErr("");
     touch(it);
     if (v === "change" && it.verdict !== "change") { setNoteFor({ id: it.id, mode: "change" }); return; }
     const next = it.verdict === v ? null : v;
     setNoteFor(null);
     setHold({ id: it.id, group: hold && hold.id === it.id ? hold.group : groupOf(it) });
     patchLocal(it.id, { verdict: next, verdictBy: next ? "client" : null, badge: null });
-    const r = await post({ itemId: it.id, verdict: next });
-    if (!r || !r.ok) load();
+    await post({ itemId: it.id, verdict: next });
   }
 
   // Opening a piece full screen = he looked: its NEW / UPDATED badge retires
@@ -78,24 +103,24 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
     setZoom(it);
     if (!it.badge) return;
     patchLocal(it.id, { badge: null });
-    post({ itemId: it.id, seen: true });
+    fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: data?.version?.n, itemId: it.id, seen: true }) }).catch(() => {});
   }
 
   async function saveNote(it: any, raw: string, mode: "change" | "note") {
     const note = raw.replace(/\s*\n\s*/g, " ").trim() || null;
     setNoteFor(null);
+    noteClosed.current = { id: it.id, at: Date.now() };
+    setErr("");
     if (mode === "change") {
       if (!note) return;   // nothing said: no Change
       setHold({ id: it.id, group: hold && hold.id === it.id ? hold.group : groupOf(it) });
       patchLocal(it.id, { verdict: "change", verdictBy: "client", note, noteStale: false, badge: null });
-      const r = await post({ itemId: it.id, verdict: "change", note });
-      if (!r || !r.ok) load();
+      await post({ itemId: it.id, verdict: "change", note });
       return;
     }
     if ((it.note || null) === note || (!note && it.verdict === "change")) return;   // a Change keeps its note
     patchLocal(it.id, { note, noteStale: false, badge: null });
-    const r = await post({ itemId: it.id, note });
-    if (!r || !r.ok) load();
+    await post({ itemId: it.id, note });
   }
 
   const itemCard = (it: any) => {
@@ -181,6 +206,7 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
       </div>
       {version.note && <div style={{ marginTop: 10, padding: "11px 14px", background: C.surface, border: `1px solid ${C.line}`, borderLeft: `3px solid ${C.blue}`, borderRadius: 10, fontSize: 13, color: C.dim, maxWidth: 640 }}>{version.note}</div>}
       <div style={{ marginTop: 6, fontSize: 11.5, color: C.faint }}>Tap As is, Change or Pass on anything. Tap it again to undo. We see it instantly.</div>
+      {err && <div role="alert" onClick={() => setErr("")} style={{ position: "fixed", left: 16, right: 16, bottom: 84, zIndex: 60, maxWidth: 520, margin: "0 auto", background: C.surface, border: `1px solid ${C.red}`, borderRadius: 10, padding: "11px 14px", fontSize: 13, color: C.text }}>{err}</div>}
       <div className="lsx-anchor" />
       {groups.length > 1 && (
         <nav className="lsx-filters" aria-label="Groups">

@@ -8,9 +8,13 @@ update line_sheet_items set
   client_verdict_at = client_thumb_at,
   client_verdict_version = client_thumb_version,
   client_verdict_by = 'client'
---    client_verdict_at is the verdict's last change, kept on a clear too, so a
---    verdict set or cleared by the new code is never overwritten here.
+--    Only thumbs made after mig 215 ran (Nov 26 2026 afternoon; the cutoff is 1pm PT, before it ran;
+--    anything earlier was copied by 215), and only when newer than the verdict.
+--    client_verdict_at is the verdict's last change, kept on a clear too, so
+--    a verdict set or cleared by the new code is never overwritten. (A merge
+--    copies the donor's older stamp; the cutoff covers that.)
 where client_thumb is not null
+  and client_thumb_at > '2026-11-26 21:00:00+00'::timestamptz
   and client_thumb_at > coalesce(client_verdict_at, '-infinity'::timestamptz);
 -- 2. Drop the retired columns and the shelves.
 alter table line_sheet_items
