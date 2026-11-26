@@ -14,6 +14,9 @@ export const dynamic = "force-dynamic";
 //           mergeFrom?, replaceImage? } mergeFrom = another item id whose
 //         images fold into this one (front+back become one product; the donor
 //         item is removed if it was never published, else dropped).
+//         clearThumb = HPD clears the client's thumb (back to its shelf, no
+//         verdict), e.g. a pick that turned into a request for new variants;
+//         the client's comment stays (Jon, Nov 25).
 //         replaceImage = { at, driveId, name, size } swaps one mockup in place
 //         (Jon, Nov 25): the item keeps its thumb, comment, number and name.
 //         Until the next publish the client keeps seeing the picture it
@@ -139,6 +142,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     imgs[at] = { id: newImageId(), driveId: String(r.driveId), name: r.name || null, ...(Number(r.size) > 0 ? { size: Number(r.size) } : {}), ...(shown ? { replaces: shown } : {}) };
     patch.images = imgs;
   }
+  if (b.clearThumb) { patch.client_thumb = null; patch.client_thumb_at = null; patch.client_thumb_version = null; }
   if (b.drop) { patch.dropped = true; }
   if (b.restore) { patch.dropped = false; patch.dropped_in = null; }
   if (Object.keys(patch).length) {
