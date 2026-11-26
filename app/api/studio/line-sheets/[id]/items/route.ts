@@ -109,6 +109,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     // it has none of its own.
     const keepThumb = (item as any).client_thumb ? {} : (donor as any).client_thumb ? {
       client_thumb: (donor as any).client_thumb, client_thumb_at: (donor as any).client_thumb_at, client_thumb_version: (donor as any).client_thumb_version,
+      // the look that came with that thumb comes too (mig 214)
+      client_seen_version: Math.max((item as any).client_seen_version || 0, (donor as any).client_seen_version || 0) || null,
     } : {};
     const keepNote = (item as any).client_note ? {} : (donor as any).client_note ? {
       client_note: (donor as any).client_note, client_note_version: (donor as any).client_note_version,

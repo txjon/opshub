@@ -55,7 +55,7 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
     if (noteFor !== it.id) setNoteFor(null);
     setHold(thumb ? it.id : null);
     setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, thumb: next, badge: null } : x) }));
-    const r = await fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: it.id, thumb: next }) }).catch(() => null);
+    const r = await fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: data?.version?.n, itemId: it.id, thumb: next }) }).catch(() => null);
     if (!r || !r.ok) load();
   }
 
@@ -65,7 +65,7 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
     setZoom(it);
     if (!it.badge) return;
     setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, badge: null } : x) }));
-    fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: it.id, seen: true }) }).catch(() => {});
+    fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: data?.version?.n, itemId: it.id, seen: true }) }).catch(() => {});
   }
 
   // His comment (mig 213): any piece, any time, thumb or not. Saves on
@@ -79,7 +79,7 @@ function SheetView({ token, releaseId }: { token: string; releaseId: string }) {
     setNoteFor(null);
     if ((it.note || null) === note) return;
     setData((d: any) => ({ ...d, items: d.items.map((x: any) => x.id === it.id ? { ...x, note, noteStale: false, badge: null } : x) }));
-    const r = await fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: it.id, note }) }).catch(() => null);
+    const r = await fetch(`/api/portal/client/${token}/releases/${releaseId}/line-sheet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: data?.version?.n, itemId: it.id, note }) }).catch(() => null);
     if (!r || !r.ok) load();
   }
 

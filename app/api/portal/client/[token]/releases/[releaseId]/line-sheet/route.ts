@@ -54,7 +54,10 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   // or acting for the client), but a look alone never retires a badge
   let staff = false;
   try { const { data: { user } } = await (await createServerClient()).auth.getUser(); staff = !!user; } catch { staff = false; }
-  const seen = { client_seen_version: sheet.current_version };
+  // the version the client actually had loaded, so a publish landing while
+  // their page is open never retires the new version's badges unseen
+  const loaded = Number(b.version);
+  const seen = { client_seen_version: Number.isInteger(loaded) && loaded > 0 ? Math.min(loaded, sheet.current_version) : sheet.current_version };
   if (b.seen === true && b.thumb === undefined && b.note === undefined) {
     if (staff) return NextResponse.json({ ok: true, staff: true });
     const { error } = await db.from("line_sheet_items").update(seen as never).eq("id", b.itemId);
