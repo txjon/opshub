@@ -403,11 +403,11 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         {list.map(it => (
           <div key={it.id}>
             {card(it)}
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
-              <span style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint }}>from {sections.find((x: any) => x.id === it.section_id)?.name || "no shelf"}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, width: 172 }}>
+              <span style={{ fontSize: 9.5, fontFamily: H.mono, color: H.faint, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>from {sections.find((x: any) => x.id === it.section_id)?.name || "no shelf"}</span>
               {/* HPD clears the client's thumb: back to its shelf, no verdict; the comment stays */}
               {!sheet.archived_at && <button disabled={busy} onClick={async () => { setBusy(true); try { await patchItem({ id: it.id, clearThumb: true }); await load(); } finally { setBusy(false); } }}
-                title="Back to its shelf (clears their thumb; their comment stays)" aria-label="Clear: back to its shelf"
+                title="Back to its shelf (clears their thumb; their comment stays). Already on an order? It stays there." aria-label="Clear: back to its shelf"
                 style={{ marginLeft: "auto", background: "none", border: `1px solid ${H.line}`, borderRadius: 6, color: H.faint, fontSize: 11, lineHeight: 1, padding: "4px 7px", cursor: "pointer", fontFamily: H.font }}>✕ Clear</button>}
             </div>
           </div>
