@@ -23,12 +23,16 @@ export async function removeBriefFile(db: any, fileId: string, opts: { trash: bo
   for (const driveId of [file.drive_file_id, file.preview_drive_file_id].filter(Boolean) as string[]) {
     // Sibling brief files (either column), lineups and designer work orders
     // first, then the helper checks item_files, line sheets and the rest.
-    const [{ count }, { count: prevRefs }, { count: lineupRefs }] = await Promise.all([
+    // (lab order requests carry the id inside design_file_url)
+    const counts = await Promise.all([
       db.from("art_brief_files").select("id", { count: "exact", head: true }).eq("drive_file_id", driveId),
       db.from("art_brief_files").select("id", { count: "exact", head: true }).eq("preview_drive_file_id", driveId),
       db.from("lineup_options").select("id", { count: "exact", head: true }).eq("drive_file_id", driveId),
+      db.from("lineup_options").select("id", { count: "exact", head: true }).eq("preview_drive_file_id", driveId),
+      db.from("lab_order_requests").select("id", { count: "exact", head: true }).ilike("design_file_url", `%${driveId}%`),
     ]);
-    if ((count || 0) + (prevRefs || 0) + (lineupRefs || 0) > 0) continue;
+    // a failed count is a use: never trash on a lookup we couldn't run
+    if (counts.some((c: any) => c.error || (c.count || 0) > 0)) continue;
     if (await workOrderUses(db, driveId)) continue;
     try { await deleteDriveFileIfUnreferenced(driveId); } catch {}
   }
