@@ -496,9 +496,10 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         </div>
       )}
       <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint }}><a href="/studio/line-sheets" style={{ color: H.faint, textDecoration: "none" }}>‹ Line sheets</a></div>
-      {/* Header (Jon, Nov 25): title + who/where on the left; Publish with its
-          status above and last-publish stamp below on the right; everything
-          else lives in the ⋯ menu. */}
+      {/* Header (Jon, Nov 25; Nov 27): title + who/where on the left; on the
+          right the status, the ⋯ menu, and the two stamps (last publish,
+          client updated). Publish lives in the Not published banner, the
+          only time there's anything to publish. */}
       <div style={{ display: "flex", alignItems: "flex-end", gap: 18, flexWrap: "wrap", margin: "6px 0 24px" }}>
         <div style={{ flex: "1 1 320px", minWidth: 0 }}>
           <input defaultValue={sheet.title} onBlur={e => { if (e.target.value.trim() && e.target.value !== sheet.title) patchSheet({ title: e.target.value }); }}
@@ -510,14 +511,13 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
             {order?.job && <a href={`/jobs/${order.job.id}`} style={{ fontSize: 10.5, fontFamily: H.mono, color: H.dim, textDecoration: "none", borderBottom: "1px dotted rgba(255,255,255,.3)" }}>Order {order.job.job_number} →</a>}
           </div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 7, marginLeft: "auto" }}>
-          <span style={tag(sheet.archived_at ? H.faint : sheet.current_version ? H.blue : H.amber, 9.5)}>
-            {sheet.archived_at ? "Archived · hidden from their hub" : sheet.current_version ? `v${sheet.current_version} live in their hub` : "Draft · never published"}
-          </span>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5, marginLeft: "auto" }}>
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <span style={tag(sheet.archived_at ? H.faint : sheet.current_version ? H.blue : H.amber, 9.5)}>
+              {sheet.archived_at ? "Archived · hidden from their hub" : sheet.current_version ? `v${sheet.current_version} live in their hub` : "Draft · never published"}
+            </span>
             <input ref={replaceIn} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (replaceIn.current) replaceIn.current.value = ""; if (f) doReplace(f); else replaceTarget.current = null; }} />
             <input ref={fileIn} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => { if (e.target.files?.length) enqueue(e.target.files); if (fileIn.current) fileIn.current.value = ""; }} />
-            {!sheet.archived_at && <button disabled={busy} onClick={() => setPublishOpen(true)} style={{ ...primaryBtn, padding: "11px 20px" }}>Publish {sheet.current_version ? `v${sheet.current_version + 1}` : "v1"} →</button>}
             <span style={{ position: "relative" }}>
               <button disabled={busy} onClick={() => setMenuOpen(o => !o)} title="More" aria-haspopup="menu" aria-expanded={menuOpen} style={{ ...ghostBtn, padding: "6px 14px", fontSize: 17, lineHeight: 1, border: `1.5px solid ${H.blue}`, color: menuOpen ? H.ink : H.blue, background: menuOpen ? H.blue : "rgba(143,199,216,.12)" }}>⋯</button>
               {menuOpen && (<>
