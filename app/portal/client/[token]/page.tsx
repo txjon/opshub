@@ -40,11 +40,12 @@ export default function HomePage() {
   }, [token]);
   useEffect(() => {
     if (!hasPlanner) return;
-    fetch(`/api/portal/client/${token}/line-sheet`).then(r => r.ok ? r.json() : null).then(j => setPlanner(j)).catch(() => {});
+    fetch(`/api/portal/client/${token}/line-sheet`).then(r => r.ok ? r.json() : {}).then(j => setPlanner(j || {})).catch(() => setPlanner({}));
   }, [token, hasPlanner]);
 
   if (!data) return null;
-  const loading = orders === null;
+  // a planner client waits for its plate too, so the empty state never flashes
+  const loading = orders === null || (hasPlanner && planner === null);
   const thumb = (id: string) => `/api/files/thumbnail?id=${id}&thumb=1&size=600`;
 
   // ── THE GUEST HOUSE (Jon, Jul 22): the client's own version of The House —
@@ -117,7 +118,9 @@ export default function HomePage() {
   const actOrders = orderRows.filter(x => x.act);
   const actBriefs = briefs.filter(b => !["killed", "shelved"].includes(b.state) && (b.state === "with_client" || b.has_unread_external));
   // Invoices with money still due (project orders and fulfillment invoices alike)
-  const dueInvoices = (orders || []).filter(o => o.phase !== "cancelled" && ["unpaid", "partial"].includes(o.payment_status) && Number(o.balance) > 0.01);
+  // (an order already asking for approval keeps its one plate)
+  const asking = new Set(actOrders.map(x => x.o.id));
+  const dueInvoices = (orders || []).filter(o => o.phase !== "cancelled" && !asking.has(o.id) && ["unpaid", "partial"].includes(o.payment_status) && Number(o.balance) > 0.01);
   const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   // The Planner: what's new on it and not answered yet is a move; otherwise
   // it's still the first plate, with when it last changed
@@ -128,6 +131,16 @@ export default function HomePage() {
   const plannerPlate = planner && pItems.length > 0 ? plate("mv-planner", pCovers.length >= 2 ? pCovers : pCovers[0] || null, "Your planner", pNew ? `${pNew} new to look at` : "See your planner", pNew ? C.amber : C.text, pWhen ? `updated ${pWhen}` : "", `${base}/line-sheet`, pNew > 0) : null;
   const spotlightCount = actOrders.length + actBriefs.length + dueInvoices.length + (pNew ? 1 : 0);
 
+  // where browsing lives (the tabs), under a calm page
+  const tabLinks = (
+    <div style={{ display: "flex", gap: 22, justifyContent: "center", flexWrap: "wrap", marginTop: 22 }}>
+      {([["Your orders", `${base}/orders`], ...(hasPipeline ? [["The pipeline", `${base}/items`]] : []), ["Your catalog", `${base}/reorder`]] as string[][]).map(([label, href]) => (
+        <Link key={href} href={href} style={{ fontSize: 10.5, color: C.text, textDecoration: "none", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", borderBottom: `1px solid ${C.border}`, paddingBottom: 4 }}>
+          {label} →
+        </Link>
+      ))}
+    </div>
+  );
   const nothing = !loading && spotlightCount === 0 && orderRows.length === 0 && briefs.length === 0 && !plannerPlate;
 
   return (
@@ -167,7 +180,7 @@ export default function HomePage() {
             {plannerPlate}
             {dueInvoices.map(o => {
               const ref = o.invoice_number || o.qb_invoice_number;
-              return plate(`mv-i-${o.id}`, null, ref ? `Invoice #${ref}` : "Invoice", "Pay your invoice", C.amber, `${money(Number(o.balance))} due${o.title || o.period_label ? ` · ${o.title || o.period_label}` : ""}`, o.kind === "project" ? `${base}/orders?open=${o.id}` : `${base}/orders`, true);
+              return plate(`mv-i-${o.id}`, null, ref ? `Invoice #${ref}` : "Invoice", "Pay your invoice", C.amber, `${money(Number(o.balance))} due${o.title || o.period_label ? ` · ${o.title || o.period_label}` : ""}`, o.kind === "project" ? `${base}/orders?open=${o.id}` : `${base}/orders?filter=unpaid`, true);
             })}
             {actOrders.map(({ o, verb, color }) => {
               const art = (o.items || []).map((it: any) => it.thumb_id).find(Boolean);
@@ -175,6 +188,7 @@ export default function HomePage() {
             })}
             {actBriefs.map(b => plate(`mv-b-${b.id}`, bFace(b), b.title || "Your idea", b.lineup_open ? "Pick your favorites" : "Take a look", C.amber, b.lineup_open ? `${b.lineup_count} options waiting` : (b.preview_line || "new from our team"), `${base}/studio`, true))}
           </div>
+          {!spotlightCount && tabLinks}
           <div style={{ height: 60 }} />
         </>
       ) : (
@@ -184,13 +198,7 @@ export default function HomePage() {
           <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6 }}>
             {nothing ? (hasStudio ? "Nothing here yet. Share something above to get started." : "Nothing here yet.") : "Nothing needs you right now. We've got it from here."}
           </div>
-          <div style={{ display: "flex", gap: 22, justifyContent: "center", flexWrap: "wrap", marginTop: 22 }}>
-            {([["Your orders", `${base}/orders`], ...(hasPipeline ? [["The pipeline", `${base}/items`]] : []), ["Your catalog", `${base}/reorder`]] as string[][]).map(([label, href]) => (
-              <Link key={href} href={href} style={{ fontSize: 10.5, color: C.text, textDecoration: "none", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", borderBottom: `1px solid ${C.border}`, paddingBottom: 4 }}>
-                {label} →
-              </Link>
-            ))}
-          </div>
+          {tabLinks}
         </div>
       )}
     </div>
