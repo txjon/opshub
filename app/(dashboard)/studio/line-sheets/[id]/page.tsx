@@ -174,6 +174,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const passed = items.filter(i => i.client_verdict === "pass");
   const concepts = items.filter(i => !i.client_verdict);
   const goN = goodToGo.length;
+  const goLiveN = goodToGo.filter(i => i.added_in != null).length;   // what the ZIP holds: published art only
   const ordered = new Set(order?.ordered || []);
   // Organizing is live in their hub; only never-published uploads wait (Oct 1 2026).
   const unpublished = items.filter(i => !i.dropped && i.added_in == null).length;
@@ -474,7 +475,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
                   {!sheet.archived_at && <button role="menuitem" onClick={() => setFromStudio(true)} title="Move this client's old Studio requests onto the board" style={menuItem}>+ Bring in from Studio</button>}
                   {goN > 0 && <button role="menuitem" onClick={() => setSelected(goodToGo.map(i => i.id))} title="Select every Good to go item (then download, pair…)" style={menuItem}>Select Good to go ({goN})</button>}
                   {!sheet.archived_at && order && order.pending > 0 && <button role="menuitem" disabled={busy} onClick={makeOrder} title="Turn the Good to go items into an order" style={menuItem}>{order.job ? `Add ${order.pending} Good to go to ${order.job.job_number}` : `Create order (${order.pending} Good to go)`}</button>}
-                  {goN > 0 && <a role="menuitem" href={`/api/studio/line-sheets/${params.id}/download?pick=approved`} download title="Every Good to go mockup the client has seen, full res, in one ZIP" style={menuItem}>↓ Download Good to go ({goN})</a>}
+                  {goLiveN > 0 && <a role="menuitem" href={`/api/studio/line-sheets/${params.id}/download?pick=approved`} download title="Every Good to go mockup the client has seen, full res, in one ZIP" style={menuItem}>↓ Download Good to go ({goLiveN})</a>}
                   {items.length > 0 && <a role="menuitem" href={`/api/studio/line-sheets/${params.id}/download?pick=all`} download title="Every mockup on the sheet, full res, in one ZIP" style={menuItem}>↓ Download all</a>}
                   <div style={{ height: 1, background: H.line2, margin: "5px 6px" }} />
                   <button role="menuitem" onClick={toggleArchive} style={menuItem}>{sheet.archived_at ? "Unarchive" : "Archive"}</button>
