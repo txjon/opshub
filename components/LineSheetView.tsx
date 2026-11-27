@@ -65,7 +65,8 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
   // The planner (Jon, Nov 27 2026): each release is a filter chip, and an
   // As is card carries "Add to release" (the client's seat; HPD adds from
   // the selection menu). addToRelease(card, releaseId) adds it; null = a
-  // new release. `addable` = the release ids this seat can add to.
+  // new release; it runs in the write queue after any answer still saving,
+  // and the seat reloads in onSettled. `addable` = the ids it can add to.
   releases?: ViewRelease[];
   addToRelease?: { add: (it: ViewItem, releaseId: string | null) => Promise<true | string>; addable: string[] };
   staff?: {
@@ -118,16 +119,19 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
   // done, so a reload never wipes an edit that hasn't been sent yet
   const pending = useRef(0);
   const failed = useRef(false);
-  const post = (body: SaveBody): Promise<boolean> => {
+  // any write takes its turn in the one queue (verdicts, notes, adding to
+  // a release): nothing jumps an answer that hasn't saved yet
+  const queued = (write: () => Promise<true | string>): Promise<boolean> => {
     pending.current++;
     const run = chain.current.then(async () => {
-      const r = await save(body).catch(() => "That didn't save. Check your connection and try again.");
+      const r = await write().catch(() => "That didn't save. Check your connection and try again.");
       if (r !== true) { setErr(r); failed.current = true; }
       return r === true;
     }).finally(() => { if (--pending.current === 0) { const f = failed.current; failed.current = false; onSettled?.(f); } });
     chain.current = run;
     return run;
   };
+  const post = (body: SaveBody) => queued(() => save(body));
   const patchLocal = (id: string, p: Partial<ViewItem>) => setPatches(m => ({ ...m, [id]: { ...m[id], ...p } }));
   const keepSpot = (it: ViewItem) => setHold({ id: it.id, group: hold && hold.id === it.id ? hold.group : groupOfIt(it) });
   // acting on a card lets the last one answered move to its group
@@ -305,9 +309,9 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
               const can = releases.filter(r => addToRelease.addable.includes(r.id) && !r.cardIds.includes(it.id));
               const go = async (rid: string | null) => {
                 setAdding(true);
-                const r = await addToRelease.add(it, rid).catch(() => "That didn't save. Try again.");
+                const ok = await queued(() => addToRelease.add(it, rid));
                 setAdding(false);
-                if (r !== true) setErr(r); else setRelFor(null);
+                if (ok) setRelFor(null);
               };
               const row: React.CSSProperties = { display: "block", width: "100%", textAlign: "left", background: C.surface, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 10px", color: C.text, fontFamily: C.font, fontSize: 11.5, fontWeight: 700, cursor: "pointer" };
               return (

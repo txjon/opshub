@@ -2,8 +2,9 @@
 import { useEffect, useState } from "react";
 import { H, primaryBtn, ghostBtn, inp, lbl, tag, fmtStamp } from "@/lib/studio-theme";
 
-// LINE SHEETS — the index (mig 190). A product line worked in versions; since
-// mig 192 each sheet is the proposal stage of ONE release. Rides the /studio grant.
+// PLANNERS — the index (mig 190; renamed Nov 27 2026). One per client: the
+// client's board of designs, with its releases underneath. No name of its
+// own: it's the client's planner. Rides the /studio grant.
 export default function LineSheetsPage() {
   const [sheets, setSheets] = useState<any[]>([]);
   const [showNew, setShowNew] = useState(false);
@@ -17,20 +18,19 @@ export default function LineSheetsPage() {
       <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint }}><a href="/studio" style={{ color: H.faint, textDecoration: "none" }}>‹ The studio</a></div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 16, flexWrap: "wrap", margin: "6px 0 26px" }}>
         <h1 style={{ fontSize: "clamp(34px,5vw,60px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: 0 }}>Planners.</h1>
-        <button onClick={() => setShowNew(true)} style={{ ...primaryBtn, padding: "12px 22px" }}>+ New line sheet</button>
-        <button onClick={() => setArchived(a => !a)} style={{ ...ghostBtn, marginLeft: "auto" }}>{archived ? "‹ Active sheets" : "Show archived"}</button>
+        <button onClick={() => setShowNew(true)} style={{ ...primaryBtn, padding: "12px 22px" }}>+ New planner</button>
+        <button onClick={() => setArchived(a => !a)} style={{ ...ghostBtn, marginLeft: "auto" }}>{archived ? "‹ Active planners" : "Show archived"}</button>
       </div>
       {archived && <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: H.faint, marginBottom: 12 }}>Archived · open one to unarchive</div>}
-      {archived && sheets.length === 0 && <div style={{ color: H.faint, fontSize: 13 }}>No archived sheets.</div>}
-      {!archived && sheets.length === 0 && <div style={{ color: H.faint, fontSize: 13 }}>Nothing yet. A line sheet is a client&rsquo;s line of concepts, presented like a webstore: they say As is, Change or Pass on each.</div>}
+      {archived && sheets.length === 0 && <div style={{ color: H.faint, fontSize: 13 }}>No archived planners.</div>}
+      {!archived && sheets.length === 0 && <div style={{ color: H.faint, fontSize: 13 }}>Nothing yet. A planner is a client&rsquo;s board of designs, presented like a webstore: they say As is, Change or Pass on each, then pull what&rsquo;s As is into a release.</div>}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(290px, 1fr))", gap: 14 }}>
         {sheets.map(s => (
           <a key={s.id} href={`/studio/line-sheets/${s.id}`} style={{ background: H.panel, border: `1px solid ${H.line}`, borderRadius: 14, padding: "16px 18px", color: H.text, textDecoration: "none" }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
-              <span style={{ fontSize: 15, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{s.title}</span>
+              <span style={{ fontSize: 15, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{s.client_name}</span>
               <span style={tag(s.status === "final" ? H.green : s.current_version ? H.blue : H.amber, 9)}>{s.status === "final" ? "Final" : s.current_version ? `v${s.current_version} live` : "Draft"}</span>
             </div>
-            <div style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint, marginTop: 4 }}>{s.client_name}{s.release_title ? ` · ${s.release_title}` : ""}</div>
             <div style={{ fontSize: 11, color: H.dim, marginTop: 10, display: "flex", gap: 14 }}>
               <span>{s._counts.items} item{s._counts.items === 1 ? "" : "s"}</span>
               {s._counts.asis > 0 && <span style={{ color: H.green }}>{s._counts.asis} as is</span>}
@@ -48,61 +48,37 @@ export default function LineSheetsPage() {
 
 function NewSheet({ onClose, onCreated }: any) {
   const [q, setQ] = useState(""); const [results, setResults] = useState<any[]>([]);
-  const [client, setClient] = useState<any>(null);
-  const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false); const [err, setErr] = useState("");
-  // The release this sheet proposes — an open (building) one without a sheet,
-  // or "" = a new release born with the sheet's title.
-  const [releases, setReleases] = useState<any[]>([]); const [releaseId, setReleaseId] = useState("");
   useEffect(() => {
-    setReleases([]); setReleaseId("");
-    if (!client) return;
-    fetch(`/api/studio/line-sheets?client=${client.id}`).then(r => r.json()).then(j => setReleases(j.releases || [])).catch(() => {});
-  }, [client]);
-  useEffect(() => {
-    if (!q.trim() || client) { setResults([]); return; }
+    if (!q.trim()) { setResults([]); return; }
     const t = setTimeout(async () => {
       const r = await fetch(`/api/lab/real-clients?q=${encodeURIComponent(q.trim())}`).then(x => x.json()).catch(() => ({}));
       setResults(r.clients || []);
     }, 250);
     return () => clearTimeout(t);
-  }, [q, client]);
-  async function go() {
-    if (!client || !title.trim()) { setErr("Pick a client and give it a title."); return; }
+  }, [q]);
+  // one tap: the planner is the client's, so picking the client is all there is
+  async function go(client: any) {
     setBusy(true); setErr("");
     try {
-      const r = await fetch("/api/studio/line-sheets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientId: client.id, title: title.trim(), releaseId: releaseId || null }) }).then(x => x.json());
+      const r = await fetch("/api/studio/line-sheets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clientId: client.id }) }).then(x => x.json());
+      if (r.sheetId) { onCreated(r.sheetId); return; }   // already has one: open it
       if (r.error) { setErr(r.error); return; }
       onCreated(r.sheet.id);
-    } finally { setBusy(false); }
+    } catch { setErr("Couldn't start it. Try again."); }
+    finally { setBusy(false); }
   }
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 210, background: "rgba(0,0,0,.7)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "48px 16px", overflowY: "auto" }}>
       <div onClick={e => e.stopPropagation()} style={{ background: "#161616", border: `1px solid ${H.line}`, borderRadius: 18, width: "100%", maxWidth: 440, padding: "20px 22px", color: H.text, fontFamily: H.font }}>
-        <div style={{ fontSize: 15, fontWeight: 900, textTransform: "uppercase", marginBottom: 14 }}>New line sheet</div>
-        <label style={lbl}>Client</label>
-        {client ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-            <span style={{ fontSize: 13, fontWeight: 800, textTransform: "uppercase" }}>{client.name}</span>
-            <button onClick={() => { setClient(null); setQ(""); }} style={{ background: "none", border: "none", color: H.faint, fontSize: 11, cursor: "pointer", fontFamily: H.font }}>change</button>
-          </div>
-        ) : (<>
-          <input value={q} onChange={e => setQ(e.target.value)} autoFocus placeholder="Search clients…" style={inp} />
-          {results.map((c: any) => (
-            <button key={c.id} onClick={() => setClient(c)} style={{ display: "block", width: "100%", textAlign: "left", background: H.surface, border: `1px solid ${H.line2}`, borderRadius: 9, padding: "9px 12px", marginTop: 6, cursor: "pointer", fontFamily: H.font, color: H.text, fontSize: 12.5, fontWeight: 800, textTransform: "uppercase" }}>{c.name}</button>
-          ))}
-        </>)}
-        {client && (<>
-          <label style={{ ...lbl, marginTop: 12 }}>Release</label>
-          <select value={releaseId} onChange={e => setReleaseId(e.target.value)} style={{ ...inp, colorScheme: "dark" }}>
-            <option value="">New release (named after the sheet)</option>
-            {releases.map((r: any) => <option key={r.id} value={r.id}>{r.title}</option>)}
-          </select>
-        </>)}
-        <label style={{ ...lbl, marginTop: 12 }}>Title</label>
-        <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Sike Ops Line Sheet" style={inp} />
+        <div style={{ fontSize: 15, fontWeight: 900, textTransform: "uppercase", marginBottom: 14 }}>New planner</div>
+        <label style={lbl}>Whose?</label>
+        <input value={q} onChange={e => setQ(e.target.value)} autoFocus placeholder="Search clients…" style={inp} />
+        {results.map((c: any) => (
+          <button key={c.id} disabled={busy} onClick={() => go(c)} style={{ display: "block", width: "100%", textAlign: "left", background: H.surface, border: `1px solid ${H.line2}`, borderRadius: 9, padding: "9px 12px", marginTop: 6, cursor: "pointer", fontFamily: H.font, color: H.text, fontSize: 12.5, fontWeight: 800, textTransform: "uppercase" }}>{c.name}</button>
+        ))}
+        {busy && <div style={{ color: H.faint, fontSize: 12, marginTop: 8 }}>Starting…</div>}
         {err && <div style={{ color: H.red, fontSize: 12, marginTop: 8 }}>{err}</div>}
-        <button disabled={busy} onClick={go} style={{ ...primaryBtn, width: "100%", marginTop: 16, padding: "13px" }}>{busy ? "Starting…" : "Start the sheet"}</button>
       </div>
     </div>
   );

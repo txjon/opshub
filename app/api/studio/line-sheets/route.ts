@@ -28,17 +28,9 @@ export async function GET(req: NextRequest) {
   if (!(await me())) return NextResponse.json({ error: "Sign in" }, { status: 401 });
   const db = admin();
   const company = await getActiveCompany();
-  const forClient = req.nextUrl.searchParams.get("client");
-  if (forClient) {
-    const { data: rels } = await db.from("releases").select("id, title, target_live_date")
-      .eq("client_id", forClient).eq("company_id", company.id).eq("status", "building").order("created_at", { ascending: false });
-    const { data: taken } = await db.from("line_sheets").select("release_id").eq("client_id", forClient);
-    const used = new Set(((taken || []) as any[]).map(t => t.release_id));
-    return NextResponse.json({ releases: ((rels || []) as any[]).filter(r => !used.has(r.id)) });
-  }
   const archived = req.nextUrl.searchParams.get("archived") === "1";
   let q = db.from("line_sheets")
-    .select("*, clients!inner(id, name, company_id), releases(id, title)")
+    .select("*, clients!inner(id, name, company_id)")
     .eq("clients.company_id", company.id);
   q = archived ? q.not("archived_at", "is", null) : q.is("archived_at", null);
   const { data } = await q.order("updated_at", { ascending: false });
@@ -57,43 +49,28 @@ export async function GET(req: NextRequest) {
       if (v) c[v]++;
     }
   }
-  return NextResponse.json({ sheets: sheets.map(s => ({ ...s, client_name: s.clients?.name || null, clients: undefined, release_title: s.releases?.title || null, releases: undefined, _counts: counts[s.id] || zero() })) });
+  return NextResponse.json({ sheets: sheets.map(s => ({ ...s, client_name: s.clients?.name || null, clients: undefined, _counts: counts[s.id] || zero() })) });
 }
 
 export async function POST(req: NextRequest) {
   const who = await me();
   if (!who) return NextResponse.json({ error: "Sign in" }, { status: 401 });
   const b = await req.json().catch(() => ({} as any));
-  if (!b.clientId || !String(b.title || "").trim()) return NextResponse.json({ error: "A client and a title are required" }, { status: 400 });
+  if (!b.clientId) return NextResponse.json({ error: "Pick a client" }, { status: 400 });
   const db = admin();
-  // one live line sheet per client (mig 218): it's his board; archive the
-  // old one to start another
-  const { data: live } = await db.from("line_sheets").select("id, title").eq("client_id", b.clientId).is("archived_at", null).limit(1);
-  if ((live || []).length) return NextResponse.json({ error: `This client already has a line sheet ("${(live as any[])[0].title}"). Add to it, or archive it to start a new one.`, sheetId: (live as any[])[0].id }, { status: 409 });
-  const title = String(b.title).trim().slice(0, 140);
-  let releaseId: string | null = b.releaseId || null;
-  let bornRelease = false;
-  if (releaseId) {
-    const { data: rel } = await db.from("releases").select("id, client_id").eq("id", releaseId).maybeSingle();
-    if (!rel || (rel as any).client_id !== b.clientId) return NextResponse.json({ error: "That release isn't this client's" }, { status: 400 });
-  } else {
-    const { data: cl } = await db.from("clients").select("company_id").eq("id", b.clientId).maybeSingle();
-    if (!cl) return NextResponse.json({ error: "Unknown client" }, { status: 400 });
-    const { data: rel, error: rErr } = await db.from("releases").insert({
-      company_id: (cl as any).company_id || null, client_id: b.clientId, title: title.slice(0, 120),
-      model: null, status: "building", status_timestamps: { building: new Date().toISOString() },
-    } as never).select("id").single();
-    if (rErr || !rel) return NextResponse.json({ error: rErr?.message || "Couldn't start the release" }, { status: 500 });
-    releaseId = (rel as any).id;
-    bornRelease = true;
-  }
+  const { data: cl } = await db.from("clients").select("company_id").eq("id", b.clientId).maybeSingle();
+  if (!cl || (cl as any).company_id !== (await getActiveCompany()).id) return NextResponse.json({ error: "Unknown client" }, { status: 400 });
+  // one planner per client (mig 218): archive the old one to start another
+  const { data: live } = await db.from("line_sheets").select("id").eq("client_id", b.clientId).is("archived_at", null).limit(1);
+  if ((live || []).length) return NextResponse.json({ error: "This client already has a planner. Add to it, or archive it to start a new one.", sheetId: (live as any[])[0].id }, { status: 409 });
+  // A planner has no name of its own (Jon, Nov 27): it's the client's.
+  // Releases are separate and many (mig 220 dropped the one-release link).
   const { data: sheet, error } = await db.from("line_sheets").insert({
-    client_id: b.clientId, release_id: releaseId, title, created_by: who.name,
+    client_id: b.clientId, title: "Planner", created_by: who.name,
   } as never).select("*").single();
   if (error || !sheet) {
-    if (bornRelease) await db.from("releases").delete().eq("id", releaseId!);
-    // someone made one a moment ago (mig 218: one live sheet per client)
-    if ((error as any)?.code === "23505") return NextResponse.json({ error: "This client already has a line sheet. Add to it, or archive it to start a new one." }, { status: 409 });
+    // someone made one a moment ago (mig 218: one live planner per client)
+    if ((error as any)?.code === "23505") return NextResponse.json({ error: "This client already has a planner. Add to it, or archive it to start a new one." }, { status: 409 });
     return NextResponse.json({ error: error?.message || "Failed" }, { status: 500 });
   }
   return NextResponse.json({ sheet });

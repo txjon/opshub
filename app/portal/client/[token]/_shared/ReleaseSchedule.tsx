@@ -174,12 +174,7 @@ export function ReleaseSchedule({ embedded, reloadKey, onChanged }: { embedded?:
   const briefLineCount = (((data as any)?.briefs as any[]) || []).length;
   const noSources = briefLineCount === 0 && pipeItems.length === 0 && catalogItems.length === 0;
 
-  // Line-sheet stage (mig 192): a release we're still proposing — published
-  // sheet, no lines yet. It IS the headline: shown only as the hero up top,
-  // never as an empty "yours to build" card. Once lines exist it joins the list.
-  const sheetStage = (d: any) => d.status === "building" && !!d.lineSheet && d.slots.length === 0;
-  const inTheWorks = embedded ? [] : (drops || []).filter(sheetStage);
-  const listDrops = drops === null ? null : embedded ? drops : drops.filter(d => !sheetStage(d));
+  const listDrops = drops;
 
   // One tap creates it — auto-named ("Release 03"), rename anytime in the
   // sheet. No decisions at the door: the lineup decides what it becomes.
@@ -230,41 +225,6 @@ export function ReleaseSchedule({ embedded, reloadKey, onChanged }: { embedded?:
       </div>
       </>)}
 
-      {inTheWorks.length > 0 && (
-        <div style={{ maxWidth: 760, margin: "0 auto 30px", display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: C.faint }}>In the works</div>
-          {inTheWorks.map((d: any) => {
-            const ls = d.lineSheet;
-            return (
-              <a key={d.id} href={`/portal/client/${token}/line-sheet`} className="lsx-hero"
-                style={{ display: "block", background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, overflow: "hidden", color: C.text, textDecoration: "none", fontFamily: C.font }}>
-                {ls.covers.length > 0 && (
-                  <div className="lsx-strip" style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(ls.covers.length, 8)}, 1fr)`, background: "#fff" }}>
-                    {ls.covers.map((id: string, i: number) => (
-                      <div key={i} className={i >= 4 ? "lsx-wide" : undefined} style={{ aspectRatio: "1", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                        <img src={thumbSrc(id, 300)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" style={{ width: "88%", height: "88%", objectFit: "contain", mixBlendMode: "multiply" }} />
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div style={{ padding: "18px 20px 20px" }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: C.amber }}>
-                    Planner · v{ls.version}{ls.publishedAt ? ` · updated ${fmtDate(ls.publishedAt.slice(0, 10))}` : ""}
-                  </div>
-                  <div style={{ fontSize: "clamp(24px,4.6vw,36px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.02em", lineHeight: 1, marginTop: 6 }}>{d.title}</div>
-                  <div style={{ fontSize: 13, color: C.muted, marginTop: 8 }}>
-                    {ls.pieces} piece{ls.pieces === 1 ? "" : "s"} · {ls.reacted ? `you've reacted to ${ls.reacted}` : "nothing reacted to yet"}
-                  </div>
-                  <span style={{ display: "inline-block", marginTop: 16, background: "#fff", color: C.bg, borderRadius: 999, padding: "11px 22px", fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                    {ls.reacted < ls.pieces ? "React to the line →" : "See the line →"}
-                  </span>
-                </div>
-              </a>
-            );
-          })}
-          <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: C.faint, marginTop: 16 }}>Your releases</div>
-        </div>
-      )}
       <div style={{ display: "flex", justifyContent: "center", marginBottom: 34 }}>
         <button onClick={() => createDrop()} disabled={busy}
           style={{ background: "#fff", color: C.bg, border: "none", borderRadius: 999, padding: "13px 26px", fontSize: 11.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", cursor: "pointer", opacity: busy ? 0.6 : 1, fontFamily: C.font }}>
@@ -276,7 +236,7 @@ export function ReleaseSchedule({ embedded, reloadKey, onChanged }: { embedded?:
 
       {listDrops === null ? (
         <div style={{ color: C.faint, fontSize: 13, textAlign: "center", padding: "30px 0" }}>Loading your releases…</div>
-      ) : listDrops.length === 0 ? (inTheWorks.length > 0 ? null : (
+      ) : listDrops.length === 0 ? (
         // First run — a new client has nothing to pull yet, so point them at
         // the door that feeds this page instead of shrugging at them.
         noSources ? (
@@ -295,7 +255,7 @@ export function ReleaseSchedule({ embedded, reloadKey, onChanged }: { embedded?:
           </div>
         ) : (
           <div style={{ color: C.muted, fontSize: 13, textAlign: "center", padding: "10px 0 40px" }}>No releases yet. Start one and pull your greenlit designs onto it.</div>
-        ))
+        )
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 760, margin: "0 auto" }}>
           {listDrops.map((d: any) => {
@@ -303,7 +263,7 @@ export function ReleaseSchedule({ embedded, reloadKey, onChanged }: { embedded?:
             return (
               <div key={d.id}>
                 <button onClick={() => { setOpen(d); load(d.id); }}
-                  style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: d.lineSheet ? "16px 16px 0 0" : 16, width: "100%", padding: "16px 18px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text }}>
+                  style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 16, width: "100%", padding: "16px 18px", cursor: "pointer", textAlign: "left", fontFamily: C.font, color: C.text }}>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
                     <span style={{ fontSize: 17, fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.01em" }}>{d.title}</span>
                     {d.target_live_date && <span style={{ fontSize: 10.5, fontFamily: C.mono, color: C.faint }}>live {fmtDate(d.target_live_date)}</span>}
@@ -311,14 +271,6 @@ export function ReleaseSchedule({ embedded, reloadKey, onChanged }: { embedded?:
                   </div>
                   <div style={{ fontSize: 12, color: h.color, fontWeight: 700, marginTop: 5 }}>{h.text}</div>
                 </button>
-                {d.lineSheet && !embedded && (
-                  <a href={`/portal/client/${token}/line-sheet`}
-                    style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", background: C.surface, border: `1px solid ${C.border}`, borderTop: "none", borderRadius: "0 0 16px 16px", padding: "11px 18px", color: C.text, textDecoration: "none", fontFamily: C.font }}>
-                    <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" }}>Planner</span>
-                    <span style={{ fontSize: 10.5, fontFamily: C.mono, color: C.muted }}>v{d.lineSheet.version} · {d.lineSheet.pieces} proposed{d.lineSheet.kept ? ` · ${d.lineSheet.kept} good to go` : ""}</span>
-                    <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>View ›</span>
-                  </a>
-                )}
               </div>
             );
           })}

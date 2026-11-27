@@ -232,7 +232,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     setMenuOpen(false);
     const sh = dataRef.current?.sheet;
     if (!sh) return;
-    if (!sh.archived_at && !await confirm({ title: "Archive this planner?", message: "It leaves your Planners list and the client's hub. Items, versions and their verdicts are kept; Unarchive brings it all back.", confirmLabel: "Archive", confirmColor: T.accent })) return;
+    if (!sh.archived_at && !await confirm({ title: `Archive ${sh.clients?.name ? `${sh.clients.name}\u2019s` : "this"} planner?`, message: "It leaves your Planners list and the client's hub. Items, versions and their verdicts are kept; Unarchive brings it all back.", confirmLabel: "Archive", confirmColor: T.accent })) return;
     const r = await patchSheet(sh.archived_at ? { unarchive: true } : { archive: true });
     if (r?.ok && !sh.archived_at) window.location.href = "/studio/line-sheets";
   }
@@ -241,7 +241,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     const sh = dataRef.current?.sheet;
     if (!sh) return;
     const n = (dataRef.current?.items || []).length;
-    if (!await confirm({ title: `Delete "${sh.title}" for good?`, message: `This removes ${n} item${n === 1 ? "" : "s"}, every version, and the client's verdicts, and takes it out of their hub. The mockup files stay in Drive, but OpsHub loses track of them: download what you need first (⋯ → Download all). It can't be undone. To just put it away, use Archive.`, confirmLabel: "Delete", confirmColor: H.red })) return;
+    if (!await confirm({ title: `Delete ${sh.clients?.name ? `${sh.clients.name}\u2019s` : "this"} planner for good?`, message: `This removes ${n} item${n === 1 ? "" : "s"}, every version, and the client's verdicts, and takes it out of their hub. The mockup files stay in Drive, but OpsHub loses track of them: download what you need first (⋯ → Download all). It can't be undone. To just put it away, use Archive.`, confirmLabel: "Delete", confirmColor: H.red })) return;
     setBusy(true);
     try {
       const r = await fetch(`/api/studio/line-sheets/${params.id}`, { method: "DELETE" }).then(x => x.json()).catch(() => ({ error: "Delete failed" }));
@@ -502,11 +502,10 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
           only time there's anything to publish. */}
       <div style={{ display: "flex", alignItems: "flex-end", gap: 18, flexWrap: "wrap", margin: "6px 0 24px" }}>
         <div style={{ flex: "1 1 320px", minWidth: 0 }}>
-          <input defaultValue={sheet.title} onBlur={e => { if (e.target.value.trim() && e.target.value !== sheet.title) patchSheet({ title: e.target.value }); }}
-            style={{ width: "100%", boxSizing: "border-box", fontSize: "clamp(26px,4vw,44px)", fontWeight: 900, letterSpacing: "-0.02em", textTransform: "uppercase", background: "none", border: "none", borderBottom: "1px dotted rgba(255,255,255,.3)", color: H.text, outline: "none", fontFamily: H.font }} />
+          {/* no name of its own (Jon, Nov 27): it's the client's planner */}
+          <h1 style={{ fontSize: "clamp(26px,4vw,44px)", fontWeight: 900, letterSpacing: "-0.02em", textTransform: "uppercase", margin: 0, lineHeight: 1.05 }}>{sheet.clients?.name || "Planner"}</h1>
           <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
-            <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>{sheet.clients?.name}</span>
-            {sheet.releases && <a href="/drops" style={{ fontSize: 10.5, fontFamily: H.mono, color: H.dim, textDecoration: "none", borderBottom: "1px dotted rgba(255,255,255,.3)" }}>Release · {sheet.releases.title}</a>}
+            <span style={tag(H.faint, 10)}>Planner</span>
             {!sheet.archived_at && sheet.current_version > 0 && sheet.clients?.portal_token && <CopyLink url={`${window.location.origin}/portal/client/${sheet.clients.portal_token}/line-sheet`} />}
             {order?.job && <a href={`/jobs/${order.job.id}`} style={{ fontSize: 10.5, fontFamily: H.mono, color: H.dim, textDecoration: "none", borderBottom: "1px dotted rgba(255,255,255,.3)" }}>Order {order.job.job_number} →</a>}
           </div>

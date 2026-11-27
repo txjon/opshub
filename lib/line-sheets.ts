@@ -45,7 +45,7 @@ export function layoutNumbering(items: { id: string; sort: number; dropped?: boo
 }
 
 export type LineSheet = {
-  id: string; client_id: string; release_id: string; title: string;
+  id: string; client_id: string; title: string;
   status: "working" | "final"; current_version: number;
   created_by: string | null; created_at: string; updated_at: string;
 };

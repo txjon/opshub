@@ -71,25 +71,6 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         });
       }
     }
-    // Line sheet (mig 192) — the release's proposal stage, read through THE
-    // client view (lib/line-sheets clientSheetView: organizing live, art only
-    // once published). covers = first image of the first few pieces, in order.
-    const sheetByRelease: Record<string, any> = {};
-    if (ids.length) {
-      const { data: sheets } = await db.from("line_sheets")
-        .select("id, release_id, current_version").in("release_id", ids).gt("current_version", 0).is("archived_at", null);
-      for (const sh of (sheets || []) as any[]) {
-        const view = await clientSheetView(db, sh);
-        const pieces = view.items;
-        // reacted = answered; an old thumbs-up (liked) still waits on As is / Change
-        const answered = pieces.filter(i => i.verdict && i.verdict !== "liked");
-        sheetByRelease[sh.release_id] = {
-          version: sh.current_version, publishedAt: view.version.published_at,
-          pieces: pieces.length, reacted: answered.length, kept: answered.filter(i => i.verdict === "asis").length,
-          covers: pieces.map(i => i.images[0]?.driveId).filter(Boolean).slice(0, 8),
-        };
-      }
-    }
     // His board's As is cards, for the release picker's "From the board" tab
     // (mig 217). Read through THE client view, so only published art shows.
     const boardCards: any[] = [];
@@ -101,16 +82,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
         for (const it of view.items) if (it.verdict === "asis") boardCards.push({ id: it.id, name: it.name, itemNo: it.item_no, thumb: it.images[0]?.driveId || null });
       }
     }
-    // An archived sheet (mig 211) takes its release with it when the sheet
-    // was all the release held (still building, no lines, no job): otherwise
-    // the client sees an empty card for a line we shelved.
-    const archivedOn = new Set<string>();
-    if (ids.length) {
-      const { data: arch } = await db.from("line_sheets").select("release_id").in("release_id", ids).not("archived_at", "is", null);
-      for (const a of (arch || []) as any[]) archivedOn.add(a.release_id);
-    }
-    const shown = (releases || []).filter((r: any) =>
-      !(archivedOn.has(r.id) && r.status === "building" && !r.job_id && !(slotsByRelease[r.id] || []).length));
+    const shown = releases || [];
     // Payable for cut drops — read the born job's invoice state (same
     // gating as the order surfaces: nothing shows until the invoice is
     // actually sent or a non-draft payment record exists).
@@ -155,7 +127,6 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       drops: shown.map((r: any) => ({
         ...r,
         slots: slotsByRelease[r.id] || [],
-        lineSheet: sheetByRelease[r.id] || null,
         payable: r.status === "cut" && r.job_id ? (payableByJob[r.job_id] || null) : null,
       })),
     });
@@ -172,8 +143,13 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     const { db, client } = ctx;
 
     const body = await req.json().catch(() => ({}));
-    const title = String(body.title || "").trim().slice(0, 120);
-    if (!title) return NextResponse.json({ error: "Name the release" }, { status: 400 });
+    // no name sent (the Planner's "+ New release"): the next number, like
+    // the Schedule's own button ("Release 03")
+    let title = String(body.title || "").trim().slice(0, 120);
+    if (!title) {
+      const { count } = await db.from("releases").select("id", { count: "exact", head: true }).eq("client_id", client.id);
+      title = `Release ${String((count || 0) + 1).padStart(2, "0")}`;
+    }
     // No model at the door (Aug 12 2026): the lineup decides what a release
     // is — pipeline-only launches, anything else sells/cuts. Column kept for
     // legacy rows; new releases are born model-null.

@@ -44,7 +44,7 @@ export async function addSlot(
     if (!card || (card as any).line_sheets?.client_id !== release.client_id || (card as any).line_sheets?.archived_at) return fail("Card not found", 404);
     // he must have SEEN its art: a published picture (an unpaired draft half
     // carries added_in but nothing he's been shown)
-    if ((card as any).dropped || (card as any).added_in == null || !publishedFace((card as any).images, await publishedImageIds(db, (card as any).sheet_id))) return fail("That card isn't on his board yet (publish its art first)", 409);
+    if ((card as any).dropped || (card as any).added_in == null || !publishedFace((card as any).images, await publishedImageIds(db, (card as any).sheet_id))) return fail("That piece isn't on the planner yet.", 409);
     const v = (card as any).client_verdict;
     const allowed = actor === "client" ? v === "asis" : v === "asis" || v === "change";
     if (!allowed) return fail(actor === "client" ? "Only As is cards go into a release" : "Only As is or Change cards go into a release", 409);

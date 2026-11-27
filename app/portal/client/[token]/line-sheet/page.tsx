@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNoPageZoom } from "@/lib/useNoPageZoom";
 import { LineSheetView, LS as C, type SaveBody, type ViewItem } from "@/components/LineSheetView";
 import { ReleaseSchedule } from "../_shared/ReleaseSchedule";
@@ -23,6 +23,7 @@ export default function LineSheetTab({ params }: { params: { token: string } }) 
   const [missing, setMissing] = useState(false);
   const [failed, setFailed] = useState(false);       // couldn't load (not the same as "no line sheet")
   const [schedKey, setSchedKey] = useState(0);       // bumped when the board adds to a release
+  const reloadAfter = useRef(false);                 // an add landed: reload once the write queue is empty
   useNoPageZoom();                                                // app feel: the page doesn't pinch; the viewer does
   const api = `/api/portal/client/${token}/line-sheet`;
   const load = () => fetch(api).then(async r => { const j = await r.json(); if (r.status === 404) setMissing(true); else if (!r.ok || j.error) setFailed(true); else { setFailed(false); setData(j); } }).catch(() => setFailed(true));
@@ -47,23 +48,27 @@ export default function LineSheetTab({ params }: { params: { token: string } }) 
   async function addToRelease(it: ViewItem, releaseId: string | null): Promise<true | string> {
     let rid = releaseId;
     if (!rid) {
-      const r = await fetch(`/api/portal/client/${token}/releases`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "New release" }) }).catch(() => null);
+      // no name: the server numbers it ("Release 04")
+      const r = await fetch(`/api/portal/client/${token}/releases`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) }).catch(() => null);
       const j = r ? await r.json().catch(() => null) : null;
       if (!r?.ok || !j?.dropId) return j?.error || "Couldn't start a release. Try again.";
       rid = j.dropId as string;
     }
     const r = await fetch(`/api/portal/client/${token}/releases/${rid}/slots`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cardId: it.id }) }).catch(() => null);
     const j = r ? await r.json().catch(() => null) : null;
-    await load(); setSchedKey(k => k + 1);
+    // a release started for this card and it didn't go on: don't leave it empty
+    if (!r?.ok && !releaseId) await fetch(`/api/portal/client/${token}/releases/${rid}`, { method: "DELETE" }).catch(() => null);
+    reloadAfter.current = true;
     return r?.ok ? true : j?.error || "Couldn't add it. Try again.";
   }
   const releases: any[] = data.releases || [];
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "26px 18px 90px" }}>
-      <LineSheetView items={items} stamp={data} save={save} onSettled={failed => { if (failed) load(); }} stickyTop={52}
+      <LineSheetView items={items} stamp={data} save={save} onSettled={failed => { if (failed || reloadAfter.current) { reloadAfter.current = false; load(); setSchedKey(k => k + 1); } }} stickyTop={52}
         releases={releases} addToRelease={{ add: addToRelease, addable: releases.filter(r => r.status === "building").map(r => r.id) }} head={<>
-        <h1 style={{ fontSize: "clamp(26px,4.5vw,40px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.02em", margin: 0, fontFamily: C.font, color: C.text }}>{sheet.title}</h1>
+        {/* no name of its own (Jon, Nov 27): it's his planner */}
+        <h1 style={{ fontSize: "clamp(26px,4.5vw,40px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.02em", margin: 0, fontFamily: C.font, color: C.text }}>Planner</h1>
         <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap", marginTop: 8, fontSize: 11, fontFamily: C.mono, color: C.faint }}>
           <span style={{ color: C.blue, fontWeight: 700 }}>v{version.n}</span>
           <span>updated {fmt(version.published_at)}</span>

@@ -26,7 +26,7 @@ async function me() {
   return { user, name: (profile as any)?.full_name || user.email || "HPD" };
 }
 async function loadFull(db: any, id: string) {
-  const { data: sheet } = await db.from("line_sheets").select("*, clients(id, name, portal_token), releases(id, title, status)").eq("id", id).maybeSingle();
+  const { data: sheet } = await db.from("line_sheets").select("*, clients(id, name, portal_token)").eq("id", id).maybeSingle();
   if (!sheet) return null;
   const [{ data: items }, { data: versions }] = await Promise.all([
     db.from("line_sheet_items").select("*").eq("sheet_id", id).order("sort"),
@@ -149,20 +149,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   if (!(await me())) return NextResponse.json({ error: "Sign in" }, { status: 401 });
   const db = admin();
   if (!(await ownSheet(db, params.id))) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const { data: sheet } = await db.from("line_sheets").select("release_id").eq("id", params.id).maybeSingle();
   const { error } = await db.from("line_sheets").delete().eq("id", params.id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  // A release born with the sheet (still building, no lines, no job) would be
-  // left as an empty card in the client's hub. Anything more and it stays.
-  const releaseId = (sheet as any)?.release_id;
-  if (releaseId) {
-    const [{ data: rel }, { count: slots }] = await Promise.all([
-      db.from("releases").select("status, job_id").eq("id", releaseId).maybeSingle(),
-      db.from("release_slots").select("id", { count: "exact", head: true }).eq("release_id", releaseId),
-    ]);
-    if (rel && (rel as any).status === "building" && !(rel as any).job_id && slots === 0) {
-      await db.from("releases").delete().eq("id", releaseId);
-    }
-  }
   return NextResponse.json({ ok: true });
 }

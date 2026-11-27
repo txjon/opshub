@@ -123,13 +123,7 @@ export default function DropsBoard() {
       }
       setThumbs(t);
     }
-    // Line sheet (mig 192) — the release's proposal stage, built in /studio.
-    const sheetByRelease: Record<string, any> = {};
-    if (ids.length) {
-      const { data: sheets } = await supabase.from("line_sheets").select("id, release_id, current_version").in("release_id", ids);
-      for (const sh of (sheets || []) as any[]) sheetByRelease[sh.release_id] = sh;
-    }
-    setRows((releases || []).map((r: any) => ({ ...r, slots: slotsByRelease[r.id] || [], lineSheet: sheetByRelease[r.id] || null })));
+    setRows((releases || []).map((r: any) => ({ ...r, slots: slotsByRelease[r.id] || [] })));
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
   // Stale-panel guard: refetch when the tab regains focus so an open board
@@ -288,7 +282,6 @@ export default function DropsBoard() {
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: H.faint }}>
                     {r.clients?.name}
-                    {r.lineSheet && <a href={`/studio/line-sheets/${r.lineSheet.id}`} style={{ marginLeft: 12, color: H.blue, textDecoration: "none" }}>Line sheet · {r.lineSheet.current_version ? `v${r.lineSheet.current_version}` : "draft"} →</a>}
                   </div>
                   {!cut ? (
                     <TitleEdit key={`t-${r.id}-${r.title}`} value={r.title} onSave={(t) => act(r, "", "PATCH", { title: t })} />

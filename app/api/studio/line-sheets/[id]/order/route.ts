@@ -59,7 +59,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const denied = await guard(params.id); if (denied) return denied;
   const db = admin();
   const { data: sheet } = await db.from("line_sheets")
-    .select("id, title, client_id, release_id, clients(name, company_id, default_terms)").eq("id", params.id).single();
+    .select("id, title, client_id, clients(name, company_id, default_terms)").eq("id", params.id).single();
   if (!sheet) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const s: any = sheet;
 
@@ -78,9 +78,9 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       title: s.title, job_type: lastJob?.job_type || "corporate", phase: "intake",
       payment_terms: lastJob?.payment_terms || s.clients?.default_terms || null,
       shipping_route: lastJob?.shipping_route || null,
-      client_id: s.client_id, company_id: s.clients?.company_id || null, release_id: s.release_id || null,
+      client_id: s.client_id, company_id: s.clients?.company_id || null, release_id: null,
       job_number: "", quote_approved: false,
-      type_meta: { source: "line_sheet", line_sheet_id: s.id, line_sheet_item_ids: [], release_id: s.release_id, release_title: s.title },
+      type_meta: { source: "line_sheet", line_sheet_id: s.id, line_sheet_item_ids: [] },
     } as never).select("id, job_number, type_meta").single();
     if (jErr?.code === "23505") {
       // Someone else created it a moment ago (mig 212: one order per sheet) —
