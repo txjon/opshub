@@ -3624,7 +3624,6 @@ export type Database = {
           created_by: string | null;
           created_at: string;
           updated_at: string;
-          release_id: string;
           archived_at: string | null;
           client_updated_at: string | null;
         };
@@ -3637,7 +3636,6 @@ export type Database = {
           created_by?: string | null;
           created_at?: string;
           updated_at?: string;
-          release_id: string;
           archived_at?: string | null;
           client_updated_at?: string | null;
         };
@@ -3650,13 +3648,11 @@ export type Database = {
           created_by?: string | null;
           created_at?: string;
           updated_at?: string;
-          release_id?: string;
           archived_at?: string | null;
           client_updated_at?: string | null;
         };
         Relationships: [
-          { foreignKeyName: "line_sheets_client_id_fkey"; columns: ["client_id"]; isOneToOne: false; referencedRelation: "clients"; referencedColumns: ["id"] },
-          { foreignKeyName: "line_sheets_release_id_fkey"; columns: ["release_id"]; isOneToOne: false; referencedRelation: "releases"; referencedColumns: ["id"] }
+          { foreignKeyName: "line_sheets_client_id_fkey"; columns: ["client_id"]; isOneToOne: false; referencedRelation: "clients"; referencedColumns: ["id"] }
         ];
       };
       lineup_options: {
