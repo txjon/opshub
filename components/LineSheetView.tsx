@@ -23,6 +23,7 @@ export type ViewItem = {
   badge: "new" | "updated" | "draft" | null;
   verdict: "asis" | "change" | "pass" | "liked" | null; verdictBy: "client" | "hpd" | null;
   note: string | null; noteStale: boolean;
+  reworked?: boolean;   // a Change he asked for has new art up (lib/line-sheets changeAnswered)
 };
 type Settable = "asis" | "change" | "pass";
 export type SaveBody = { itemId: string; verdict?: Settable | null; note?: string | null; seen?: true };
@@ -31,11 +32,12 @@ type Handle = { listeners?: any; attributes?: any };
 type Group = "fresh" | "asis" | "change" | "liked" | "concepts" | "pass";
 // NEW or UPDATED and not answered yet: up top, so a change he asked for comes
 // back where he'll see it, not buried in Concepts (Jon, Nov 26). Answering
-// moves it to its verdict's group and retires the badge.
+// moves it to its verdict's group and retires the badge. A reworked Change
+// stays up top until he answers the new version, even after a look.
 // `fresh` = the badge as LOADED: a look retires the badge on screen but only
 // an answer moves the card (the next load knows about the look).
 const groupOf = (it: ViewItem, fresh: Set<string>): Group => it.verdict === "asis" || it.verdict === "change" || it.verdict === "liked" || it.verdict === "pass" ? it.verdict
-  : fresh.has(it.id) ? "fresh" : "concepts";
+  : fresh.has(it.id) || it.reworked ? "fresh" : "concepts";
 // top to bottom: what's new to look at, what's decided, what's being worked,
 // what needs an answer, the open concepts, and what he passed on
 const GROUPS: { id: Group; name: string; hint?: string }[] = [

@@ -66,6 +66,13 @@ export function noteIsStale(it: { client_note?: string | null; client_note_versi
   return !!it.client_note && it.updated_in != null && it.client_note_version != null && it.updated_in > it.client_note_version;
 }
 
+// "Change" asked on an older picture and new art has been published since:
+// the ask is answered on HPD's side, so the card goes back to the client as
+// a question ("good now?"), not a pending change. The verdict row stays.
+export function changeAnswered(it: { client_verdict?: string | null; client_verdict_version?: number | null; updated_in?: number | null }): boolean {
+  return it.client_verdict === "change" && it.updated_in != null && it.client_verdict_version != null && it.updated_in > it.client_verdict_version;
+}
+
 export const newImageId = () => Math.random().toString(36).slice(2, 9);
 
 // ── THE CLIENT VIEW (Jon, Oct 1 2026: "publishing should only be for new
@@ -106,7 +113,7 @@ export async function clientBoard(db: Db, clientId: string): Promise<{ id: strin
 export async function clientSheetView(db: Db, sheet: { id: string; current_version: number }) {
   const n = sheet.current_version;
   const [{ data: rows }, { data: v }, published] = await Promise.all([
-    db.from("line_sheet_items").select("id, name, item_no, sort, images, added_in, updated_in, dropped, client_verdict, client_verdict_by, client_note, client_note_version, client_seen_version").eq("sheet_id", sheet.id),
+    db.from("line_sheet_items").select("id, name, item_no, sort, images, added_in, updated_in, dropped, client_verdict, client_verdict_by, client_verdict_version, client_note, client_note_version, client_seen_version").eq("sheet_id", sheet.id),
     db.from("line_sheet_versions").select("n, note, published_at").eq("sheet_id", sheet.id).eq("n", n).maybeSingle(),
     publishedImageIds(db, sheet.id),
   ]);
@@ -117,8 +124,8 @@ export async function clientSheetView(db: Db, sheet: { id: string; current_versi
     .filter(it => it.images.length > 0)
     .map(it => ({
       id: it.id, name: it.name, item_no: it.item_no, sort: it.sort, images: it.images,
-      badge: badgeFor(it), verdict: (it.client_verdict ?? null) as Verdict | null, verdictBy: it.client_verdict_by ?? null,
-      note: it.client_note ?? null, noteStale: noteIsStale(it),
+      badge: badgeFor(it), verdict: (changeAnswered(it) ? null : it.client_verdict ?? null) as Verdict | null, verdictBy: it.client_verdict_by ?? null,
+      note: it.client_note ?? null, noteStale: noteIsStale(it), reworked: changeAnswered(it),
     }));
   return {
     version: { n, note: (v as any)?.note || null, published_at: (v as any)?.published_at || null },
