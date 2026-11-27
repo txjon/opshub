@@ -3626,6 +3626,7 @@ export type Database = {
           updated_at: string;
           release_id: string;
           archived_at: string | null;
+          client_updated_at: string | null;
         };
         Insert: {
           id?: string;
@@ -3638,6 +3639,7 @@ export type Database = {
           updated_at?: string;
           release_id: string;
           archived_at?: string | null;
+          client_updated_at?: string | null;
         };
         Update: {
           id?: string;
@@ -3650,6 +3652,7 @@ export type Database = {
           updated_at?: string;
           release_id?: string;
           archived_at?: string | null;
+          client_updated_at?: string | null;
         };
         Relationships: [
           { foreignKeyName: "line_sheets_client_id_fkey"; columns: ["client_id"]; isOneToOne: false; referencedRelation: "clients"; referencedColumns: ["id"] },

@@ -67,7 +67,10 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   const cleanNote = (raw: any) => String(raw || "").replace(/\s*\n\s*/g, " ").trim().slice(0, 500) || null;
   const save = async (patch: Record<string, any>) => {
     const { error } = await db.from("line_sheet_items").update({ ...patch, ...seen } as never).eq("id", b.itemId);
-    return error ? NextResponse.json({ error: error.message }, { status: 500 }) : null;
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    // the board's "client updated" stamp (mig 219): his answers and notes only
+    if (!staff && Object.keys(patch).length) await db.from("line_sheets").update({ client_updated_at: new Date().toISOString() } as never).eq("id", sheet.id);
+    return null;
   };
   if (b.seen === true && b.verdict === undefined && b.note === undefined) {
     if (staff) return NextResponse.json({ ok: true, staff: true });

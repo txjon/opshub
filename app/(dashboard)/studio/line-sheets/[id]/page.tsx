@@ -537,6 +537,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
             </span>
           </div>
           {versions.length > 0 && <span style={{ fontSize: 10, fontFamily: H.mono, color: H.faint }}>last publish {fmtStamp(versions[versions.length - 1].published_at)}</span>}
+          {sheet.client_updated_at && <span style={{ fontSize: 10, fontFamily: H.mono, color: H.faint }}>client updated {fmtStamp(sheet.client_updated_at)}</span>}
         </div>
       </div>
       {err && <div style={{ color: H.red, fontSize: 12, marginBottom: 12 }}>{err}</div>}
