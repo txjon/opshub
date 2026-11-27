@@ -40,14 +40,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
     if (body.submit === true) {
       if ((release as any).status !== "building") return NextResponse.json({ error: "Already submitted" }, { status: 409 });
       const { data: slots } = await db.from("release_slots")
-        .select("id, item_id, line_id, art_briefs(state), line_sheet_items(client_verdict)").eq("release_id", (release as any).id);
+        .select("id, item_id, line_id, art_briefs(state), line_sheet_items(client_verdict, dropped)").eq("release_id", (release as any).id);
       if (!(slots || []).length) return NextResponse.json({ error: "Add at least one item first" }, { status: 400 });
       // re-runs count as NEW lines (they need a fresh run) — only true
       // pipeline slots are "already in flight"
       (release as any)._newLines = (slots || []).filter((s: any) => !isPipelineSlot(s)).length;
       (release as any)._pipeLines = (slots || []).filter((s: any) => isPipelineSlot(s)).length;
       // a board card (mig 217) is ready when it's As is; a Change is still art in progress
-      const unready = (slots || []).filter((s: any) => !s.item_id && (isCardSlot(s) ? s.line_sheet_items?.client_verdict !== "asis" : !briefApproved(s.art_briefs?.state))).length;
+      const unready = (slots || []).filter((s: any) => !s.item_id && (isCardSlot(s) ? s.line_sheet_items?.client_verdict !== "asis" || !!s.line_sheet_items?.dropped : !briefApproved(s.art_briefs?.state))).length;
       if (unready > 0) return NextResponse.json({ error: `${unready} line${unready === 1 ? "" : "s"} still need${unready === 1 ? "s" : ""} an approved design first` }, { status: 400 });
       updates.status = "ready";
       updates.status_timestamps = { ...((release as any).status_timestamps || {}), ready: new Date().toISOString() };

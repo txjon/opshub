@@ -190,7 +190,8 @@ export default function HousePage() {
     const dropCalls = drops.filter((r: any) => {
       if (r.status === "ready") return true;
       // closed: only when there's a move — bought out + waiting on the vendor is not one
-      if (r.status === "closed") return closedReleaseMove(r.slots || []).move !== "waiting_vendor";
+      // waiting on the vendor, or board cards that order from the board: not a move here
+      if (r.status === "closed") return !["waiting_vendor", "board_order"].includes(closedReleaseMove(r.slots || []).move);
       if (r.status === "live" && r.window_close_date && r.window_close_date <= soon) return true;
       return false;
     });

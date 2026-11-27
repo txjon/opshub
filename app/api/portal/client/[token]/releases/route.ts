@@ -67,7 +67,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
           briefState: s.art_briefs?.state || null,
           // item-sourced lines are real by definition — always ready
           // (pipeline: the run exists; re-run: the design + proofs exist)
-          ideaApproved: s.item_id ? true : card ? card.client_verdict === "asis" : briefApproved(s.art_briefs?.state),
+          ideaApproved: s.item_id ? true : card ? card.client_verdict === "asis" && !card.dropped : briefApproved(s.art_briefs?.state),
         });
       }
     }

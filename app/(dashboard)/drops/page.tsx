@@ -174,7 +174,7 @@ export default function DropsBoard() {
     return [
       // Live drops whose window has ENDED are a call, not a status — they
       // jump the queue into Your move ("close the sale").
-      { key: "your_move", title: "Your move.", color: H.amber, hint: "submitted drops, ended sale windows, closed sales needing numbers, a buy, or a done stamp", list: list.filter((r: any) => r.status === "ready" || (r.status === "closed" && closedReleaseMove(r.slots).move !== "waiting_vendor") || (r.status === "live" && daysTo(r.window_close_date) != null && (daysTo(r.window_close_date) as number) <= 0)) },
+      { key: "your_move", title: "Your move.", color: H.amber, hint: "submitted drops, ended sale windows, closed sales needing numbers, a buy, or a done stamp", list: list.filter((r: any) => r.status === "ready" || (r.status === "closed" && !["waiting_vendor", "board_order"].includes(closedReleaseMove(r.slots).move)) || (r.status === "live" && daysTo(r.window_close_date) != null && (daysTo(r.window_close_date) as number) <= 0)) },
       { key: "waiting", title: "Waiting on vendors.", hint: "bought out — lands, then mark done", list: list.filter((r: any) => r.status === "closed" && closedReleaseMove(r.slots).move === "waiting_vendor") },
       { key: "live", title: "Live now.", color: PURPLE, hint: "selling — close the sale when the window ends", list: list.filter((r: any) => r.status === "live" && !(daysTo(r.window_close_date) != null && (daysTo(r.window_close_date) as number) <= 0)) },
       { key: "building", title: "Building.", hint: "being assembled — by the client or by us, same powers", list: list.filter((r: any) => r.status === "building") },
