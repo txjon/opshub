@@ -318,6 +318,9 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     if (busy) return;
     setDragId(String(e.active.id));
   }
+  // the cards a drag of `id` moves: the selection (in list order) when the
+  // card is part of it, else just the card
+  const movingWith = (id: string, ids: string[]) => selected.includes(id) ? ids.filter(x => selected.includes(x)) : [id];
   async function onDragEnd(e: DragEndEvent, ids: string[]) {
     const { active, over } = e;
     setDragId(null);
@@ -325,7 +328,17 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     if (!over) return;
     const oldIdx = ids.indexOf(String(active.id)), newIdx = ids.indexOf(String(over.id));
     if (oldIdx < 0 || newIdx < 0 || oldIdx === newIdx) return;
-    const next = arrayMove(ids, oldIdx, newIdx);
+    // Dragging a selected card carries the whole selection (Jon, Nov 27):
+    // the picked cards land together, in list order, where it was dropped.
+    const group = movingWith(String(active.id), ids);
+    let next: string[];
+    if (group.length > 1) {
+      if (group.includes(String(over.id))) return;
+      const rest = ids.filter(id => !group.includes(id));
+      const at = rest.indexOf(String(over.id)) + (oldIdx < newIdx ? 1 : 0);   // dragged down → after the target
+      next = [...rest.slice(0, at), ...group, ...rest.slice(at)];
+      setSelected([]);
+    } else next = arrayMove(ids, oldIdx, newIdx);
     const vis = new Set(next);
     let v = 0;
     const merged = items.map(i => i.id).map(id => vis.has(id) ? next[v++] : id);
@@ -509,10 +522,21 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         concepts: (list, card) => (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={onDragStart} onDragEnd={e => onDragEnd(e, list.map(i => i.id))} onDragCancel={() => { setDragId(null); load(); }}>
             <SortableContext items={list.map(i => i.id)} strategy={rectSortingStrategy}>
-              {list.map(it => <SortableCard key={it.id} id={it.id} disabled={busy || !!sheet.archived_at}>{h => card(it, h)}</SortableCard>)}
+              {list.map(it => <SortableCard key={it.id} id={it.id} disabled={busy || !!sheet.archived_at} riding={!!dragId && dragId !== it.id && movingWith(dragId, list.map(i => i.id)).includes(it.id)}>{h => card(it, h)}</SortableCard>)}
             </SortableContext>
             <DragOverlay dropAnimation={null}>
-              {dragId ? (() => { const it = list.find(i => i.id === dragId); return it ? <div style={{ boxShadow: "0 12px 30px rgba(0,0,0,.55)", borderRadius: 14, cursor: "grabbing" }}>{card(it)}</div> : null; })() : null}
+              {dragId ? (() => {
+                const it = list.find(i => i.id === dragId); if (!it) return null;
+                const n = movingWith(dragId, list.map(i => i.id)).length;
+                // a stack: the grabbed card on top, a count when it carries others
+                return (
+                  <div style={{ position: "relative", cursor: "grabbing" }}>
+                    {n > 1 && <div style={{ position: "absolute", inset: 0, transform: "translate(8px, 8px)", borderRadius: 14, background: LS.panel, border: `1px solid ${LS.line}` }} />}
+                    <div style={{ position: "relative", boxShadow: "0 12px 30px rgba(0,0,0,.55)", borderRadius: 14 }}>{card(it)}</div>
+                    {n > 1 && <span style={{ position: "absolute", top: -10, right: -10, zIndex: 5, background: LS.blue, color: LS.bg, borderRadius: 999, minWidth: 30, height: 30, padding: "0 8px", boxSizing: "border-box", display: "grid", placeItems: "center", fontSize: 13, fontWeight: 900 }}>{n}</span>}
+                  </div>
+                );
+              })() : null}
             </DragOverlay>
           </DndContext>
         ),
@@ -621,11 +645,13 @@ function CopyLink({ url }: { url: string }) {
 }
 
 // One draggable card: the wrapper moves, the picture is the handle (card()).
-function SortableCard({ id, disabled, children }: { id: string; disabled?: boolean; children: (h: { listeners: any; attributes: any }) => React.ReactNode }) {
+// riding = selected and carried along by another card's drag: it fades out of
+// its spot like the grabbed one.
+function SortableCard({ id, disabled, riding, children }: { id: string; disabled?: boolean; riding?: boolean; children: (h: { listeners: any; attributes: any }) => React.ReactNode }) {
   // disabled while a save is in flight, so a second drag can't race the reload
   const { setNodeRef, transform, transition, listeners, attributes, isDragging } = useSortable({ id, disabled });
   return (
-    <div ref={setNodeRef} style={{ transform: CSS.Translate.toString(transform), transition, opacity: isDragging ? 0.3 : 1, height: "100%" }}>
+    <div ref={setNodeRef} style={{ transform: CSS.Translate.toString(transform), transition, opacity: isDragging || riding ? 0.3 : 1, height: "100%" }}>
       {children({ listeners, attributes })}
     </div>
   );
