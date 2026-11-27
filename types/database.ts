@@ -3521,7 +3521,6 @@ export type Database = {
         Row: {
           id: string;
           sheet_id: string;
-          section_id: string | null;
           name: string | null;
           sort: number;
           images: Json;
@@ -3529,12 +3528,8 @@ export type Database = {
           updated_in: number | null;
           dropped: boolean;
           dropped_in: number | null;
-          client_thumb: string | null;
-          client_thumb_at: string | null;
-          client_thumb_version: number | null;
           created_at: string;
           item_no: number | null;
-          client_thumb_note: string | null;
           client_note: string | null;
           client_note_version: number | null;
           client_seen_version: number | null;
@@ -3546,7 +3541,6 @@ export type Database = {
         Insert: {
           id?: string;
           sheet_id: string;
-          section_id?: string | null;
           name?: string | null;
           sort?: number;
           images: Json;
@@ -3554,12 +3548,8 @@ export type Database = {
           updated_in?: number | null;
           dropped?: boolean;
           dropped_in?: number | null;
-          client_thumb?: string | null;
-          client_thumb_at?: string | null;
-          client_thumb_version?: number | null;
           created_at?: string;
           item_no?: number | null;
-          client_thumb_note?: string | null;
           client_note?: string | null;
           client_note_version?: number | null;
           client_seen_version?: number | null;
@@ -3571,7 +3561,6 @@ export type Database = {
         Update: {
           id?: string;
           sheet_id?: string;
-          section_id?: string | null;
           name?: string | null;
           sort?: number;
           images?: Json;
@@ -3579,12 +3568,8 @@ export type Database = {
           updated_in?: number | null;
           dropped?: boolean;
           dropped_in?: number | null;
-          client_thumb?: string | null;
-          client_thumb_at?: string | null;
-          client_thumb_version?: number | null;
           created_at?: string;
           item_no?: number | null;
-          client_thumb_note?: string | null;
           client_note?: string | null;
           client_note_version?: number | null;
           client_seen_version?: number | null;
@@ -3594,34 +3579,7 @@ export type Database = {
           client_verdict_by?: string | null;
         };
         Relationships: [
-          { foreignKeyName: "line_sheet_items_sheet_id_fkey"; columns: ["sheet_id"]; isOneToOne: false; referencedRelation: "line_sheets"; referencedColumns: ["id"] },
-          { foreignKeyName: "line_sheet_items_section_id_fkey"; columns: ["section_id"]; isOneToOne: false; referencedRelation: "line_sheet_sections"; referencedColumns: ["id"] }
-        ];
-      };
-      line_sheet_sections: {
-        Row: {
-          id: string;
-          sheet_id: string;
-          name: string;
-          sort: number;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          sheet_id: string;
-          name: string;
-          sort?: number;
-          created_at?: string;
-        };
-        Update: {
-          id?: string;
-          sheet_id?: string;
-          name?: string;
-          sort?: number;
-          created_at?: string;
-        };
-        Relationships: [
-          { foreignKeyName: "line_sheet_sections_sheet_id_fkey"; columns: ["sheet_id"]; isOneToOne: false; referencedRelation: "line_sheets"; referencedColumns: ["id"] }
+          { foreignKeyName: "line_sheet_items_sheet_id_fkey"; columns: ["sheet_id"]; isOneToOne: false; referencedRelation: "line_sheets"; referencedColumns: ["id"] }
         ];
       };
       line_sheet_versions: {
@@ -3661,7 +3619,6 @@ export type Database = {
           id: string;
           client_id: string;
           title: string;
-          season: string | null;
           status: string;
           current_version: number;
           created_by: string | null;
@@ -3674,7 +3631,6 @@ export type Database = {
           id?: string;
           client_id: string;
           title: string;
-          season?: string | null;
           status?: string;
           current_version?: number;
           created_by?: string | null;
@@ -3687,7 +3643,6 @@ export type Database = {
           id?: string;
           client_id?: string;
           title?: string;
-          season?: string | null;
           status?: string;
           current_version?: number;
           created_by?: string | null;
