@@ -223,7 +223,7 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
           role="button" aria-label={staff ? (sel >= 0 ? "Deselect" : "Select") : "View larger"}
           // overflow hidden: with it, aspect-ratio holds even for a tall picture
           // (otherwise the picture's height wins and the card grows)
-          style={{ position: "relative", aspectRatio: "1", overflow: "hidden", width: "100%", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: staff ? (handle ? "grab" : "pointer") : "zoom-in", touchAction: handle ? "manipulation" : undefined, WebkitTouchCallout: "none", userSelect: "none", opacity: it.badge === "draft" ? 0.55 : 1 }}>
+          style={{ position: "relative", aspectRatio: "1", overflow: "hidden", width: "100%", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: staff ? (handle ? "grab" : "pointer") : "zoom-in", touchAction: handle ? "manipulation" : undefined, WebkitTouchCallout: "none", userSelect: "none" }}>
           {imgs.length > 1 ? (
             <>
               <img key={imgs[0].driveId} src={thumbUrl(imgs[0].driveId, 800)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" draggable={false} style={{ width: "62%", height: "92%", objectFit: "contain", marginRight: "-14%", zIndex: 2, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
