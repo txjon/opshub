@@ -30,8 +30,10 @@ export type SaveBody = { itemId: string; verdict?: Settable | null; note?: strin
 type Handle = { listeners?: any; attributes?: any };
 
 type Group = "fresh" | "asis" | "change" | "liked" | "concepts" | "pass";
-// NEW or UPDATED and not answered yet: up top, so a change he asked for comes
-// back where he'll see it, not buried in Concepts (Jon, Nov 26). Answering
+// UPDATED and not answered yet: up top, so a change he asked for comes back
+// where he'll see it, not buried in Concepts (Jon, Nov 26). NEW pieces wear
+// their badge in Concepts, so a batch of new ones never buries the asks in
+// motion (Jon, Nov 27). Answering
 // moves it to its verdict's group and retires the badge. A card he wrote on
 // that got new art stays up top until he answers the new version, even after a look.
 // `fresh` = the badge as LOADED: a look retires the badge on screen but only
@@ -41,7 +43,7 @@ const groupOf = (it: ViewItem, fresh: Set<string>): Group => it.verdict === "asi
 // top to bottom: what's new to look at, what's decided, what's being worked,
 // what needs an answer, the open concepts, and what he passed on
 const GROUPS: { id: Group; name: string; hint?: string }[] = [
-  { id: "fresh", name: "New & updated" },
+  { id: "fresh", name: "Updated" },
   { id: "asis", name: "Good to go" },
   { id: "change", name: "Changes asked", hint: "We're on these. We'll post the new version here." },
   { id: "liked", name: "You liked these", hint: "As is, or change something?" },
@@ -87,7 +89,7 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
   const [patches, setPatches] = useState<Record<string, Partial<ViewItem>>>({});
   useEffect(() => { setPatches({}); }, [stamp]);
   const items = itemsIn.map(it => patches[it.id] ? { ...it, ...patches[it.id] } : it);
-  const freshIds = new Set(itemsIn.filter(it => it.badge === "new" || it.badge === "updated").map(it => it.id));
+  const freshIds = new Set(itemsIn.filter(it => it.badge === "updated").map(it => it.id));
   const groupOfIt = (it: ViewItem) => groupOf(it, freshIds);
   const [filter, setFilter] = useState<string | null>(null);     // a group, "rel:<id>", or null = everything
   const [relFor, setRelFor] = useState<string | null>(null);     // the card whose "Add to release" list is open
