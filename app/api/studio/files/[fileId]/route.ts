@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { detachFileFromWorkOrders } from "@/lib/design-work-orders-server";
 import { createClient } from "@/lib/supabase/server";
 import { studioUser } from "@/lib/studio-access";
 import { dbNoStore } from "@/lib/db-nostore";
-import { deleteDriveFileIfUnreferenced } from "@/lib/google-drive-refs";
+import { removeBriefFile } from "@/lib/brief-files-server";
 import { LEGACY_CLIENT_KINDS } from "@/lib/brief-visibility";
 
 export const runtime = "nodejs";
@@ -41,25 +40,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: { fileId: 
   if (!user) return NextResponse.json({ error: "Sign in" }, { status: 401 });
   const db = dbNoStore();
 
-  const { data: file } = await db.from("art_brief_files")
-    .select("id, brief_id, drive_file_id").eq("id", params.fileId).maybeSingle();
-  if (!file) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  // Designer-door deliveries that pointed at this file lose it (and their
-  // order's state is re-derived) BEFORE the row goes — never a stale "Delivered".
-  await detachFileFromWorkOrders(params.fileId);
-  // If this version is the banked pin, unpin first.
-  await db.from("art_briefs").update({ approved_file_id: null })
-    .eq("id", (file as any).brief_id).eq("approved_file_id", params.fileId);
-  const { error } = await db.from("art_brief_files").delete().eq("id", params.fileId);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  const driveId = (file as any).drive_file_id;
-  if (driveId) {
-    // Two ref surfaces: sibling brief files first, then the helper checks
-    // item_files (the fork copies by reference) and trashes only when clean.
-    const { count } = await db.from("art_brief_files").select("id", { count: "exact", head: true }).eq("drive_file_id", driveId);
-    const { count: lineupRefs } = await db.from("lineup_options").select("id", { count: "exact", head: true }).eq("drive_file_id", driveId);
-    if ((count || 0) + (lineupRefs || 0) === 0) { try { await deleteDriveFileIfUnreferenced(driveId); } catch {} }
-  }
+  const err = await removeBriefFile(db, params.fileId, { trash: true });
+  if (err === "Not found") return NextResponse.json({ error: err }, { status: 404 });
+  if (err) return NextResponse.json({ error: err }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
