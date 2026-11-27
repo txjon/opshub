@@ -217,7 +217,7 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
     const cap = (text: string, color: string = C.faint) => <span style={{ display: "block", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color, marginBottom: 3 }}>{text}</span>;
     const badgeCol = it.badge === "new" ? C.green : it.badge === "draft" ? C.blue : C.amber;
     return (
-      <div key={it.id} className="lsx-card" style={{ background: C.panel, border: `1px solid ${sel >= 0 ? C.blue : C.line}`, outline: sel >= 0 ? `2px solid ${C.blue}` : "none", outlineOffset: -1, borderRadius: 14, overflow: "hidden", width: "100%", height: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column" }}>
+      <div key={it.id} className="lsx-card" data-card={it.id} style={{ background: C.panel, border: `1px solid ${sel >= 0 ? C.blue : C.line}`, outline: sel >= 0 ? `2px solid ${C.blue}` : "none", outlineOffset: -1, borderRadius: 14, overflow: "hidden", width: "100%", height: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column" }}>
         <div {...(handle?.attributes || {})} {...(handle?.listeners || {})}
           onClick={e => { if (staff) staff.onSelect(it.id, e.shiftKey); else if (imgs[0]) openZoom(it); }}
           role="button" aria-label={staff ? (sel >= 0 ? "Deselect" : "Select") : "View larger"}

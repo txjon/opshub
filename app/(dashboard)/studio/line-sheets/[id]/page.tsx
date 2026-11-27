@@ -60,6 +60,45 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const loadRels = () => fetch(`/api/studio/line-sheets/${params.id}/releases`).then(r => r.json()).then(j => { if (Array.isArray(j.releases)) setRels(j.releases); }).catch(() => {});
   useEffect(() => { loadRels(); /* eslint-disable-next-line */ }, [params.id]);
   useEffect(() => { setRelPick(false); setNewRel(""); }, [selected]);
+  // The card menu opens where you clicked (Jon, Nov 27), and rides along with
+  // that card as the page scrolls; phones keep it docked at the bottom.
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const lastPt = useRef<{ x: number; y: number } | null>(null);
+  const grip = useRef<{ id: string; dx: number; dy: number } | null>(null);   // where on the card the click landed
+  const [barAt, setBarAt] = useState<{ left: number; top: number } | null>(null);
+  useEffect(() => {
+    const down = (e: PointerEvent) => { lastPt.current = { x: e.clientX, y: e.clientY }; };
+    window.addEventListener("pointerdown", down, true);
+    return () => window.removeEventListener("pointerdown", down, true);
+  }, []);
+  useEffect(() => {
+    const last = selected[selected.length - 1];
+    const cardEl = (id: string) => document.querySelector(`[data-card="${id}"]`) as HTMLElement | null;
+    if (last && grip.current?.id !== last) {
+      const r = cardEl(last)?.getBoundingClientRect(), pt = lastPt.current;
+      grip.current = r ? { id: last, dx: pt ? pt.x - r.left : r.width / 2, dy: pt ? pt.y - r.top : r.height / 2 } : null;
+    }
+    if (!last) { grip.current = null; setBarAt(null); return; }
+    let raf = 0;
+    const place = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const g = grip.current, el = g && cardEl(g.id), vw = window.innerWidth, vh = window.innerHeight;
+        if (!g || !el || vw < 760) { setBarAt(null); return; }
+        const r = el.getBoundingClientRect(), w = Math.min(460, vw - 32), h = barRef.current?.offsetHeight || 170;
+        const x = r.left + g.dx, y = r.top + g.dy;
+        const left = Math.min(Math.max(x - w / 2, 16), vw - w - 16);
+        // just below the click; above it when there's no room; always on screen
+        let top = y + 18;
+        if (top + h > vh - 16) top = y - h - 18;
+        top = Math.min(Math.max(top, 16), vh - h - 16);
+        setBarAt({ left, top });
+      });
+    };
+    place();
+    window.addEventListener("scroll", place, true); window.addEventListener("resize", place);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener("scroll", place, true); window.removeEventListener("resize", place); };
+  }, [selected, data, relPick, changeNote]);
   const loadOrder = () => fetch(`/api/studio/line-sheets/${params.id}/order`).then(r => r.json()).then(j => { if (!j.error) setOrder(j); }).catch(() => {});
   useEffect(() => { loadOrder(); /* eslint-disable-next-line */ }, [params.id, data?.items]);
   const fileIn = useRef<HTMLInputElement | null>(null);
@@ -561,7 +600,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         const link: React.CSSProperties = { background: "none", border: "none", padding: "4px 2px", cursor: "pointer", fontFamily: H.font, fontSize: 12.5, fontWeight: 700, color: H.dim, textDecoration: "none" };
         const close = () => { setSelected([]); setChangeNote(null); };
         return (
-          <div role="dialog" aria-label={`${selected.length} selected`} style={{ position: "fixed", left: "50%", transform: "translateX(-50%)", bottom: 16, zIndex: 250, width: "min(460px, calc(100vw - 32px))", boxSizing: "border-box", background: "#161616", border: `1px solid ${H.line}`, borderRadius: 16, boxShadow: "0 18px 50px rgba(0,0,0,.6)", padding: "12px 14px 10px" }}>
+          <div ref={barRef} role="dialog" aria-label={`${selected.length} selected`} style={{ position: "fixed", ...(barAt ? { left: barAt.left, top: barAt.top } : { left: "50%", transform: "translateX(-50%)", bottom: 16 }), zIndex: 250, width: "min(460px, calc(100vw - 32px))", boxSizing: "border-box", background: "#161616", border: `1px solid ${H.line}`, borderRadius: 16, boxShadow: "0 18px 50px rgba(0,0,0,.6)", padding: "12px 14px 10px" }}>
             <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
               <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: H.text }}>{one ? (one.name || (noOf(one) ? `#${noOf(one)}` : "1 selected")) : `${selected.length} selected`}</span>
               <button onClick={close} aria-label="Close" title="Close (deselect)" style={{ marginLeft: "auto", background: "none", border: "none", color: H.faint, fontSize: 16, lineHeight: 1, cursor: "pointer", padding: 4 }}>✕</button>
