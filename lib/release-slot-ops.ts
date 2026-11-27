@@ -8,6 +8,7 @@
 //   ops    — everything, any time PRE-CUT ("we need to be able to do
 //            everything our client can do")
 import { hasRun } from "@/lib/run-gate";
+import { publishedImageIds, publishedFace } from "@/lib/line-sheets";
 
 type Db = any; // supabase service-role client
 export type SlotActor = "client" | "ops";
@@ -38,10 +39,12 @@ export async function addSlot(
     // the board he can see: published, with art, not dropped. A card can be
     // in several releases, once each.
     const { data: card } = await db.from("line_sheet_items")
-      .select("id, name, item_no, dropped, added_in, images, client_verdict, line_sheets!inner(client_id, archived_at)")
+      .select("id, sheet_id, name, item_no, dropped, added_in, images, client_verdict, line_sheets!inner(client_id, archived_at)")
       .eq("id", String(cardId)).single();
     if (!card || (card as any).line_sheets?.client_id !== release.client_id || (card as any).line_sheets?.archived_at) return fail("Card not found", 404);
-    if ((card as any).dropped || (card as any).added_in == null || !((card as any).images || []).length) return fail("That card isn't on the board yet", 409);
+    // he must have SEEN its art: a published picture (an unpaired draft half
+    // carries added_in but nothing he's been shown)
+    if ((card as any).dropped || (card as any).added_in == null || !publishedFace((card as any).images, await publishedImageIds(db, (card as any).sheet_id))) return fail("That card isn't on his board yet (publish its art first)", 409);
     const v = (card as any).client_verdict;
     const allowed = actor === "client" ? v === "asis" : v === "asis" || v === "change";
     if (!allowed) return fail(actor === "client" ? "Only As is cards go into a release" : "Only As is or Change cards go into a release", 409);

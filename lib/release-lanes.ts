@@ -137,13 +137,16 @@ export const lineUnits = (
 // imported them (sold_qtys — the multi-buy ledger). A re-run bought twice off
 // its sales import read "awaiting numbers" forever (FOG Aug 26, Sep 17 2026).
 export const releaseNumbersDone = (slots: (SlotLike & { qtys?: Record<string, unknown> | null; sold_qtys?: Record<string, unknown> | null })[]): boolean => {
+  // board cards can't cut yet (they order from the board), so a lineup with
+  // any is never cut-ready
+  if (slots.some(isCardSlot)) return false;
   const cuttable = slots.filter(s => !isPipelineSlot(s));
   return cuttable.length > 0 && cuttable.every(s => sumQtys(s.qtys) > 0 || sumQtys(s.sold_qtys) > 0);
 };
 
 // ── Line state: one truth, two label registers ─────────────────────────
 export type LineState =
-  | "rerun_ready" | "design_pending" | "design_ready" | "art_in_progress"
+  | "rerun_ready" | "design_pending" | "design_ready" | "art_in_progress" | "card_passed" | "card_gone"
   | "on_press" | "in_transit" | "landed" | "in_store";
 
 export const lineState = (
@@ -152,7 +155,12 @@ export const lineState = (
   opts: { releaseCut: boolean; briefState?: string | null; cardVerdict?: string | null },
 ): LineState => {
   if (isRerunSlot(slot) && !opts.releaseCut) return "rerun_ready";
-  if (isCardSlot(slot) && !(slot.item_id ?? slot.itemId)) return opts.cardVerdict === "asis" ? "design_ready" : "art_in_progress";
+  if (isCardSlot(slot) && !(slot.item_id ?? slot.itemId)) {
+    // cardVerdict "gone" = the card was dropped or grouped away on the board
+    if (opts.cardVerdict === "gone") return "card_gone";
+    if (opts.cardVerdict === "pass") return "card_passed";
+    return opts.cardVerdict === "asis" ? "design_ready" : "art_in_progress";
+  }
   if (!(slot.item_id ?? slot.itemId)) return briefApproved(opts.briefState) ? "design_ready" : "design_pending";
   const it = item || {};
   if (it.webstore_entered_at) return "in_store";
@@ -174,6 +182,8 @@ export const LINE_LABELS: Record<"internal" | "client", Record<LineState, LineLa
     design_pending: { label: "Design pending", tone: "amber" },
     design_ready: { label: "Design ✓", tone: "green" },
     art_in_progress: { label: "Art in progress", tone: "amber" },
+    card_passed: { label: "Passed on the board", tone: "amber" },
+    card_gone: { label: "Off the board", tone: "amber" },
     on_press: { label: "On press", tone: "blue" },
     in_transit: { label: "In transit", tone: "purple" },
     landed: { label: "Landed", tone: "green" },
@@ -184,6 +194,8 @@ export const LINE_LABELS: Record<"internal" | "client", Record<LineState, LineLa
     design_pending: { label: "Design pending", tone: "amber" },
     design_ready: { label: "Design approved", tone: "green" },
     art_in_progress: { label: "Art in progress", tone: "amber" },
+    card_passed: { label: "You passed on this", tone: "amber" },
+    card_gone: { label: "No longer on the line", tone: "amber" },
     on_press: { label: "In production", tone: "blue" },
     in_transit: { label: "On its way", tone: "blue" },
     landed: { label: "Landed", tone: "green" },
@@ -289,7 +301,8 @@ export const releaseCoverage = (slots: any[]): ReleaseCoverage => {
 //   buy_more       — buys exist but a size is short of orders
 //   waiting_vendor — bought out, not all landed: NOT a move, stays off The House
 //   mark_done      — every line landed: close it out
-export type ClosedMove = "nudge_numbers" | "cut" | "buy_more" | "waiting_vendor" | "mark_done";
+//   board_order    — board cards on the lineup: they order from the board for now
+export type ClosedMove = "nudge_numbers" | "cut" | "buy_more" | "waiting_vendor" | "mark_done" | "board_order";
 export const closedReleaseMove = (slots: any[]): { move: ClosedMove; coverage: ReleaseCoverage } => {
   const coverage = releaseCoverage(slots);
   if (coverage.bought) {
@@ -297,5 +310,6 @@ export const closedReleaseMove = (slots: any[]): { move: ClosedMove; coverage: R
     if (coverage.lines > 0 && coverage.boughtOut === coverage.lines) return { move: "waiting_vendor", coverage };
     return { move: "buy_more", coverage };
   }
+  if ((slots || []).some(isCardSlot)) return { move: "board_order", coverage };
   return { move: releaseNumbersDone(slots) ? "cut" : "nudge_numbers", coverage };
 };

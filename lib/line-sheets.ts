@@ -84,6 +84,17 @@ export async function publishedImageIds(db: Db, sheetId: string): Promise<Set<st
   return ids;
 }
 
+// A card's face for the CLIENT: the first image he has been shown (published
+// in some version), or the published picture a pending Replace stands in
+// for. null = nothing he's seen yet: the card can't go into a release.
+export function publishedFace(images: SheetImage[] | null | undefined, published: Set<string>): string | null {
+  for (const img of images || []) {
+    if (img?.driveId && published.has(img.driveId)) return img.driveId;
+    if (img?.replaces?.driveId && published.has(img.replaces.driveId)) return img.replaces.driveId;
+  }
+  return null;
+}
+
 export async function clientSheetView(db: Db, sheet: { id: string; current_version: number }) {
   const n = sheet.current_version;
   const [{ data: rows }, { data: v }, published] = await Promise.all([

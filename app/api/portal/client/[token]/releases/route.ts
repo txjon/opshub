@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { isRerunLineId, isProductLineId, isCardLineId, briefApproved } from "@/lib/release-lanes";
 import { hubClientLookup } from "@/lib/hub-client";
-import { clientSheetView } from "@/lib/line-sheets";
+import { clientSheetView, publishedImageIds, publishedFace } from "@/lib/line-sheets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,19 +42,20 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     const slotsByRelease: Record<string, any[]> = {};
     if (ids.length) {
       const { data: slots } = await db.from("release_slots")
-        .select("id, release_id, brief_id, line_id, format, retail, model, line_notes, sold_units, qtys, qtys_confirmed_at, item_id, sort_order, added_by, line_sheet_item_id, art_briefs(title, state), line_sheet_items(name, item_no, images, client_verdict)")
+        .select("id, release_id, brief_id, line_id, format, retail, model, line_notes, sold_units, qtys, qtys_confirmed_at, item_id, sort_order, added_by, line_sheet_item_id, art_briefs(title, state), line_sheet_items(sheet_id, name, item_no, images, client_verdict, dropped)")
         .in("release_id", ids)
         .order("sort_order", { ascending: true });
+      // a board card's face = only art he has been shown (lib/line-sheets publishedFace)
+      const pubBySheet: Record<string, Set<string>> = {};
+      for (const sid of Array.from(new Set(((slots || []) as any[]).map(s => s.line_sheet_items?.sheet_id).filter(Boolean)))) pubBySheet[sid as string] = await publishedImageIds(db, sid as string);
       for (const s of (slots || []) as any[]) {
         // a board card (mig 217): its current name and the picture he's seen
-        // (a pending Replace shows its stand-in, never unpublished art)
         const card = isCardLineId(s.line_id) ? s.line_sheet_items : null;
-        const img0 = card?.images?.[0];
         (slotsByRelease[s.release_id] = slotsByRelease[s.release_id] || []).push({
           id: s.id, briefId: s.brief_id, lineId: s.line_id,
           cardId: card ? s.line_sheet_item_id : null,
-          cardThumb: card ? (img0?.replaces?.driveId || img0?.driveId || null) : null,
-          cardVerdict: card ? (card.client_verdict || null) : null,
+          cardThumb: card ? publishedFace(card.images, pubBySheet[card.sheet_id] || new Set()) : null,
+          cardVerdict: card ? (card.dropped ? "gone" : card.client_verdict || null) : null,
           addedBy: s.added_by || null,
           format: card ? (card.name || s.format) : s.format, retail: s.retail != null ? Number(s.retail) : null,
           model: s.model, notes: s.line_notes,

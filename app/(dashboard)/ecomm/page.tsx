@@ -56,7 +56,8 @@ export default async function TheShopPage() {
     else if (r.status === "live" && dClose != null && dClose <= 0) move = "window_ended";
     else if (r.status === "closed") {
       const m = closedReleaseMove(slots).move;
-      move = m === "waiting_vendor" ? null : m === "cut" ? "closed" : m;
+      // board cards order from the board for now: nothing to do here
+      move = m === "waiting_vendor" || m === "board_order" ? null : m === "cut" ? "closed" : m;
     }
     return {
       id: r.id, title: r.title, client: r.clients?.name || null, status: r.status,

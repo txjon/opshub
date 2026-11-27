@@ -49,9 +49,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const cardIds: string[] = Array.isArray(b.cardIds) ? b.cardIds.map(String).slice(0, 200) : [];
   if (!cardIds.length) return NextResponse.json({ error: "No cards" }, { status: 400 });
   let release: any = null;
+  let born = false;
   if (b.releaseId) {
     const { data } = await db.from("releases").select("id, client_id, status, company_id").eq("id", String(b.releaseId)).maybeSingle();
     if (!data || (data as any).client_id !== sheet.client_id) return NextResponse.json({ error: "That release isn't this client's" }, { status: 400 });
+    if (!OPEN.includes((data as any).status)) return NextResponse.json({ error: `That release is ${(data as any).status}` }, { status: 409 });
     release = data;
   } else {
     const title = String(b.newTitle || "").trim().slice(0, 120);
@@ -63,6 +65,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     } as never).select("id, client_id, status, company_id").single();
     if (error || !data) return NextResponse.json({ error: error?.message || "Couldn't start the release" }, { status: 500 });
     release = data;
+    born = true;
   }
   let added = 0;
   const skipped: { cardId: string; error: string }[] = [];
@@ -70,5 +73,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const out = await addSlot(db, release, { cardId }, "ops");
     if (isSlotOpFail(out)) skipped.push({ cardId, error: out.error }); else added++;
   }
-  return NextResponse.json({ releaseId: release.id, added, skipped });
+  // a release born here that took nothing would sit empty in his hub
+  if (born && !added) await db.from("releases").delete().eq("id", release.id);
+  return NextResponse.json({ releaseId: born && !added ? null : release.id, added, skipped });
 }

@@ -241,6 +241,7 @@ export default function DropsBoard() {
                             if (move === "mark_done") return `${c.covered}/${c.lines} lines landed — mark it done`;
                             if (move === "waiting_vendor") return `all bought · ${c.covered}/${c.lines} landed — waiting on the vendor`;
                             if (move === "buy_more") return `${c.boughtOut}/${c.lines} lines bought — buy more`;
+                            if (move === "board_order") return "Board cards: order from the board for now";
                             return move === "cut" ? "Numbers in — cut it" : "Awaiting numbers";
                           }
                           if (r.status === "live" && lineupIsPipelineOnly(r.slots)) return "Launched";

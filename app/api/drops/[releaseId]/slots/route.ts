@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { addSlot, removeSlot, patchSlot, isSlotOpFail } from "@/lib/release-slot-ops";
 import { hasRun } from "@/lib/run-gate";
+import { publishedImageIds, publishedFace } from "@/lib/line-sheets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -139,12 +140,16 @@ export async function GET(_req: NextRequest, { params }: { params: { releaseId: 
     // Board cards (mig 217): As is or Change, published, not on this release.
     // A card can be on other releases too. Name order = the board's numbers.
     const { data: cardRows } = await db.from("line_sheet_items")
-      .select("id, name, item_no, images, client_verdict, dropped, added_in, line_sheets!inner(client_id, archived_at)")
+      .select("id, sheet_id, name, item_no, images, client_verdict, dropped, added_in, line_sheets!inner(client_id, archived_at)")
       .eq("line_sheets.client_id", clientId).is("line_sheets.archived_at", null)
       .eq("dropped", false).not("added_in", "is", null).in("client_verdict", ["asis", "change"])
       .order("item_no", { ascending: true });
-    const cards = ((cardRows || []) as any[]).filter(c => !slottedCards.has(c.id) && (c.images || []).length)
-      .map(c => ({ id: c.id, name: c.name, itemNo: c.item_no, verdict: c.client_verdict, thumbId: c.images[0]?.replaces?.driveId || c.images[0]?.driveId || null }));
+    // only cards with art he has been shown (lib/line-sheets publishedFace)
+    const pub: Record<string, Set<string>> = {};
+    for (const sid of Array.from(new Set(((cardRows || []) as any[]).map(c => c.sheet_id)))) pub[sid] = await publishedImageIds(db, sid);
+    const cards = ((cardRows || []) as any[])
+      .map(c => ({ id: c.id, name: c.name, itemNo: c.item_no, verdict: c.client_verdict, thumbId: publishedFace(c.images, pub[c.sheet_id]) }))
+      .filter(c => !slottedCards.has(c.id) && c.thumbId);
 
     return NextResponse.json({
       cards,
