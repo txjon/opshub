@@ -403,7 +403,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         </div>
       )}
 
-      {fromStudio && <StudioImportPicker sheetId={params.id} onClose={() => setFromStudio(false)} onDone={() => { setFromStudio(false); load(); }} />}
+      {fromStudio && <StudioImportPicker sheetId={params.id} onClose={() => { setFromStudio(false); load(); }} onDone={() => { setFromStudio(false); load(); }} />}
 
       {/* ── LOCKED UPLOAD OVERLAY — owns the screen until the batch is in ── */}
       {(uploadsActive || failedN > 0) && (

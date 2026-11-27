@@ -46,7 +46,7 @@ export function StudioImportPicker({ sheetId, onClose, onDone }: { sheetId: stri
 
   async function apply() {
     const parts = [boardN ? `${boardN} file${boardN === 1 ? "" : "s"} become${boardN === 1 ? "s" : ""} ${cardsN} draft card${cardsN === 1 ? "" : "s"} on the board and leave${boardN === 1 ? "s" : ""} Studio.` : "", trashN ? `${trashN} file${trashN === 1 ? "" : "s"} leave${trashN === 1 ? "s" : ""} Studio for good (Drive keeps them in its trash for 30 days).` : ""].filter(Boolean);
-    if (!await confirm({ title: "Apply the clean-up?", message: `${parts.join(" ")} Everything else stays in Studio.`, confirmLabel: "Apply", confirmColor: trashN ? H.red : T.accent })) return;
+    if (!await confirm({ title: "Apply the clean-up?", message: `${parts.join(" ")} A file that leaves Studio takes its comment thread with it; the client's comments are copied onto the card's note. A PSD sent to the board stays in Studio as the print file; only its preview goes on the card. Everything you left on Keep stays.`, confirmLabel: "Apply", confirmColor: trashN ? H.red : T.accent })) return;
     setBusy(true); setErr("");
     try {
       const r = await fetch(`/api/studio/line-sheets/${sheetId}/from-studio`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ board: ofFate("board"), trash: ofFate("trash") }) }).then(x => x.json());
@@ -57,7 +57,7 @@ export function StudioImportPicker({ sheetId, onClose, onDone }: { sheetId: stri
     finally { setBusy(false); }
   }
 
-  const tile = (f: StudioFile) => {
+  const tile = (q: StudioRequest, f: StudioFile) => {
     const v = fate[f.id] || "keep";
     const canBoard = !!f.driveId;
     const col: Record<Fate, string> = { keep: H.faint, board: H.blue, trash: H.red };
@@ -70,7 +70,7 @@ export function StudioImportPicker({ sheetId, onClose, onDone }: { sheetId: stri
         </div>
         <div style={{ padding: "6px 7px 7px" }}>
           <div title={f.name || undefined} style={{ ...tag(f.kind === "reference" ? H.amber : H.faint, 8.5), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {f.onBoard ? "On the board" : KIND[f.kind] || f.kind}
+            {f.onBoard ? "On the board" : v === "board" && f.layered ? "Preview to board · PSD stays" : f.id === q.approvedFileId ? "Approved · lands As is" : KIND[f.kind] || f.kind}
           </div>
           {/* the file name tells versions apart ("v4 - FO - Army Green") */}
           <div title={f.name || undefined} style={{ fontSize: 10, color: H.dim, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(f.name || "").replace(/\.[a-z0-9]{2,5}$/i, "")}</div>
@@ -79,10 +79,10 @@ export function StudioImportPicker({ sheetId, onClose, onDone }: { sheetId: stri
               const on = v === x, off = x === "board" && !canBoard;
               return (
                 <button key={x} type="button" disabled={busy || off} aria-pressed={on} title={off ? "No picture to show on the board" : FATE_WORD[x]} onClick={() => set([f.id], x)}
-                  style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 1, padding: "4px 0 3px", borderRadius: 6, cursor: off ? "default" : "pointer", fontFamily: H.font, opacity: off ? 0.3 : 1,
+                  style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 1, padding: "7px 0 6px", borderRadius: 7, cursor: off ? "default" : "pointer", fontFamily: H.font, opacity: off ? 0.3 : 1,
                     border: `1.5px solid ${on ? (x === "keep" ? H.dim : col[x]) : H.line}`, background: on ? (x === "keep" ? "transparent" : col[x]) : "transparent", color: on ? (x === "keep" ? H.text : H.ink) : H.dim }}>
                   <Icon f={x} />
-                  <span style={{ fontSize: 7.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", lineHeight: 1 }}>{FATE_WORD[x]}</span>
+                  <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", lineHeight: 1 }}>{FATE_WORD[x]}</span>
                 </button>
               );
             })}
@@ -111,13 +111,13 @@ export function StudioImportPicker({ sheetId, onClose, onDone }: { sheetId: stri
             <section key={q.id} style={{ marginBottom: 30 }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap", borderBottom: `1px solid ${H.line2}`, paddingBottom: 7, marginBottom: 10 }}>
                 <span style={{ fontSize: 16, fontWeight: 800 }}>{q.title}</span>
-                <span style={tag(q.state === "approved" ? H.green : H.faint, 9)}>{q.state === "approved" ? "Approved · board card lands As is" : `${ago(q.updatedAt)} · ${q.files.length} file${q.files.length === 1 ? "" : "s"}`}</span>
+                <span style={tag(q.state === "approved" ? H.green : H.faint, 9)}>{q.state === "approved" ? `Approved · ${q.files.length} file${q.files.length === 1 ? "" : "s"}` : `${ago(q.updatedAt)} · ${q.files.length} file${q.files.length === 1 ? "" : "s"}`}</span>
                 <span style={{ marginLeft: "auto", display: "flex", gap: 14 }}>
                   <button disabled={busy} onClick={() => set(ids, "trash")} style={link}>Trash all</button>
                   <button disabled={busy} onClick={() => set(ids, "keep")} style={link}>Reset</button>
                 </span>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(118px, 1fr))", gap: 10 }}>{q.files.map(tile)}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(118px, 1fr))", gap: 10 }}>{q.files.map(f => tile(q, f))}</div>
             </section>
           );
         })}

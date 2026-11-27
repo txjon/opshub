@@ -9,7 +9,7 @@ import { deleteDriveFileIfUnreferenced } from "@/lib/google-drive-refs";
 // ref-count rule: the fork copies brief art onto items BY REFERENCE, so a
 // blind delete would wipe another surface's art).
 export async function removeBriefFile(db: any, fileId: string, opts: { trash: boolean }): Promise<string | null> {
-  const { data: file } = await db.from("art_brief_files").select("id, brief_id, drive_file_id").eq("id", fileId).maybeSingle();
+  const { data: file } = await db.from("art_brief_files").select("id, brief_id, drive_file_id, preview_drive_file_id").eq("id", fileId).maybeSingle();
   if (!file) return "Not found";
   // Designer-door deliveries that pointed at this file lose it (and their
   // order's state is re-derived) BEFORE the row goes, never a stale "Delivered".
@@ -18,13 +18,31 @@ export async function removeBriefFile(db: any, fileId: string, opts: { trash: bo
   await db.from("art_briefs").update({ approved_file_id: null }).eq("id", file.brief_id).eq("approved_file_id", fileId);
   const { error } = await db.from("art_brief_files").delete().eq("id", fileId);
   if (error) return error.message;
-  const driveId = file.drive_file_id;
-  if (opts.trash && driveId) {
-    // Two ref surfaces: sibling brief files first, then the helper checks
-    // item_files, line sheets and the rest, and trashes only when clean.
-    const { count } = await db.from("art_brief_files").select("id", { count: "exact", head: true }).eq("drive_file_id", driveId);
-    const { count: lineupRefs } = await db.from("lineup_options").select("id", { count: "exact", head: true }).eq("drive_file_id", driveId);
-    if ((count || 0) + (lineupRefs || 0) === 0) { try { await deleteDriveFileIfUnreferenced(driveId); } catch {} }
+  if (!opts.trash) return null;
+  // the file and its flat preview (a PSD's), each only when nothing else uses it
+  for (const driveId of [file.drive_file_id, file.preview_drive_file_id].filter(Boolean) as string[]) {
+    // Sibling brief files (either column), lineups and designer work orders
+    // first, then the helper checks item_files, line sheets and the rest.
+    const [{ count }, { count: prevRefs }, { count: lineupRefs }] = await Promise.all([
+      db.from("art_brief_files").select("id", { count: "exact", head: true }).eq("drive_file_id", driveId),
+      db.from("art_brief_files").select("id", { count: "exact", head: true }).eq("preview_drive_file_id", driveId),
+      db.from("lineup_options").select("id", { count: "exact", head: true }).eq("drive_file_id", driveId),
+    ]);
+    if ((count || 0) + (prevRefs || 0) + (lineupRefs || 0) > 0) continue;
+    if (await workOrderUses(db, driveId)) continue;
+    try { await deleteDriveFileIfUnreferenced(driveId); } catch {}
   }
   return null;
+}
+
+// A designer work order's brief (canvases, extras) carries Drive ids inside
+// its jsonb. Any read failure counts as "in use": a lookup we couldn't run
+// must never green-light a trash.
+async function workOrderUses(db: any, driveId: string): Promise<boolean> {
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db.from("design_work_orders").select("brief").range(from, from + 999);
+    if (error) return true;
+    if ((data || []).some((w: any) => JSON.stringify(w.brief || {}).includes(driveId))) return true;
+    if ((data || []).length < 1000) return false;
+  }
 }

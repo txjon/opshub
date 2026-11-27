@@ -9,7 +9,8 @@
 //           else uses it: lib/brief-files-server)
 // A request's board files become ONE draft card (split it on the board if
 // they're separate products): its title, the client's comments as the note,
-// As is when the request was approved. Nothing reaches the client until HPD
+// As is only when the version the client approved is among them. A PSD's
+// flat preview goes to the board; the PSD itself (the print file) stays. Nothing reaches the client until HPD
 // publishes. Delete this file once every client is cleaned up.
 import { newImageId, type SheetImage } from "@/lib/line-sheets";
 
@@ -18,9 +19,10 @@ type Db = any;
 export type StudioFile = {
   id: string; name: string | null; kind: string; version: number; createdAt: string;
   driveId: string | null;   // what a thumbnail and the board can show; null = no picture (layered PSD without a preview)
+  layered: boolean;         // the picture is a preview of a layered file (PSD): Board copies the preview, the PSD stays in Studio
   onBoard: boolean;         // this picture is already on the board
 };
-export type StudioRequest = { id: string; title: string; state: string; updatedAt: string; files: StudioFile[]; clientNote: string | null };
+export type StudioRequest = { id: string; title: string; state: string; updatedAt: string; files: StudioFile[]; clientNote: string | null; approvedFileId: string | null };
 
 // A PSD's flat preview first: the layered file is huge and often has no Drive
 // thumbnail. AI/PDF have none, but Drive thumbnails them.
@@ -32,7 +34,7 @@ const viewable = (f: any): string | null => {
 };
 
 export async function studioRequests(db: Db, clientId: string, boardDriveIds: Set<string>): Promise<StudioRequest[]> {
-  const { data: briefs } = await db.from("art_briefs").select("id, title, state, updated_at").eq("client_id", clientId).is("deleted_at", null).order("updated_at", { ascending: false }).range(0, 999);
+  const { data: briefs } = await db.from("art_briefs").select("id, title, state, updated_at, approved_file_id").eq("client_id", clientId).is("deleted_at", null).order("updated_at", { ascending: false }).range(0, 999);
   const ids = ((briefs || []) as any[]).map(b => b.id);
   if (!ids.length) return [];
   const [{ data: files }, { data: comments }] = await Promise.all([
@@ -42,12 +44,12 @@ export async function studioRequests(db: Db, clientId: string, boardDriveIds: Se
   return ((briefs || []) as any[]).map(b => {
     const said = ((comments || []) as any[]).filter(c => c.brief_id === b.id).map(c => String(c.body).replace(/\s*\n\s*/g, " ").trim()).filter(Boolean);
     return {
-      id: b.id, title: b.title || "Untitled", state: b.state, updatedAt: b.updated_at,
+      id: b.id, title: b.title || "Untitled", state: b.state, updatedAt: b.updated_at, approvedFileId: b.approved_file_id || null,
       // the client's words, newest first, as much as a note holds
       clientNote: said.join(" · ").slice(0, 500) || null,
       files: ((files || []) as any[]).filter(f => f.brief_id === b.id).map(f => {
         const driveId = viewable(f);
-        return { id: f.id, name: f.file_name || null, kind: f.kind, version: Number(f.version) || 0, createdAt: f.created_at, driveId, onBoard: !!driveId && boardDriveIds.has(driveId) };
+        return { id: f.id, name: f.file_name || null, kind: f.kind, version: Number(f.version) || 0, createdAt: f.created_at, driveId, layered: !!driveId && driveId !== f.drive_file_id, onBoard: !!driveId && boardDriveIds.has(driveId) };
       }),
     };
   }).filter(r => r.files.length > 0);

@@ -60,8 +60,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const rows = cards.map(({ q, card }, k) => ({
       sheet_id: sheet.id, name: card!.name, images: card!.images,
       sort: live ? edge - cards.length + k : edge + 1 + k,
-      // the client approved this art in Studio
-      ...(q.state === "approved" ? verdictPatch("asis", "client", sheet.current_version || 0) : {}),
+      // the client approved THIS art in Studio (the banked version is on the card)
+      ...(q.approvedFileId && toBoard.has(q.approvedFileId) ? verdictPatch("asis", "client", sheet.current_version || 0) : {}),
       ...(q.clientNote ? { client_note: q.clientNote, client_note_version: sheet.current_version || 0 } : {}),
     }));
     const { error } = await db.from("line_sheet_items").insert(rows as never);
@@ -71,7 +71,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   // 2. out of Studio: board files keep their Drive file (the board uses it),
   // trashed ones go to Drive's trash when nothing else uses them
   const failed: string[] = [];
-  for (const id of toBoard) if (await removeBriefFile(db, id, { trash: false })) failed.push(id);
+  // a PSD stays: only its flat preview went to the board, and the layered
+  // file is the print file
+  for (const id of toBoard) if (!mine.get(id)!.layered && await removeBriefFile(db, id, { trash: false })) failed.push(id);
   for (const id of toTrash) if (await removeBriefFile(db, id, { trash: true })) failed.push(id);
   return NextResponse.json({ ok: true, cards: cards.length, moved: toBoard.size, trashed: toTrash.size, failed: failed.length });
 }
