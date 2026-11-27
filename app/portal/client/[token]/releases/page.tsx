@@ -223,7 +223,7 @@ export default function ReleasesPage() {
           {inTheWorks.map((d: any) => {
             const ls = d.lineSheet;
             return (
-              <a key={d.id} href={`/portal/client/${token}/releases/${d.id}/line-sheet`} className="lsx-hero"
+              <a key={d.id} href={`/portal/client/${token}/line-sheet`} className="lsx-hero"
                 style={{ display: "block", background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, overflow: "hidden", color: C.text, textDecoration: "none", fontFamily: C.font }}>
                 {ls.covers.length > 0 && (
                   <div className="lsx-strip" style={{ display: "grid", gridTemplateColumns: `repeat(${Math.min(ls.covers.length, 8)}, 1fr)`, background: "#fff" }}>
@@ -299,7 +299,7 @@ export default function ReleasesPage() {
                   <div style={{ fontSize: 12, color: h.color, fontWeight: 700, marginTop: 5 }}>{h.text}</div>
                 </button>
                 {d.lineSheet && (
-                  <a href={`/portal/client/${token}/releases/${d.id}/line-sheet`}
+                  <a href={`/portal/client/${token}/line-sheet`}
                     style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", background: C.surface, border: `1px solid ${C.border}`, borderTop: "none", borderRadius: "0 0 16px 16px", padding: "11px 18px", color: C.text, textDecoration: "none", fontFamily: C.font }}>
                     <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase" }}>Line sheet</span>
                     <span style={{ fontSize: 10.5, fontFamily: C.mono, color: C.muted }}>v{d.lineSheet.version} · {d.lineSheet.pieces} proposed{d.lineSheet.kept ? ` · ${d.lineSheet.kept} good to go` : ""}</span>

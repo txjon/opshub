@@ -449,7 +449,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
           <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
             <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>{sheet.clients?.name}</span>
             {sheet.releases && <a href="/drops" style={{ fontSize: 10.5, fontFamily: H.mono, color: H.dim, textDecoration: "none", borderBottom: "1px dotted rgba(255,255,255,.3)" }}>Release · {sheet.releases.title}</a>}
-            {!sheet.archived_at && sheet.current_version > 0 && sheet.clients?.portal_token && <CopyLink url={`${window.location.origin}/portal/client/${sheet.clients.portal_token}/releases/${sheet.release_id}/line-sheet`} />}
+            {!sheet.archived_at && sheet.current_version > 0 && sheet.clients?.portal_token && <CopyLink url={`${window.location.origin}/portal/client/${sheet.clients.portal_token}/line-sheet`} />}
             {order?.job && <a href={`/jobs/${order.job.id}`} style={{ fontSize: 10.5, fontFamily: H.mono, color: H.dim, textDecoration: "none", borderBottom: "1px dotted rgba(255,255,255,.3)" }}>Order {order.job.job_number} →</a>}
           </div>
         </div>

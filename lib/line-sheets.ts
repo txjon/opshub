@@ -95,6 +95,14 @@ export function publishedFace(images: SheetImage[] | null | undefined, published
   return null;
 }
 
+// The client's board: one running line sheet per client (Nov 26 2026) — the
+// newest published, unarchived one. Read by the hub tab and its API.
+export async function clientBoard(db: Db, clientId: string) {
+  const { data } = await db.from("line_sheets").select("*").eq("client_id", clientId).gt("current_version", 0).is("archived_at", null)
+    .order("updated_at", { ascending: false }).limit(1);
+  return ((data || []) as any[])[0] || null;
+}
+
 export async function clientSheetView(db: Db, sheet: { id: string; current_version: number }) {
   const n = sheet.current_version;
   const [{ data: rows }, { data: v }, published] = await Promise.all([

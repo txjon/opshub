@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { hubClientLookup } from "@/lib/hub-client";
-import { clientSheetView, verdictPatch, SETTABLE_VERDICTS, noteIsStale } from "@/lib/line-sheets";
+import { clientSheetView, clientBoard, verdictPatch, SETTABLE_VERDICTS, noteIsStale } from "@/lib/line-sheets";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// A release's line sheet, the client's view (mig 192: the sheet is the
-// proposal stage of ONE release). Rides the 'releases' grant.
+// THE CLIENT'S LINE SHEET — his board (Jon, Nov 26 2026: one running board
+// per client; it feeds releases through "Add to release", mig 217). Its own
+// hub tab, no longer reached only through a release. Rides the 'releases'
+// grant (the first publish grants it). One board per client: the newest
+// published, unarchived sheet.
 // GET  → the client view: organizing live, art only once published.
 // POST → { itemId, verdict: "asis" | "change" | "pass" | null, note? } — his
 //        verdict (mig 215); null = undo, back to Concepts. "change" needs a
@@ -22,32 +25,31 @@ export const dynamic = "force-dynamic";
 // the item's NEW / UPDATED badge. HPD staff opening the client link (signed
 // into OpsHub in the same browser) never count as the client looking.
 const admin = () => createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-async function sheetFor(db: any, token: string, releaseId: string) {
+async function sheetFor(db: any, token: string) {
   const { data: client } = await hubClientLookup(db, token, "id, name, portal_features");
   if (!client) return null;
   if (!Array.isArray((client as any).portal_features) || !(client as any).portal_features.includes("releases")) return null;
-  const { data: sheet } = await db.from("line_sheets").select("*, releases!inner(id, title)").eq("release_id", releaseId).eq("client_id", (client as any).id).gt("current_version", 0).is("archived_at", null).maybeSingle();
+  const sheet = await clientBoard(db, (client as any).id);
   return sheet ? { client, sheet } : null;
 }
 
-export async function GET(_req: NextRequest, { params }: { params: { token: string; releaseId: string } }) {
+export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
   const db = admin();
-  const ctx = await sheetFor(db, params.token, params.releaseId);
+  const ctx = await sheetFor(db, params.token);
   if (!ctx) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const { sheet } = ctx as any;
   // Live organizing + published art only (lib/line-sheets clientSheetView).
   const view = await clientSheetView(db, sheet);
   return NextResponse.json({
     sheet: { id: sheet.id, title: sheet.title, status: sheet.status },
-    release: { id: sheet.releases.id, title: sheet.releases.title },
     version: view.version,
     items: view.items,
   });
 }
 
-export async function POST(req: NextRequest, { params }: { params: { token: string; releaseId: string } }) {
+export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
   const db = admin();
-  const ctx = await sheetFor(db, params.token, params.releaseId);
+  const ctx = await sheetFor(db, params.token);
   if (!ctx) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const { sheet } = ctx as any;
   const b = await req.json().catch(() => ({} as any));

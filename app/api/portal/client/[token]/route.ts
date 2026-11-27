@@ -311,9 +311,15 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       .not("sent_at", "is", null);
     unpaidCount += (shipReports || []).filter((r: any) => !r.paid_at).length;
 
+    // his board (one running line sheet, Nov 26 2026): its own tab, and the
+    // Studio tab steps aside for it
+    const { count: boards } = await db.from("line_sheets").select("id", { count: "exact", head: true })
+      .eq("client_id", client.id).gt("current_version", 0).is("archived_at", null);
+
     return withPortalCookie(NextResponse.json({
       client: { name: client.name },
       features: (client as any).portal_features || [],
+      has_line_sheet: (boards || 0) > 0,
       company: { name: tenant.name, slug: tenant.slug },
       briefs: out,
       orders_summary: {

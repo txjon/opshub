@@ -83,6 +83,17 @@ const ICONS: Record<string, TabIcon> = {
       <path d="M19 15l.9 2.6L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.4L19 15Z" />
     </svg>
   ),
+  // a 2×2 grid of cards: the line sheet
+  LineSheet: (active) => (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth={active ? 2 : 1.6}
+      strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+      <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+      <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+      <rect x="13.5" y="13.5" width="7" height="7" rx="1.5" />
+    </svg>
+  ),
   Releases: (active) => (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth={active ? 2 : 1.6}
@@ -119,6 +130,8 @@ const TABS: { label: keyof typeof ICONS; path: string; display: string; unreadKe
   // Product Development (the old /designs surface) stays unlisted; the
   // Studio (grant 'studio') is its stripped-down replacement.
   { label: "Studio", display: "Studio", path: "/studio" },
+  // His board (Nov 26 2026): the running line sheet that feeds releases
+  { label: "LineSheet", display: "Line sheet", path: "/line-sheet" },
   { label: "Releases", display: "Releases", path: "/releases" },
   { label: "Orders", display: "Orders", path: "/orders" },
   { label: "Items", display: "Pipeline", path: "/items" },
@@ -154,7 +167,9 @@ export default function Shell({ children }: { children: ReactNode }) {
   // 2026) — no global under-dev flag anymore.
   const visibleTabs = TABS.filter(t =>
     (t.path !== "/items" || features.includes("pipeline")) &&
-    (t.path !== "/studio" || (features.includes("studio") && !STUDIO_UNDER_DEV)) &&
+    // the line sheet replaces the Studio once he has one (Jon, Nov 26 2026)
+    (t.path !== "/studio" || (features.includes("studio") && !STUDIO_UNDER_DEV && !(data as any).has_line_sheet)) &&
+    (t.path !== "/line-sheet" || !!(data as any).has_line_sheet) &&
     (t.path !== "/releases" || features.includes("releases")));
 
   const isActive = (path: string) =>
@@ -329,7 +344,7 @@ export default function Shell({ children }: { children: ReactNode }) {
               style={{
                 flex: 1,
                 display: "flex", alignItems: "center", justifyContent: "center",
-                padding: "16px 4px",
+                padding: "16px 2px",
                 minHeight: 58,
                 color: active ? C.text : C.muted,
                 textDecoration: "none",
@@ -337,8 +352,9 @@ export default function Shell({ children }: { children: ReactNode }) {
                 transition: "color 0.15s",
               }}>
               <span style={{
-                fontSize: 12, fontWeight: 800,
-                letterSpacing: "0.1em", textTransform: "uppercase",
+                // six labels across a 390px phone, all in view
+                fontSize: 11, fontWeight: 800,
+                letterSpacing: "0.04em", textTransform: "uppercase", whiteSpace: "nowrap",
                 position: "relative",
               }}>
                 {t.display}
