@@ -20,17 +20,48 @@ const preCut = (r: ReleaseRow) => r.status !== "cut";
 const lineupEditable = (r: ReleaseRow, actor: SlotActor) =>
   actor === "ops" ? preCut(r) : r.status === "building";
 
-// ── POST: add a line. Three lanes: { briefId, lineId } spec line ·
+// ── POST: add a line. { cardId } a board card (mig 217) · and the older lanes: { briefId, lineId } spec line ·
 //    { briefId } direct studio pull · { itemId } pipeline · { itemId,
 //    rerun: true } catalog re-run (must have actually run). ──────────────
 export async function addSlot(
   db: Db, release: ReleaseRow,
-  body: { briefId?: string; lineId?: string; itemId?: string; rerun?: boolean; productId?: string },
+  body: { briefId?: string; lineId?: string; itemId?: string; rerun?: boolean; productId?: string; cardId?: string },
   actor: SlotActor,
 ): Promise<SlotOpFail | { slotId: string }> {
   if (!lineupEditable(release, actor)) return fail("This release is locked", 409);
-  const { briefId, lineId, itemId, rerun, productId } = body;
+  const { briefId, lineId, itemId, rerun, productId, cardId } = body;
   const { count } = await db.from("release_slots").select("id", { count: "exact", head: true }).eq("release_id", release.id);
+
+  if (cardId) {
+    // Card lane (mig 217): a card from the client's board. The client adds
+    // As is cards; HPD adds As is or Change (Jon, Nov 26). It has to be on
+    // the board he can see: published, with art, not dropped. A card can be
+    // in several releases, once each.
+    const { data: card } = await db.from("line_sheet_items")
+      .select("id, name, item_no, dropped, added_in, images, client_verdict, line_sheets!inner(client_id, archived_at)")
+      .eq("id", String(cardId)).single();
+    if (!card || (card as any).line_sheets?.client_id !== release.client_id || (card as any).line_sheets?.archived_at) return fail("Card not found", 404);
+    if ((card as any).dropped || (card as any).added_in == null || !((card as any).images || []).length) return fail("That card isn't on the board yet", 409);
+    const v = (card as any).client_verdict;
+    const allowed = actor === "client" ? v === "asis" : v === "asis" || v === "change";
+    if (!allowed) return fail(actor === "client" ? "Only As is cards go into a release" : "Only As is or Change cards go into a release", 409);
+    const { data, error } = await db.from("release_slots").insert({
+      company_id: release.company_id || null,
+      release_id: release.id,
+      brief_id: null,
+      line_id: `card:${(card as any).id}`,
+      line_sheet_item_id: (card as any).id,
+      format: (card as any).name || ((card as any).item_no != null ? `#${String((card as any).item_no).padStart(2, "0")}` : null),
+      retail: null, model: null,
+      added_by: actor === "client" ? "client" : "hpd",
+      sort_order: (count || 0),
+    }).select("id").single();
+    if (error) {
+      if (/duplicate|unique/i.test(error.message)) return fail("Already on this release", 409);
+      return fail(error.message, 500);
+    }
+    return { slotId: (data as any).id };
+  }
 
   let insert: Record<string, any>;
   if (productId) {

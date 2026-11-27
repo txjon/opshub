@@ -43,7 +43,8 @@ export async function GET(_req: NextRequest, { params }: { params: { releaseId: 
 
     // Slotted lines on THIS release (exclude from every lane).
     const { data: mySlots } = await db.from("release_slots")
-      .select("brief_id, item_id").eq("release_id", release.id);
+      .select("brief_id, item_id, line_sheet_item_id").eq("release_id", release.id);
+    const slottedCards = new Set((mySlots || []).map((s: any) => s.line_sheet_item_id).filter(Boolean));
     const slottedBriefs = new Set((mySlots || []).map((s: any) => s.brief_id).filter(Boolean));
     const slottedItems = new Set((mySlots || []).map((s: any) => s.item_id).filter(Boolean));
 
@@ -135,7 +136,18 @@ export async function GET(_req: NextRequest, { params }: { params: { releaseId: 
         .map((p: any) => ({ id: p.id, title: p.title, format: p.format || null, thumbId: p.spec?.mockup_drive_file_id || null }));
     }
 
+    // Board cards (mig 217): As is or Change, published, not on this release.
+    // A card can be on other releases too. Name order = the board's numbers.
+    const { data: cardRows } = await db.from("line_sheet_items")
+      .select("id, name, item_no, images, client_verdict, dropped, added_in, line_sheets!inner(client_id, archived_at)")
+      .eq("line_sheets.client_id", clientId).is("line_sheets.archived_at", null)
+      .eq("dropped", false).not("added_in", "is", null).in("client_verdict", ["asis", "change"])
+      .order("item_no", { ascending: true });
+    const cards = ((cardRows || []) as any[]).filter(c => !slottedCards.has(c.id) && (c.images || []).length)
+      .map(c => ({ id: c.id, name: c.name, itemNo: c.item_no, verdict: c.client_verdict, thumbId: c.images[0]?.replaces?.driveId || c.images[0]?.driveId || null }));
+
     return NextResponse.json({
+      cards,
       briefs: briefCands.map((b: any) => ({ id: b.id, title: b.title, state: b.state, thumbId: thumbs[b.id] || null })),
       pipeItems,
       rerunItems: Array.from(byKey.values()),

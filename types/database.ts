@@ -4726,6 +4726,8 @@ export type Database = {
           sold_qtys: Json;
           sold_updated_at: string | null;
           overage_pct: number;
+          line_sheet_item_id: string | null;
+          added_by: string | null;
         };
         Insert: {
           id?: string;
@@ -4746,6 +4748,8 @@ export type Database = {
           sold_qtys: Json;
           sold_updated_at?: string | null;
           overage_pct?: number;
+          line_sheet_item_id?: string | null;
+          added_by?: string | null;
         };
         Update: {
           id?: string;
@@ -4766,12 +4770,15 @@ export type Database = {
           sold_qtys?: Json;
           sold_updated_at?: string | null;
           overage_pct?: number;
+          line_sheet_item_id?: string | null;
+          added_by?: string | null;
         };
         Relationships: [
           { foreignKeyName: "release_slots_company_id_fkey"; columns: ["company_id"]; isOneToOne: false; referencedRelation: "companies"; referencedColumns: ["id"] },
           { foreignKeyName: "release_slots_release_id_fkey"; columns: ["release_id"]; isOneToOne: false; referencedRelation: "releases"; referencedColumns: ["id"] },
           { foreignKeyName: "release_slots_brief_id_fkey"; columns: ["brief_id"]; isOneToOne: false; referencedRelation: "art_briefs"; referencedColumns: ["id"] },
-          { foreignKeyName: "release_slots_item_id_fkey"; columns: ["item_id"]; isOneToOne: false; referencedRelation: "items"; referencedColumns: ["id"] }
+          { foreignKeyName: "release_slots_item_id_fkey"; columns: ["item_id"]; isOneToOne: false; referencedRelation: "items"; referencedColumns: ["id"] },
+          { foreignKeyName: "release_slots_line_sheet_item_id_fkey"; columns: ["line_sheet_item_id"]; isOneToOne: false; referencedRelation: "line_sheet_items"; referencedColumns: ["id"] }
         ];
       };
       releases: {

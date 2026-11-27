@@ -35,6 +35,15 @@ export const productIdOfSlot = (s: SlotLike): string | null => {
 };
 export const isProductSlot = (s: SlotLike): boolean => isProductLineId(s.line_id ?? s.lineId);
 
+// Card lane (mig 217, Nov 26 2026): a card from the client's board (the line
+// sheet) on the lineup. One card can be in several releases. It counts as
+// ready when the card is As is; a Change card reads "Art in progress".
+// Cut and buy don't take card lines yet (ordering is still the board's
+// Create order until Jon's workflow gets there).
+export const isCardLineId = (lineId?: string | null): boolean =>
+  typeof lineId === "string" && lineId.startsWith("card:");
+export const isCardSlot = (s: SlotLike): boolean => isCardLineId(s.line_id ?? s.lineId);
+
 export const isPipelineSlot = (s: SlotLike): boolean =>
   !!(s.item_id ?? s.itemId) && !isRerunSlot(s);
 
@@ -134,15 +143,16 @@ export const releaseNumbersDone = (slots: (SlotLike & { qtys?: Record<string, un
 
 // ── Line state: one truth, two label registers ─────────────────────────
 export type LineState =
-  | "rerun_ready" | "design_pending" | "design_ready"
+  | "rerun_ready" | "design_pending" | "design_ready" | "art_in_progress"
   | "on_press" | "in_transit" | "landed" | "in_store";
 
 export const lineState = (
   slot: SlotLike,
   item: ItemLike,
-  opts: { releaseCut: boolean; briefState?: string | null },
+  opts: { releaseCut: boolean; briefState?: string | null; cardVerdict?: string | null },
 ): LineState => {
   if (isRerunSlot(slot) && !opts.releaseCut) return "rerun_ready";
+  if (isCardSlot(slot) && !(slot.item_id ?? slot.itemId)) return opts.cardVerdict === "asis" ? "design_ready" : "art_in_progress";
   if (!(slot.item_id ?? slot.itemId)) return briefApproved(opts.briefState) ? "design_ready" : "design_pending";
   const it = item || {};
   if (it.webstore_entered_at) return "in_store";
@@ -163,6 +173,7 @@ export const LINE_LABELS: Record<"internal" | "client", Record<LineState, LineLa
     rerun_ready: { label: "Run it back ✓", tone: "green" },
     design_pending: { label: "Design pending", tone: "amber" },
     design_ready: { label: "Design ✓", tone: "green" },
+    art_in_progress: { label: "Art in progress", tone: "amber" },
     on_press: { label: "On press", tone: "blue" },
     in_transit: { label: "In transit", tone: "purple" },
     landed: { label: "Landed", tone: "green" },
@@ -172,6 +183,7 @@ export const LINE_LABELS: Record<"internal" | "client", Record<LineState, LineLa
     rerun_ready: { label: "Run it back", tone: "green" },
     design_pending: { label: "Design pending", tone: "amber" },
     design_ready: { label: "Design approved", tone: "green" },
+    art_in_progress: { label: "Art in progress", tone: "amber" },
     on_press: { label: "In production", tone: "blue" },
     in_transit: { label: "On its way", tone: "blue" },
     landed: { label: "Landed", tone: "green" },

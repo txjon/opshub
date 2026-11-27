@@ -60,6 +60,7 @@ export default function ReleasesPage() {
       const res = await fetch(`/api/portal/client/${token}/releases`);
       const body = await res.json();
       setCommitted(new Set((body.committedBriefIds || []) as string[]));
+      setBoardCards(body.boardCards || []);
       setDrops(body.drops || []);
       if (openId) setOpen((body.drops || []).find((d: any) => d.id === openId) || null);
       else if (open) setOpen((body.drops || []).find((d: any) => d.id === open.id) || null);
@@ -88,6 +89,8 @@ export default function ReleasesPage() {
   }, [token]);
 
   const [committed, setCommitted] = useState<Set<string>>(new Set());
+  // his board's As is cards (mig 217): the picker's "From the board" tab
+  const [boardCards, setBoardCards] = useState<any[]>([]);
   const pipeItems = useMemo(() =>
     (allItems || []).filter((it: any) => !["complete", "archived", "cancelled", "on_hold"].includes(it.status)),
     [allItems]);
@@ -211,7 +214,7 @@ export default function ReleasesPage() {
         Plan the release.
       </h1>
       <div style={{ fontSize: 14, color: C.muted, maxWidth: "52ch", lineHeight: 1.6, margin: "0 auto 26px", textAlign: "center" }}>
-        Pull designs from your studio into one release. When every piece is approved, send it our way. We cost it, schedule it, and it goes live.
+        Pull what you marked As is on your line sheet into a release. When every piece is approved, send it our way. We cost it, schedule it, and it goes live.
       </div>
 
       {inTheWorks.length > 0 && (
@@ -338,7 +341,7 @@ export default function ReleasesPage() {
         </div>
       )}
 
-      {open && <DropSheet drop={open} token={token} briefs={(data?.briefs as any[]) || []} committed={committed} pipeItems={pipeItems} catalogItems={catalogItems} mockupCands={mockupCands} itemsById={itemsById} onChanged={(id?: string) => load(id)} onClose={() => setOpen(null)} />}
+      {open && <DropSheet drop={open} token={token} briefs={(data?.briefs as any[]) || []} committed={committed} boardCards={boardCards} pipeItems={pipeItems} catalogItems={catalogItems} mockupCands={mockupCands} itemsById={itemsById} onChanged={(id?: string) => load(id)} onClose={() => setOpen(null)} />}
     </div>
   );
 }
@@ -364,8 +367,8 @@ function SlotSpecEdit({ slot, suggested, retailOnly, onSave }: { slot: any; sugg
   );
 }
 
-function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mockupCands, itemsById, onChanged, onClose }: {
-  drop: any; token: string; briefs: any[]; committed: Set<string>; pipeItems: any[]; catalogItems: any[]; mockupCands: any[]; itemsById: Record<string, any>; onChanged: (id?: string) => void; onClose: () => void;
+function DropSheet({ drop, token, briefs, committed, boardCards, pipeItems, catalogItems, mockupCands, itemsById, onChanged, onClose }: {
+  drop: any; token: string; briefs: any[]; committed: Set<string>; boardCards: any[]; pipeItems: any[]; catalogItems: any[]; mockupCands: any[]; itemsById: Record<string, any>; onChanged: (id?: string) => void; onClose: () => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
@@ -517,11 +520,11 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
           {drop.slots.map((s: any) => {
             const pit = s.itemId ? itemById(s.itemId) : null;
             const b = s.briefId ? briefById(s.briefId) : null;
-            const src = pit?.thumb_id ? thumbSrc(pit.thumb_id) : (b ? briefThumb(b) : null);
+            const src = s.cardThumb ? thumbSrc(s.cardThumb) : pit?.thumb_id ? thumbSrc(pit.thumb_id) : (b ? briefThumb(b) : null);
             const cut = drop.status === "cut" || drop.status === "done";
             const lu = lineUnits(s, pit, cut);
             const lastRunPcs = s.rerun && !cut ? (pit?.qty || 0) : 0;
-            const st = lineState(s, pit, { releaseCut: cut, briefState: s.briefState });
+            const st = lineState(s, pit, { releaseCut: cut, briefState: s.briefState, cardVerdict: s.cardVerdict });
             const meta = LINE_LABELS.client[st];
             return (
               <div key={s.id} style={{ display: "flex", gap: 12, alignItems: "center", padding: "9px 0", borderBottom: `1px solid ${C.border}`, flexWrap: "wrap" }}>
@@ -529,7 +532,7 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
                   {src && <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
                 </span>
                 <span style={{ minWidth: 0, flex: 1 }}>
-                  <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.format || "Item"}{s.ideaTitle ? <span style={{ color: C.faint, fontWeight: 600, textTransform: "none" }}> · {s.ideaTitle}</span> : null}</span>
+                  <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.format || "Item"}{s.ideaTitle ? <span style={{ color: C.faint, fontWeight: 600, textTransform: "none" }}> · {s.ideaTitle}</span> : null}{s.addedBy === "hpd" ? <span style={{ color: C.faint, fontWeight: 600, textTransform: "none" }}> · added by HPD</span> : null}</span>
                   <span style={{ display: "block", fontSize: 10, fontFamily: C.mono, color: C.muted, marginTop: 2 }}>
                     {/* Post-handoff the lineup is just the lineup — no run
                         statuses, no ETAs (Jon, Aug 20: production logistics
@@ -548,7 +551,7 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
                 ) : building ? (
                   <span style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: TONE[meta.tone], whiteSpace: "nowrap" }}>{meta.label}</span>
                 ) : null}
-                {building && <SlotSpecEdit slot={s} retailOnly={!!s.itemId && !s.rerun}
+                {building && <SlotSpecEdit slot={s} retailOnly={(!!s.itemId && !s.rerun) || !!s.cardId}
                   suggested={s.retail == null && pit?.cost != null ? Number(pit.cost) : null}
                   onSave={async (patch) => { if (await call("PATCH", "/slots", { slotId: s.id, ...patch })) onChanged(drop.id); }} />}
                 {building && (
@@ -568,7 +571,8 @@ function DropSheet({ drop, token, briefs, committed, pipeItems, catalogItems, mo
                 style={{ borderRadius: 999, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", padding: "10px 18px", cursor: "pointer", fontFamily: C.font }}>+ Add to release</button>
             ) : (
               <ReleasePicker
-                mockups={mockupCands} reruns={rerunCands} pipeline={itemCands} studio={candidates}
+                board={boardCards.filter((c: any) => !drop.slots.some((sl: any) => sl.cardId === c.id))}
+                mockups={mockupCands} reruns={rerunCands} pipeline={itemCands} studio={boardCards.length ? [] : candidates}
                 briefThumb={briefThumb} hasSlots={drop.slots.length > 0} busy={busy}
                 onAdd={async (body: any, id: string) => { setBusy(id); if (await call("POST", "/slots", body)) onChanged(drop.id); setBusy(null); }}
                 onDone={() => setAdding(false)} />
@@ -662,25 +666,30 @@ const DEFAULT_SIZES = ["S", "M", "L", "XL", "2XL", "3XL"];
 //    painful… needs to feel like the catalog"). Shop-style: search, source
 //    tabs (catalog / pipeline / studio), image-first grid, newest-first
 //    with A–Z toggle. Tap a card to add it. ────────────────────────────
-function ReleasePicker({ mockups, reruns, pipeline, studio, briefThumb, hasSlots, busy, onAdd, onDone }: {
-  mockups: any[]; reruns: any[]; pipeline: any[]; studio: any[];
+function ReleasePicker({ board, mockups, reruns, pipeline, studio, briefThumb, hasSlots, busy, onAdd, onDone }: {
+  board: any[]; mockups: any[]; reruns: any[]; pipeline: any[]; studio: any[];
   briefThumb: (b: any) => string | null; hasSlots: boolean; busy: string | null;
   onAdd: (body: any, id: string) => Promise<void>; onDone: () => void;
 }) {
-  const [tab, setTab] = useState<"catalog" | "pipeline" | "studio">("catalog");
+  // "From the board" (mig 217) leads when he has a board; it replaces Studio
+  type Tab = "board" | "catalog" | "pipeline" | "studio";
+  const [tab, setTab] = useState<Tab>(board.length ? "board" : "catalog");
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<"recent" | "az">("recent");
 
   const all = useMemo(() => {
     const rows: { id: string; name: string; thumb: string | null; meta: string; metaColor: string; date: string; tab: string; body: any }[] = [];
+    for (const c of board) rows.push({ id: c.id, name: c.name || (c.itemNo != null ? `#${String(c.itemNo).padStart(2, "0")}` : "Untitled"), thumb: c.thumb ? thumbSrc(c.thumb) : null, meta: c.itemNo != null ? `#${String(c.itemNo).padStart(2, "0")} · as is` : "as is", metaColor: C.green, date: String(1e6 - (c.itemNo || 0)).padStart(7, "0"), tab: "board", body: { cardId: c.id } });
     for (const m of mockups) rows.push({ id: m.productId, name: m.name, thumb: m.thumb_id ? thumbSrc(m.thumb_id) : null, meta: "never run", metaColor: C.amber, date: m.created_at || "", tab: "catalog", body: { productId: m.productId } });
     for (const it of reruns) rows.push({ id: it.id, name: it.name, thumb: it.thumb_id ? thumbSrc(it.thumb_id) : null, meta: it.qty ? `last run ${it.qty.toLocaleString()}` : "past run", metaColor: C.muted, date: it.created_at || "", tab: "catalog", body: { itemId: it.id, rerun: true } });
     for (const it of pipeline) rows.push({ id: it.id, name: it.name, thumb: it.thumb_id ? thumbSrc(it.thumb_id) : null, meta: it.status === "in_stock" ? "ready now" : it.eta ? landsWord(it.eta) : "in flight", metaColor: it.status === "in_stock" ? C.green : C.muted, date: it.created_at || "", tab: "pipeline", body: { itemId: it.id } });
     for (const b of studio) rows.push({ id: b.id, name: b.title || "Untitled", thumb: briefThumb(b), meta: "from the studio", metaColor: C.blue, date: b.last_activity_at || b.updated_at || "", tab: "studio", body: { briefId: b.id } });
     return rows;
-  }, [mockups, reruns, pipeline, studio]);
+  }, [board, mockups, reruns, pipeline, studio]);
 
-  const counts = { catalog: all.filter(r => r.tab === "catalog").length, pipeline: all.filter(r => r.tab === "pipeline").length, studio: all.filter(r => r.tab === "studio").length };
+  const counts: Record<Tab, number> = { board: all.filter(r => r.tab === "board").length, catalog: all.filter(r => r.tab === "catalog").length, pipeline: all.filter(r => r.tab === "pipeline").length, studio: all.filter(r => r.tab === "studio").length };
+  // tabs with something in them (Board / Studio only when they have cards)
+  const tabs = (["board", "catalog", "pipeline", "studio"] as Tab[]).filter(t => t === "catalog" || t === "pipeline" || counts[t] > 0);
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     let rows = all.filter(r => r.tab === tab && (!needle || r.name.toLowerCase().includes(needle)));
@@ -691,15 +700,15 @@ function ReleasePicker({ mockups, reruns, pipeline, studio, briefThumb, hasSlots
   }, [all, tab, q, sort]);
 
   if (!all.length) {
-    return <div style={{ fontSize: 12, color: C.faint }}>{hasSlots ? "Everything from your pipeline, catalog, and studio is already on it." : "Nothing to pull yet. Designs you approve in the Studio land here."}</div>;
+    return <div style={{ fontSize: 12, color: C.faint }}>{hasSlots ? "Everything you can add is already on it." : "Nothing to add yet. Cards you mark As is on your board land here."}</div>;
   }
   const chip = (on: boolean): any => ({ borderRadius: 999, border: on ? "1px solid #fff" : `1px solid ${C.border}`, background: on ? "#fff" : "transparent", color: on ? C.bg : C.muted, fontFamily: C.mono, fontSize: 10.5, fontWeight: 700, padding: "7px 13px", cursor: "pointer", whiteSpace: "nowrap" as const });
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        {(["catalog", "pipeline", "studio"] as const).map(t => (
+        {tabs.map(t => (
           <button key={t} onClick={() => setTab(t)} style={chip(tab === t)}>
-            {t === "catalog" ? "Catalog" : t === "pipeline" ? "Pipeline" : "Studio"} {counts[t] > 0 ? `· ${counts[t]}` : ""}
+            {t === "board" ? "From the board" : t === "catalog" ? "Catalog" : t === "pipeline" ? "Pipeline" : "Studio"} {counts[t] > 0 ? `· ${counts[t]}` : ""}
           </button>
         ))}
         <button onClick={() => setSort(sort === "recent" ? "az" : "recent")} style={{ ...chip(false), marginLeft: "auto" }}>{sort === "recent" ? "newest ↓" : "A–Z"}</button>

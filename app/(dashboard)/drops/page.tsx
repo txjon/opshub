@@ -89,6 +89,13 @@ export default function DropsBoard() {
         }
         setItemThumbs(t);
       }
+      // Board cards (mig 217): their face, current name and verdict, via the
+      // studio API (line_sheet_items is service-role only).
+      const cardIds = Array.from(new Set((slots || []).map((s: any) => s.line_sheet_item_id).filter(Boolean)));
+      if (cardIds.length) {
+        const cj = await fetch(`/api/studio/cards?ids=${cardIds.join(",")}`).then(r => r.json()).catch(() => ({}));
+        for (const list of Object.values(slotsByRelease)) for (const s of list) if (s.line_sheet_item_id) s._card = cj?.cards?.[s.line_sheet_item_id] || null;
+      }
       // Buy runs per line (Phase 4): every item pointing home via
       // release_slot_id — bought/delivered aggregate from these.
       const slotIds = (slots || []).map((s: any) => s.id);
@@ -215,7 +222,7 @@ export default function DropsBoard() {
                       <span style={{ display: "flex" }}>
                         {r.slots.slice(0, 4).map((s: any, i: number) => (
                           <span key={s.id} style={{ width: 38, height: 38, borderRadius: 8, overflow: "hidden", background: "#fff", border: `2px solid ${H.panel}`, marginLeft: i ? -10 : 0, display: "inline-flex" }}>
-                            {(thumbs[s.brief_id] || itemThumbs[s.item_id]) && <img src={thumbSrc(thumbs[s.brief_id] || itemThumbs[s.item_id], 100)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
+                            {(s._card?.thumb || thumbs[s.brief_id] || itemThumbs[s.item_id]) && <img src={thumbSrc(s._card?.thumb || thumbs[s.brief_id] || itemThumbs[s.item_id], 100)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
                           </span>
                         ))}
                       </span>
@@ -344,16 +351,17 @@ export default function DropsBoard() {
               <div style={{ padding: "12px 22px 4px" }}>
                 {r.slots.map((s: any) => {
                   const lu = lineUnits(s, s.items, cut);
-                  const st = lineState(s, s.items, { releaseCut: cut, briefState: s.art_briefs?.state });
+                  const st = lineState(s, s.items, { releaseCut: cut, briefState: s.art_briefs?.state, cardVerdict: s._card?.verdict });
                   const meta = LINE_LABELS.internal[st];
+                  const face = s._card?.thumb || thumbs[s.brief_id] || itemThumbs[s.item_id];
                   return (
                     <div key={s.id} style={{ display: "flex", gap: 12, alignItems: "center", padding: "9px 0", borderBottom: `1px solid ${H.line}`, flexWrap: "wrap" }}>
                       <span style={{ width: 40, height: 40, background: "#fff", borderRadius: 8, overflow: "hidden", flexShrink: 0, display: "inline-flex" }}>
-                        {(thumbs[s.brief_id] || itemThumbs[s.item_id]) && <img src={thumbSrc(thumbs[s.brief_id] || itemThumbs[s.item_id], 100)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
+                        {face && <img src={thumbSrc(face, 100)} alt="" loading="lazy" referrerPolicy="no-referrer" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e: any) => { e.target.style.display = "none"; }} />}
                       </span>
                       <span style={{ minWidth: 0, flex: 1 }}>
                         <span style={{ display: "block", fontSize: 12.5, fontWeight: 800, textTransform: "uppercase", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {s.format || s.items?.name || "Item"}{s.art_briefs?.title ? <span style={{ color: H.faint, fontWeight: 600, textTransform: "none" }}> · {s.art_briefs.title}</span> : isRerunSlot(s) ? <span style={{ color: H.faint, fontWeight: 600, textTransform: "none" }}> · catalog re-run</span> : s.item_id ? <span style={{ color: H.faint, fontWeight: 600, textTransform: "none" }}> · from the pipeline</span> : null}
+                          {s._card?.name || s.format || s.items?.name || "Item"}{s.line_sheet_item_id ? <span style={{ color: H.faint, fontWeight: 600, textTransform: "none" }}> · from the board{s.added_by === "client" ? ", added by the client" : ""}</span> : s.art_briefs?.title ? <span style={{ color: H.faint, fontWeight: 600, textTransform: "none" }}> · {s.art_briefs.title}</span> : isRerunSlot(s) ? <span style={{ color: H.faint, fontWeight: 600, textTransform: "none" }}> · catalog re-run</span> : s.item_id ? <span style={{ color: H.faint, fontWeight: 600, textTransform: "none" }}> · from the pipeline</span> : null}
                         </span>
                         <span style={{ display: "block", fontSize: 10, fontFamily: H.mono, color: H.dim, marginTop: 2 }}>
                           {s.retail != null ? `$${Number(s.retail)} retail` : "retail TBD"}{s.model ? ` · ${s.model === "preorder" ? "pre-order" : s.model === "not_sure" ? "model TBD" : "fixed run"}` : ""}
@@ -557,7 +565,7 @@ function OpsNumbers({ slot, onSave }: { slot: any; onSave: (q: Record<string, nu
 
 function AddLines({ releaseId, onAdd }: { releaseId: string; onAdd: (body: any) => Promise<boolean> }) {
   const [openAdd, setOpenAdd] = useState(false);
-  const [cands, setCands] = useState<{ briefs: any[]; pipeItems: any[]; rerunItems: any[]; products?: any[] } | null>(null);
+  const [cands, setCands] = useState<{ cards?: any[]; briefs: any[]; pipeItems: any[]; rerunItems: any[]; products?: any[] } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   async function loadCands() {
     try { setCands(await fetch(`/api/drops/${releaseId}/slots`).then(r => r.json())); }
@@ -593,10 +601,12 @@ function AddLines({ releaseId, onAdd }: { releaseId: string; onAdd: (body: any) 
     <div style={{ padding: "12px 0 4px", display: "flex", flexDirection: "column", gap: 6, maxHeight: 300, overflowY: "auto" }}>
       {cands === null ? (
         <div style={{ fontSize: 11.5, color: H.faint }}>Loading their studio + pipeline…</div>
-      ) : !cands.briefs.length && !cands.pipeItems.length && !cands.rerunItems.length && !(cands.products || []).length ? (
+      ) : !(cands.cards || []).length && !cands.briefs.length && !cands.pipeItems.length && !cands.rerunItems.length && !(cands.products || []).length ? (
         <div style={{ fontSize: 11.5, color: H.faint }}>Nothing left to pull — everything is on a release, ordered, or in production.</div>
       ) : (
         <>
+          {(cands.cards || []).length > 0 && group("From their board")}
+          {(cands.cards || []).map((c: any) => row(c.id, { cardId: c.id }, c.thumbId, c.name || (c.itemNo != null ? `#${String(c.itemNo).padStart(2, "0")}` : "Untitled"), `${c.itemNo != null ? `#${String(c.itemNo).padStart(2, "0")} · ` : ""}${c.verdict === "asis" ? "as is" : "art in progress"}`))}
           {cands.pipeItems.length > 0 && group("From their pipeline")}
           {cands.pipeItems.map((it: any) => row(it.id, { itemId: it.id }, it.thumbId || null, it.name, it.qty ? `${it.qty.toLocaleString()} pcs` : ""))}
           {cands.rerunItems.length > 0 && group("From their catalog · run it back")}

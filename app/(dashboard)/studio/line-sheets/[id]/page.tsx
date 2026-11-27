@@ -50,6 +50,14 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   // Line sheet → order (api/.../order): the sheet's job, the Good to go items
   // not on it yet, and the ids that are.
   const [order, setOrder] = useState<{ job: { id: string; job_number: string } | null; pending: number; ordered: string[] } | null>(null);
+  // The door to a release (mig 217): the client's open releases and which
+  // board cards each already holds.
+  const [rels, setRels] = useState<{ id: string; title: string; status: string; cardIds: string[] }[]>([]);
+  const [relPick, setRelPick] = useState(false);          // the bar's "Add to release" list
+  const [newRel, setNewRel] = useState("");
+  const loadRels = () => fetch(`/api/studio/line-sheets/${params.id}/releases`).then(r => r.json()).then(j => { if (Array.isArray(j.releases)) setRels(j.releases); }).catch(() => {});
+  useEffect(() => { loadRels(); /* eslint-disable-next-line */ }, [params.id]);
+  useEffect(() => { setRelPick(false); setNewRel(""); }, [selected]);
   const loadOrder = () => fetch(`/api/studio/line-sheets/${params.id}/order`).then(r => r.json()).then(j => { if (!j.error) setOrder(j); }).catch(() => {});
   useEffect(() => { loadOrder(); /* eslint-disable-next-line */ }, [params.id, data?.items]);
   const fileIn = useRef<HTMLInputElement | null>(null);
@@ -257,6 +265,18 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     }
     return prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
   });
+  async function addToRelease(target: { releaseId?: string; newTitle?: string }) {
+    setBusy(true); setErr("");
+    try {
+      const r = await fetch(`/api/studio/line-sheets/${params.id}/releases`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cardIds: selected, ...target }) }).then(x => x.json()).catch(() => ({ error: "Couldn't add to the release" }));
+      if (r.error) { setErr(r.error); return; }
+      const why = Array.from(new Set((r.skipped || []).map((x: any) => x.error)));
+      if (r.skipped?.length) setErr(`${r.added} added; ${r.skipped.length} skipped: ${why.join("; ")}`);
+      else setSelected([]);
+      setRelPick(false); setNewRel("");
+      await loadRels();
+    } finally { setBusy(false); }
+  }
   async function pairSelected() {
     if (selected.length !== 2) return;
     const [front, back] = selected;
@@ -475,7 +495,11 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         numberOf: v => { const it = raw.get(v.id); return it ? noOf(it) : null; },
         tools,
         onRename: (v, name) => { const it = raw.get(v.id); if (it && name !== (it.name || "")) patchItem({ id: v.id, name }).then(load); },
-        footnote: v => ordered.has(v.id) && order?.job ? <div style={{ marginTop: 6, fontSize: 9.5, fontFamily: LS.mono, color: LS.faint }}>on {order.job.job_number}</div> : null,
+        footnote: v => {
+          const inRels = rels.filter(r => r.cardIds.includes(v.id)).map(r => r.title);
+          const onOrder = ordered.has(v.id) && order?.job ? order.job.job_number : null;
+          return inRels.length || onOrder ? <div style={{ marginTop: 6, fontSize: 9.5, fontFamily: LS.mono, color: LS.faint, lineHeight: 1.4 }}>{[inRels.length ? `in ${inRels.join(", ")}` : "", onOrder ? `on ${onOrder}` : ""].filter(Boolean).join(" · ")}</div> : null;
+        },
         concepts: (list, card) => (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={onDragStart} onDragEnd={e => onDragEnd(e, list.map(i => i.id))} onDragCancel={() => { setDragId(null); load(); }}>
             <SortableContext items={list.map(i => i.id)} strategy={rectSortingStrategy}>
@@ -537,6 +561,19 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
               {/* a Change's note, reworded (tapping the lit Change would send it back to Concepts) */}
               {one && one.client_verdict === "change" && changeNote === null && !sheet.archived_at && <button disabled={busy} onClick={() => setChangeNote(noteIsStale(one) ? "" : one.client_note || "")} style={{ ...link, color: H.amber }}>Edit what to change</button>}
               {one && (one.images?.length || 0) > 1 && <button disabled={busy} onClick={async () => { setBusy(true); try { await unpairItem(one); setSelected([]); } finally { setBusy(false); } }} style={link}>Unpair ({one.images.length})</button>}
+              {!sheet.archived_at && <span style={{ position: "relative" }}>
+                <button disabled={busy} onClick={() => setRelPick(o => !o)} style={{ ...link, color: H.text }}>Add to release ▾</button>
+                {relPick && (
+                  <span style={{ position: "absolute", bottom: "calc(100% + 8px)", left: 0, zIndex: 5, background: "#1c1c1c", border: `1px solid ${H.line}`, borderRadius: 12, padding: 8, display: "flex", flexDirection: "column", gap: 2, minWidth: 240, boxShadow: "0 12px 30px rgba(0,0,0,.5)" }}>
+                    {rels.map(r => <button key={r.id} disabled={busy} onClick={() => addToRelease({ releaseId: r.id })} style={{ ...link, textAlign: "left", padding: "7px 8px", color: H.text, fontWeight: 600 }}>{r.title}<span style={{ color: H.faint, fontFamily: H.mono, fontSize: 10, marginLeft: 6 }}>{r.status}</span></button>)}
+                    <span style={{ display: "flex", gap: 6, padding: "4px 4px 2px" }}>
+                      <input value={newRel} onChange={e => setNewRel(e.target.value)} placeholder="New release…" onKeyDown={e => { if (e.key === "Enter" && newRel.trim()) addToRelease({ newTitle: newRel.trim() }); }}
+                        style={{ ...inp, fontSize: 12, padding: "7px 9px", flex: 1 }} />
+                      <button disabled={busy || !newRel.trim()} onClick={() => addToRelease({ newTitle: newRel.trim() })} style={{ ...primaryBtn, padding: "7px 12px", fontSize: 10 }}>＋</button>
+                    </span>
+                  </span>
+                )}
+              </span>}
               {selected.length === 2 && <button disabled={busy} onClick={pairSelected} title="First tapped = front" style={{ ...link, color: H.blue }}>Pair as one product</button>}
               {selected.length > 2 && <button disabled={busy} onClick={groupSelected} style={{ ...link, color: H.blue }}>Group as one</button>}
               <a href={`/api/studio/line-sheets/${params.id}/download?pick=${selected.join(",")}`} download style={link}>↓ Download</a>

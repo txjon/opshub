@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { logJobActivityServer } from "@/lib/notify-server";
-import { isPipelineSlot, isRerunSlot, sumQtys, enteredSizes, productIdOfSlot } from "@/lib/release-lanes";
+import { isPipelineSlot, isCardSlot, isRerunSlot, sumQtys, enteredSizes, productIdOfSlot } from "@/lib/release-lanes";
 import { copyItemIntoJob } from "@/lib/reorder-cart";
 
 export const runtime = "nodejs";
@@ -44,6 +44,9 @@ export async function POST(_req: NextRequest, { params }: { params: { releaseId:
     const { data: slots } = await db.from("release_slots")
       .select("*, art_briefs(id, title, state)").eq("release_id", (release as any).id).order("sort_order");
     if (!(slots || []).length) return NextResponse.json({ error: "Nothing on the lineup" }, { status: 400 });
+    // Board cards (mig 217) don't cut yet: they order from the board's Create
+    // order until that step of the workflow is designed (Jon, Nov 26).
+    if ((slots || []).some((s: any) => isCardSlot(s))) return NextResponse.json({ error: "This release has board cards. Order those from the board (Create order) for now; the release can't cut them yet." }, { status: 409 });
     // Pipeline slots are ALREADY in production on their own jobs — the cut
     // never re-creates them. It births brief lines AND catalog re-runs.
     const toCreate = (slots || []).filter((s: any) => !isPipelineSlot(s));

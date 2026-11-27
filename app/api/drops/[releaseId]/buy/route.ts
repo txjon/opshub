@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { logJobActivityServer } from "@/lib/notify-server";
-import { sumQtys, enteredSizes, productIdOfSlot } from "@/lib/release-lanes";
+import { sumQtys, enteredSizes, productIdOfSlot, isCardLineId } from "@/lib/release-lanes";
 import { copyItemIntoJob } from "@/lib/reorder-cart";
 
 export const runtime = "nodejs";
@@ -46,6 +46,8 @@ export async function POST(req: NextRequest, { params }: { params: { releaseId: 
     const { data: slots } = await db.from("release_slots")
       .select("id, brief_id, line_id, item_id, format, line_notes").eq("release_id", (release as any).id);
     const slotById = new Map((slots || []).map((s: any) => [s.id, s]));
+    // Board cards (mig 217) don't buy yet (see the cut route).
+    if (buys.some(b => isCardLineId((slotById.get(String(b.slotId || "")) as any)?.line_id))) return NextResponse.json({ error: "Board cards can't be bought from the release yet. Order them from the board (Create order)." }, { status: 409 });
 
     // Validate every line BEFORE creating anything — all-or-nothing.
     for (const b of buys) {
