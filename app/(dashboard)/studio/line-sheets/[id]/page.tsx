@@ -11,6 +11,7 @@ import { uploadToDrive } from "@/lib/drive-upload-client";
 import { layoutNumbering, noteIsStale, badgeFor } from "@/lib/line-sheets";
 import { LineSheetView, LS, type ViewItem, type SaveBody } from "@/components/LineSheetView";
 import { VerdictRow } from "@/components/LineSheetVerdicts";
+import { StudioImportPicker } from "@/components/StudioImportPicker";
 
 // THE LINE SHEET BUILDER (mig 190, selection-first rework Oct 1; one list of
 // concepts + verdicts Nov 26 2026). Everything lands in Concepts; the
@@ -35,6 +36,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const [queue, setQueue] = useState<QFile[]>([]);
   const [confirm, confirmEl] = useConfirm();
   const [menuOpen, setMenuOpen] = useState(false);   // ⋯ Archive / Delete
+  const [fromStudio, setFromStudio] = useState(false);  // the one-time Studio → board picker
   const [dragging, setDragging] = useState(false);   // files over the page → drop overlay
   // DRAG TO REORDER (Nov 2026). Reorder ONLY: a card dropped on a card never
   // merges (that's what killed drag in the Oct 1 rework); pairing stays in the
@@ -400,6 +402,8 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
         </div>
       )}
 
+      {fromStudio && <StudioImportPicker sheetId={params.id} onClose={() => setFromStudio(false)} onDone={() => { setFromStudio(false); load(); }} />}
+
       {/* ── LOCKED UPLOAD OVERLAY — owns the screen until the batch is in ── */}
       {(uploadsActive || failedN > 0) && (
         <div style={{ position: "fixed", inset: 0, zIndex: 400, background: "rgba(10,10,10,.96)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 18, padding: 20 }}>
@@ -467,6 +471,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
                 <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
                 <div role="menu" onClick={() => setMenuOpen(false)} style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 41, background: "#161616", border: `1px solid ${H.line}`, borderRadius: 10, padding: 5, minWidth: 220 }}>
                   {!sheet.archived_at && <button role="menuitem" onClick={() => fileIn.current?.click()} style={menuItem}>+ Add mockups</button>}
+                  {!sheet.archived_at && <button role="menuitem" onClick={() => setFromStudio(true)} title="Move this client's old Studio requests onto the board" style={menuItem}>+ Bring in from Studio</button>}
                   {goN > 0 && <button role="menuitem" onClick={() => setSelected(goodToGo.map(i => i.id))} title="Select every Good to go item (then download, pair…)" style={menuItem}>Select Good to go ({goN})</button>}
                   {!sheet.archived_at && order && order.pending > 0 && <button role="menuitem" disabled={busy} onClick={makeOrder} title="Turn the Good to go items into an order" style={menuItem}>{order.job ? `Add ${order.pending} Good to go to ${order.job.job_number}` : `Create order (${order.pending} Good to go)`}</button>}
                   {goN > 0 && <a role="menuitem" href={`/api/studio/line-sheets/${params.id}/download?pick=approved`} download title="Every Good to go mockup the client has seen, full res, in one ZIP" style={menuItem}>↓ Download Good to go ({goN})</a>}
