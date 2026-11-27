@@ -210,7 +210,8 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
     const imgs = it.images || [];
     const open = noteFor?.id === it.id ? noteFor : null;
     const sel = staff ? staff.selected.indexOf(it.id) : -1;
-    const no = staff?.numberOf(it) || null;
+    // the item number, on both seats: "#19" in a text means the same card to both
+    const no = staff ? staff.numberOf(it) : it.item_no != null ? String(it.item_no).padStart(2, "0") : null;
     const foot = staff?.footnote?.(it);
     const quote = (text: string) => <span style={{ fontStyle: "italic", overflowWrap: "anywhere" }}>&ldquo;{text}&rdquo;</span>;
     const cap = (text: string, color: string = C.faint) => <span style={{ display: "block", fontSize: 9.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color, marginBottom: 3 }}>{text}</span>;
