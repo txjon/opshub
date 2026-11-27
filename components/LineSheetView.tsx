@@ -221,14 +221,20 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
         <div {...(handle?.attributes || {})} {...(handle?.listeners || {})}
           onClick={e => { if (staff) staff.onSelect(it.id, e.shiftKey); else if (imgs[0]) openZoom(it); }}
           role="button" aria-label={staff ? (sel >= 0 ? "Deselect" : "Select") : "View larger"}
-          style={{ position: "relative", aspectRatio: "1", width: "100%", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: staff ? (handle ? "grab" : "pointer") : "zoom-in", touchAction: handle ? "manipulation" : undefined, WebkitTouchCallout: "none", userSelect: "none", opacity: it.badge === "draft" ? 0.55 : 1 }}>
+          // overflow hidden: with it, aspect-ratio holds even for a tall picture
+          // (otherwise the picture's height wins and the card grows)
+          style={{ position: "relative", aspectRatio: "1", overflow: "hidden", width: "100%", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: staff ? (handle ? "grab" : "pointer") : "zoom-in", touchAction: handle ? "manipulation" : undefined, WebkitTouchCallout: "none", userSelect: "none", opacity: it.badge === "draft" ? 0.55 : 1 }}>
           {imgs.length > 1 ? (
             <>
               <img src={thumbUrl(imgs[0].driveId, 800)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" draggable={false} style={{ width: "62%", height: "92%", objectFit: "contain", marginRight: "-14%", zIndex: 2, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
               <img src={thumbUrl(imgs[1].driveId, 800)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" draggable={false} style={{ width: "62%", height: "92%", objectFit: "contain", zIndex: 1, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.display = "none"; }} />
             </>
           ) : imgs[0] ? (
-            <img src={thumbUrl(imgs[0].driveId, 800)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" draggable={false} style={{ width: "100%", height: "100%", objectFit: "contain" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
+            <img src={thumbUrl(imgs[0].driveId, 800)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" draggable={false} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain" }}
+              // a tall sheet (Jon, Nov 27): show its middle, top and bottom
+              // cropped; the full picture opens on tap
+              onLoad={(e: any) => { const m = e.target; if (m.naturalHeight > m.naturalWidth * 1.15) m.style.objectFit = "cover"; }}
+              onError={(e: any) => { e.target.style.opacity = 0.15; }} />
           ) : null}
           {it.badge && <span style={{ position: "absolute", top: 8, left: 8, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: badgeCol, background: "rgba(10,10,10,.85)", borderRadius: 6, padding: "3px 8px", zIndex: 3 }}>{it.badge}</span>}
           {no && <span style={{ position: "absolute", left: 8, bottom: 8, fontFamily: C.mono, fontSize: 10, fontWeight: 700, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>{no}</span>}
