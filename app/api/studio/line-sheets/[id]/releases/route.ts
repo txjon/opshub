@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { studioUser, lineSheetInCompany } from "@/lib/studio-access";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { addSlot, isSlotOpFail } from "@/lib/release-slot-ops";
+import { boardReleases, OPEN_RELEASE } from "@/lib/line-sheets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +18,6 @@ export const dynamic = "force-dynamic";
 //        Change; lib/release-slot-ops addSlot). Per-card results come back:
 //        { releaseId, added, skipped: [{ cardId, error }] }
 const admin = () => createAdmin(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-const OPEN = ["building", "ready", "live", "closed"];
 
 async function guard(id: string) {
   const supabase = await createClient();
@@ -31,15 +31,7 @@ async function guard(id: string) {
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const g = await guard(params.id); if ("res" in g) return g.res;
   const { db, sheet } = g;
-  const { data: rels } = await db.from("releases").select("id, title, status, target_live_date, created_at")
-    .eq("client_id", sheet.client_id).in("status", OPEN).order("created_at", { ascending: false });
-  const ids = ((rels || []) as any[]).map(r => r.id);
-  const onIt: Record<string, string[]> = {};
-  if (ids.length) {
-    const { data: slots } = await db.from("release_slots").select("release_id, line_sheet_item_id").in("release_id", ids).not("line_sheet_item_id", "is", null);
-    for (const s of (slots || []) as any[]) (onIt[s.release_id] ||= []).push(s.line_sheet_item_id);
-  }
-  return NextResponse.json({ releases: ((rels || []) as any[]).map(r => ({ ...r, cardIds: onIt[r.id] || [] })) });
+  return NextResponse.json({ releases: await boardReleases(db, sheet.client_id) });
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
@@ -53,7 +45,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (b.releaseId) {
     const { data } = await db.from("releases").select("id, client_id, status, company_id").eq("id", String(b.releaseId)).maybeSingle();
     if (!data || (data as any).client_id !== sheet.client_id) return NextResponse.json({ error: "That release isn't this client's" }, { status: 400 });
-    if (!OPEN.includes((data as any).status)) return NextResponse.json({ error: `That release is ${(data as any).status}` }, { status: 409 });
+    if (!OPEN_RELEASE.includes((data as any).status)) return NextResponse.json({ error: `That release is ${(data as any).status}` }, { status: 409 });
     release = data;
   } else {
     const title = String(b.newTitle || "").trim().slice(0, 120);

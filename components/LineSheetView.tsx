@@ -47,7 +47,14 @@ const GROUPS: { id: Group; name: string; hint?: string }[] = [
   { id: "pass", name: "Passed" },
 ];
 
-export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, stickyTop = 0, readOnly, staff }: {
+// A release as the planner sees it (lib/line-sheets boardReleases).
+export type ViewRelease = { id: string; title: string; status: string; target_live_date: string | null; cardIds: string[] };
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const day = (d: string | null) => { const m = d && /^(\d{4})-(\d{2})-(\d{2})/.exec(d); return m ? `${MON[+m[2] - 1]} ${+m[3]}` : ""; };
+// two releases can share a name (FOG has two "12-2026 Pre-Order"): the date tells them apart
+const relLabel = (r: ViewRelease, all: ViewRelease[]) => all.some(o => o.id !== r.id && o.title.trim().toLowerCase() === r.title.trim().toLowerCase()) && r.target_live_date ? `${r.title} · ${day(r.target_live_date)}` : r.title;
+
+export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, stickyTop = 0, readOnly, staff, releases = [], addToRelease }: {
   items: ViewItem[];
   stamp: unknown;                              // changes on every fresh load (the parent's data object)
   head: React.ReactNode;                       // title, version line, note (each seat its own)
@@ -55,6 +62,12 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
   onSettled?: (hadFailure: boolean) => void;   // every queued write is done (reload here, once)
   readOnly?: boolean;                          // archived: look, don't touch
   stickyTop?: number;                          // the group chips stick under the seat's own top bar
+  // The planner (Jon, Nov 27 2026): each release is a filter chip, and an
+  // As is card carries "Add to release" (the client's seat; HPD adds from
+  // the selection menu). addToRelease(card, releaseId) adds it; null = a
+  // new release. `addable` = the release ids this seat can add to.
+  releases?: ViewRelease[];
+  addToRelease?: { add: (it: ViewItem, releaseId: string | null) => Promise<true | string>; addable: string[] };
   staff?: {
     selected: string[];
     onSelect: (id: string, shift: boolean) => void;
@@ -73,7 +86,9 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
   const items = itemsIn.map(it => patches[it.id] ? { ...it, ...patches[it.id] } : it);
   const freshIds = new Set(itemsIn.filter(it => it.badge === "new" || it.badge === "updated").map(it => it.id));
   const groupOfIt = (it: ViewItem) => groupOf(it, freshIds);
-  const [filter, setFilter] = useState<Group | null>(null);      // null = everything
+  const [filter, setFilter] = useState<string | null>(null);     // a group, "rel:<id>", or null = everything
+  const [relFor, setRelFor] = useState<string | null>(null);     // the card whose "Add to release" list is open
+  const [adding, setAdding] = useState(false);
   // the note box open on one card: "change" = what should change (a Change
   // saves with it), "note" = editing a note that's there
   const [noteFor, setNoteFor] = useState<{ id: string; mode: "change" | "note" } | null>(null);
@@ -285,6 +300,32 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
             <VerdictRow value={it.verdict === "liked" ? null : it.verdict} pending={open?.mode === "change"} onPick={v => pick(it, v)}
               p={{ line: C.line, dim: C.dim, ink: C.bg, green: C.green, amber: C.amber, red: C.red, font: C.font }} />
             {it.verdictBy === "hpd" && it.verdict && it.verdict !== "liked" && <div style={{ marginTop: 6, fontSize: 9.5, color: C.faint, letterSpacing: "0.04em" }}>Marked by HPD</div>}
+            {addToRelease && it.verdict === "asis" && (() => {
+              const inRels = releases.filter(r => r.cardIds.includes(it.id));
+              const can = releases.filter(r => addToRelease.addable.includes(r.id) && !r.cardIds.includes(it.id));
+              const go = async (rid: string | null) => {
+                setAdding(true);
+                const r = await addToRelease.add(it, rid).catch(() => "That didn't save. Try again.");
+                setAdding(false);
+                if (r !== true) setErr(r); else setRelFor(null);
+              };
+              const row: React.CSSProperties = { display: "block", width: "100%", textAlign: "left", background: C.surface, border: `1px solid ${C.line}`, borderRadius: 8, padding: "8px 10px", color: C.text, fontFamily: C.font, fontSize: 11.5, fontWeight: 700, cursor: "pointer" };
+              return (
+                <div style={{ marginTop: 8 }}>
+                  {inRels.length > 0 && <div style={{ fontSize: 10, color: C.dim, marginBottom: 4 }}>In {inRels.map(r => relLabel(r, releases)).join(", ")}</div>}
+                  {relFor === it.id ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      {can.map(r => <button key={r.id} disabled={adding} onClick={() => go(r.id)} style={row}>{relLabel(r, releases)}</button>)}
+                      <button disabled={adding} onClick={() => go(null)} style={{ ...row, background: "transparent", color: C.dim }}>+ New release</button>
+                      <button disabled={adding} onClick={() => setRelFor(null)} style={{ background: "none", border: "none", color: C.faint, fontSize: 11, fontFamily: C.font, cursor: "pointer", padding: "2px 0" }}>{adding ? "Adding…" : "Cancel"}</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => { touch(it); setRelFor(it.id); }}
+                      style={{ background: "none", border: "none", borderBottom: `1px dotted ${C.dim}`, padding: 0, color: C.text, fontFamily: C.font, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>+ Add to release</button>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>
@@ -292,10 +333,13 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
   };
 
   const groups = GROUPS.map(g => ({ ...g, list: byGroup[g.id], n: byGroup[g.id].length })).filter(g => g.n);
-  const active = filter && groups.some(g => g.id === filter) ? filter : null;
+  // each release with something on it is a filter too
+  const relChips = releases.map(r => ({ id: `rel:${r.id}`, name: relLabel(r, releases), r, list: items.filter(i => r.cardIds.includes(i.id)) })).filter(x => x.list.length);
+  const active = filter && (groups.some(g => g.id === filter) || relChips.some(x => x.id === filter)) ? filter : null;
+  const activeRel = relChips.find(x => x.id === active) || null;
   // Picking a group keeps the chip row in view instead of leaving the reader
   // staring at the bottom of a shorter page.
-  function choose(id: Group | null) {
+  function choose(id: string | null) {
     setFilter(id); setHold(null);
     const bar = document.querySelector(".lsx-filters") as HTMLElement | null;
     if (bar && bar.getBoundingClientRect().top <= parseFloat(getComputedStyle(bar).top || "0") + 1) {
@@ -317,9 +361,9 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
       {!staff && <div style={{ marginTop: 6, fontSize: 11.5, color: C.faint }}>Tap As is, Change or Pass on anything. Tap it again to undo. We see it instantly.</div>}
       {err && <div role="alert" onClick={() => setErr("")} style={{ position: "fixed", left: 16, right: 16, bottom: staff ? 190 : 84, zIndex: 260, maxWidth: 520, margin: "0 auto", background: C.surface, border: `1px solid ${C.red}`, borderRadius: 10, padding: "11px 14px", fontSize: 13, color: C.text }}>{err}</div>}
       <div className="lsx-anchor" />
-      {groups.length > 1 && (
+      {(groups.length > 1 || relChips.length > 0) && (
         <nav className="lsx-filters" aria-label="Groups">
-          {[{ id: null as Group | null, name: "All", n: items.length }, ...groups].map(g => (
+          {[{ id: null as string | null, name: "All", n: items.length }, ...groups, ...relChips.map(x => ({ id: x.id, name: x.name, n: x.list.length }))].map(g => (
             <button key={g.id ?? "all"} onClick={() => choose(g.id)} aria-pressed={active === g.id}
               style={{ flex: "none", background: "none", border: "none", borderBottom: `2px solid ${active === g.id ? C.text : "transparent"}`, padding: "10px 0 8px", cursor: "pointer", fontFamily: C.font, fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: active === g.id ? C.text : C.faint, whiteSpace: "nowrap" }}>
               {g.name}<span style={{ fontFamily: C.mono, fontWeight: 600, letterSpacing: 0, marginLeft: 5, color: C.faint }}>{g.n}</span>
@@ -327,7 +371,14 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
           ))}
         </nav>
       )}
-      {groups.filter(g => active === null || g.id === active).map(g => (
+      {activeRel && (
+        <section style={{ marginTop: 30 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.02em", margin: 0, color: C.text }}>{activeRel.r.title}</h2>
+          <div style={{ fontSize: 11.5, color: C.faint, marginTop: 4 }}>{[activeRel.r.target_live_date ? `live ${day(activeRel.r.target_live_date)}` : "", `${activeRel.list.length} from this board`].filter(Boolean).join(" · ")}</div>
+          <div style={grid}>{activeRel.list.map(it => card(it))}</div>
+        </section>
+      )}
+      {!activeRel && groups.filter(g => active === null || g.id === active).map(g => (
         <section key={g.id} style={{ marginTop: 30 }}>
           <h2 style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.02em", margin: 0, color: C.text }}>{g.name}</h2>
           {g.hint && <div style={{ fontSize: 11.5, color: C.faint, marginTop: 4 }}>{g.hint}</div>}

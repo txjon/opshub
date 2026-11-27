@@ -16,7 +16,7 @@ export default function LineSheetsPage() {
     <div style={{ maxWidth: 1240, margin: "0 auto", padding: "26px 20px 90px", background: H.ink, minHeight: "100vh", color: H.text, fontFamily: H.font }}>
       <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint }}><a href="/studio" style={{ color: H.faint, textDecoration: "none" }}>‹ The studio</a></div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 16, flexWrap: "wrap", margin: "6px 0 26px" }}>
-        <h1 style={{ fontSize: "clamp(34px,5vw,60px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: 0 }}>Line sheets.</h1>
+        <h1 style={{ fontSize: "clamp(34px,5vw,60px)", fontWeight: 900, lineHeight: 0.98, letterSpacing: "-0.02em", textTransform: "uppercase", margin: 0 }}>Planners.</h1>
         <button onClick={() => setShowNew(true)} style={{ ...primaryBtn, padding: "12px 22px" }}>+ New line sheet</button>
         <button onClick={() => setArchived(a => !a)} style={{ ...ghostBtn, marginLeft: "auto" }}>{archived ? "‹ Active sheets" : "Show archived"}</button>
       </div>

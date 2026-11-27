@@ -125,3 +125,21 @@ export async function clientSheetView(db: Db, sheet: { id: string; current_versi
     items,
   };
 }
+
+// THE PLANNER'S RELEASES (Jon, Nov 27 2026: releases are part of planning).
+// One lookup for both seats: the client's open releases (not cut, done or
+// shelved), newest first, each with the board cards already on it. They're
+// the board's release filters and the "Add to release" list.
+export const OPEN_RELEASE = ["building", "ready", "live", "closed"];
+export type BoardRelease = { id: string; title: string; status: string; target_live_date: string | null; cardIds: string[] };
+export async function boardReleases(db: Db, clientId: string): Promise<BoardRelease[]> {
+  const { data: rels } = await db.from("releases").select("id, title, status, target_live_date, created_at")
+    .eq("client_id", clientId).in("status", OPEN_RELEASE).order("created_at", { ascending: false });
+  const ids = ((rels || []) as any[]).map(r => r.id);
+  const onIt: Record<string, string[]> = {};
+  if (ids.length) {
+    const { data: slots } = await db.from("release_slots").select("release_id, line_sheet_item_id").in("release_id", ids).not("line_sheet_item_id", "is", null).range(0, 4999);
+    for (const x of (slots || []) as any[]) (onIt[x.release_id] ||= []).push(x.line_sheet_item_id);
+  }
+  return ((rels || []) as any[]).map(r => ({ id: r.id, title: r.title, status: r.status, target_live_date: r.target_live_date || null, cardIds: onIt[r.id] || [] }));
+}

@@ -3,13 +3,13 @@ import { useEffect, useRef, useState } from "react";
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, closestCenter, useSensor, useSensors, type DragEndEvent, type DragStartEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { H, primaryBtn, ghostBtn, inp, lbl, tag, fmtStamp } from "@/lib/studio-theme";
+import { H, primaryBtn, ghostBtn, inp, lbl, tag, fmtStamp, fmtDue } from "@/lib/studio-theme";
 import { T } from "@/lib/theme";   // T.accent = the confirm dialog's dark-text button
 import { useConfirm } from "@/components/useConfirm";
 // @ts-ignore — plain-JS lib, no declarations
 import { uploadToDrive } from "@/lib/drive-upload-client";
 import { layoutNumbering, noteIsStale, badgeFor } from "@/lib/line-sheets";
-import { LineSheetView, LS, type ViewItem, type SaveBody } from "@/components/LineSheetView";
+import { LineSheetView, LS, type ViewItem, type SaveBody, type ViewRelease } from "@/components/LineSheetView";
 import { VerdictRow } from "@/components/LineSheetVerdicts";
 import { StudioImportPicker } from "@/components/StudioImportPicker";
 
@@ -54,7 +54,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const [order, setOrder] = useState<{ job: { id: string; job_number: string } | null; pending: number; ordered: string[] } | null>(null);
   // The door to a release (mig 217): the client's open releases and which
   // board cards each already holds.
-  const [rels, setRels] = useState<{ id: string; title: string; status: string; cardIds: string[] }[]>([]);
+  const [rels, setRels] = useState<ViewRelease[]>([]);   // the client's open releases: chips, Add to release, Schedule
   const [relPick, setRelPick] = useState(false);          // the bar's "Add to release" list
   const [newRel, setNewRel] = useState("");
   const loadRels = () => fetch(`/api/studio/line-sheets/${params.id}/releases`).then(r => r.json()).then(j => { if (Array.isArray(j.releases)) setRels(j.releases); }).catch(() => {});
@@ -232,7 +232,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
     setMenuOpen(false);
     const sh = dataRef.current?.sheet;
     if (!sh) return;
-    if (!sh.archived_at && !await confirm({ title: "Archive this line sheet?", message: "It leaves your Line sheets list and the client's hub. Items, versions and their verdicts are kept; Unarchive brings it all back.", confirmLabel: "Archive", confirmColor: T.accent })) return;
+    if (!sh.archived_at && !await confirm({ title: "Archive this planner?", message: "It leaves your Planners list and the client's hub. Items, versions and their verdicts are kept; Unarchive brings it all back.", confirmLabel: "Archive", confirmColor: T.accent })) return;
     const r = await patchSheet(sh.archived_at ? { unarchive: true } : { archive: true });
     if (r?.ok && !sh.archived_at) window.location.href = "/studio/line-sheets";
   }
@@ -495,7 +495,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
           <button disabled={busy} onClick={() => setPublishOpen(true)} style={{ ...primaryBtn, padding: "8px 16px", marginLeft: "auto" }}>Publish {sheet.current_version ? `v${sheet.current_version + 1}` : "v1"} →</button>
         </div>
       )}
-      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint }}><a href="/studio/line-sheets" style={{ color: H.faint, textDecoration: "none" }}>‹ Line sheets</a></div>
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.16em", textTransform: "uppercase", color: H.faint }}><a href="/studio/line-sheets" style={{ color: H.faint, textDecoration: "none" }}>‹ Planners</a></div>
       {/* Header (Jon, Nov 25; Nov 27): title + who/where on the left; on the
           right the status, the ⋯ menu, and the two stamps (last publish,
           client updated). Publish lives in the Not published banner, the
@@ -548,7 +548,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
           Drop mockups anywhere on this page, or <button onClick={() => fileIn.current?.click()} style={{ background: "none", border: "none", padding: 0, color: H.blue, cursor: "pointer", fontSize: 13, fontFamily: H.font, textDecoration: "underline" }}>pick files</button>. They land in Concepts, named by file.
         </div>
       )}
-      <LineSheetView items={view} stamp={data} save={saveFromView} onSettled={() => { load(); }} readOnly={!!sheet.archived_at} head={null} staff={{
+      <LineSheetView items={view} stamp={data} save={saveFromView} onSettled={() => { load(); }} readOnly={!!sheet.archived_at} head={null} releases={rels} staff={{
         selected,
         onSelect: (id, shift) => { if (!justDragged.current) toggleSel(id, shift); },
         numberOf: v => { const it = raw.get(v.id); return it ? noOf(it) : null; },
@@ -581,6 +581,28 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
           </DndContext>
         ),
       }} />
+
+      {/* THE SCHEDULE (Jon, Nov 27): the client's releases under the board,
+          the same order his Planner tab shows them. Dates, buys and the cut
+          live in /drops. */}
+      <section style={{ borderTop: `1px solid ${H.line}`, marginTop: 48, paddingTop: 30 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap" }}>
+          <h2 style={{ fontSize: "clamp(20px,3vw,28px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.02em", margin: 0 }}>Schedule</h2>
+          <a href="/drops" style={{ fontSize: 11, color: H.dim, textDecoration: "none", borderBottom: "1px dotted rgba(255,255,255,.3)" }}>Open in Drops →</a>
+        </div>
+        {rels.length === 0
+          ? <div style={{ fontSize: 12.5, color: H.faint, marginTop: 10 }}>No open releases. Select As is cards and use Add to release to start one.</div>
+          : <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14, maxWidth: 760 }}>
+              {rels.map(r => (
+                <a key={r.id} href="/drops" style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap", background: H.panel, border: `1px solid ${H.line}`, borderRadius: 14, padding: "14px 16px", color: H.text, textDecoration: "none" }}>
+                  <span style={{ fontSize: 15, fontWeight: 900, textTransform: "uppercase" }}>{r.title}</span>
+                  {r.target_live_date && <span style={{ fontSize: 10.5, fontFamily: H.mono, color: H.faint }}>live {fmtDue(r.target_live_date)}</span>}
+                  <span style={tag(r.status === "building" ? H.amber : r.status === "live" ? H.green : H.blue, 9.5)}>{r.status === "building" ? "Client building" : r.status === "ready" ? "With us" : r.status === "live" ? "Selling" : "Closed"}</span>
+                  <span style={{ marginLeft: "auto", fontSize: 10.5, fontFamily: H.mono, color: H.dim }}>{r.cardIds.length} from the board</span>
+                </a>
+              ))}
+            </div>}
+      </section>
 
       {dropped.length > 0 && (
         <div style={{ borderTop: `1px solid ${H.line2}`, paddingTop: 12 }}>

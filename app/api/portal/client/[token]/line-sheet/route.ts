@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { hubClientLookup } from "@/lib/hub-client";
-import { clientSheetView, clientBoard, verdictPatch, SETTABLE_VERDICTS, noteIsStale } from "@/lib/line-sheets";
+import { clientSheetView, clientBoard, boardReleases, verdictPatch, SETTABLE_VERDICTS, noteIsStale } from "@/lib/line-sheets";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -39,11 +39,14 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
   if (!ctx) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const { sheet } = ctx as any;
   // Live organizing + published art only (lib/line-sheets clientSheetView).
-  const view = await clientSheetView(db, sheet);
+  const [view, releases] = await Promise.all([clientSheetView(db, sheet), boardReleases(db, (ctx as any).client.id)]);
+  // a release only knows the cards he can see
+  const shown = new Set(view.items.map((i: any) => i.id));
   return NextResponse.json({
     sheet: { id: sheet.id, title: sheet.title, status: sheet.status },
     version: view.version,
     items: view.items,
+    releases: releases.map(r => ({ ...r, cardIds: r.cardIds.filter(id => shown.has(id)) })),
   });
 }
 

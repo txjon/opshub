@@ -130,8 +130,9 @@ const TABS: { label: keyof typeof ICONS; path: string; display: string; unreadKe
   // Product Development (the old /designs surface) stays unlisted; the
   // Studio (grant 'studio') is its stripped-down replacement.
   { label: "Studio", display: "Studio", path: "/studio" },
-  // His board (Nov 26 2026): the running line sheet that feeds releases
-  { label: "LineSheet", display: "Line sheet", path: "/line-sheet" },
+  // THE PLANNER (Nov 27 2026): his board on top, the release Schedule under
+  // it. Replaces the Line sheet and Releases tabs for a client with a board.
+  { label: "LineSheet", display: "Planner", path: "/line-sheet" },
   { label: "Releases", display: "Releases", path: "/releases" },
   { label: "Orders", display: "Orders", path: "/orders" },
   { label: "Items", display: "Pipeline", path: "/items" },
@@ -170,7 +171,7 @@ export default function Shell({ children }: { children: ReactNode }) {
     // the line sheet replaces the Studio once he has one (Jon, Nov 26 2026)
     (t.path !== "/studio" || (features.includes("studio") && !STUDIO_UNDER_DEV && !(data as any).has_line_sheet)) &&
     (t.path !== "/line-sheet" || !!(data as any).has_line_sheet) &&
-    (t.path !== "/releases" || features.includes("releases")));
+    (t.path !== "/releases" || (features.includes("releases") && !(data as any).has_line_sheet)));
 
   const isActive = (path: string) =>
     path === "" ? pathname === base || pathname === base + "/" : !!pathname?.startsWith(base + path);
