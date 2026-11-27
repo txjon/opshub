@@ -61,7 +61,7 @@ export default function HomePage() {
       <span className="veil" />
       <span className="body">
         {act && <span style={{ display: "block", fontSize: 8.5, fontWeight: 800, letterSpacing: "0.15em", textTransform: "uppercase", color: C.amber, marginBottom: 6 }}>◆ Your move</span>}
-        <span style={{ display: "block", fontSize: 9, fontWeight: 800, letterSpacing: "0.13em", textTransform: "uppercase", color: "rgba(255,255,255,0.7)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{eyebrow}</span>
+        {eyebrow && <span style={{ display: "block", fontSize: 9, fontWeight: 800, letterSpacing: "0.13em", textTransform: "uppercase", color: "rgba(255,255,255,0.7)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{eyebrow}</span>}
         <span style={{ display: "block", fontSize: "clamp(19px,2vw,25px)", fontWeight: 900, textTransform: "uppercase", letterSpacing: "-0.02em", lineHeight: 1.05, marginTop: 6, color: verbColor, textWrap: "balance" as any }}>{verb}.</span>
         {meta && <span style={{ display: "block", fontSize: 10.5, fontFamily: C.mono, color: C.blue, marginTop: 7, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{meta}</span>}
       </span>
@@ -122,14 +122,13 @@ export default function HomePage() {
   const asking = new Set(actOrders.map(x => x.o.id));
   const dueInvoices = (orders || []).filter(o => o.phase !== "cancelled" && !asking.has(o.id) && ["unpaid", "partial"].includes(o.payment_status) && Number(o.balance) > 0.01);
   const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  // The Planner: what's new on it and not answered yet is a move; otherwise
-  // it's still the first plate, with when it last changed
+  // The Planner: one quiet plate, its name and when it last changed (Jon,
+  // Nov 27: no "your move", no count)
   const pItems: any[] = planner?.items || [];
-  const pNew = pItems.filter(i => (i.badge === "new" || i.badge === "updated") && !i.verdict).length;
   const pCovers = pItems.map(i => i.images?.[0]?.driveId).filter(Boolean).slice(0, 4).map((id: string) => thumb(id));
   const pWhen = planner?.version?.published_at ? new Date(planner.version.published_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
-  const plannerPlate = planner && pItems.length > 0 ? plate("mv-planner", pCovers.length >= 2 ? pCovers : pCovers[0] || null, "Your planner", pNew ? `${pNew} new to look at` : "See your planner", pNew ? C.amber : C.text, pWhen ? `updated ${pWhen}` : "", `${base}/line-sheet`, pNew > 0) : null;
-  const spotlightCount = actOrders.length + actBriefs.length + dueInvoices.length + (pNew ? 1 : 0);
+  const plannerPlate = planner && pItems.length > 0 ? plate("mv-planner", pCovers.length >= 2 ? pCovers : pCovers[0] || null, "", "Your planner", C.text, pWhen ? `updated ${pWhen}` : "", `${base}/line-sheet`) : null;
+  const spotlightCount = actOrders.length + actBriefs.length + dueInvoices.length;
 
   // where browsing lives (the tabs), under a calm page
   const tabLinks = (
