@@ -92,6 +92,8 @@ export async function POST(req: NextRequest) {
   } as never).select("*").single();
   if (error || !sheet) {
     if (bornRelease) await db.from("releases").delete().eq("id", releaseId!);
+    // someone made one a moment ago (mig 218: one live sheet per client)
+    if ((error as any)?.code === "23505") return NextResponse.json({ error: "This client already has a line sheet. Add to it, or archive it to start a new one." }, { status: 409 });
     return NextResponse.json({ error: error?.message || "Failed" }, { status: 500 });
   }
   return NextResponse.json({ sheet });
