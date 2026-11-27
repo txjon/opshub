@@ -8,7 +8,7 @@ import { T } from "@/lib/theme";   // T.accent = the confirm dialog's dark-text 
 import { useConfirm } from "@/components/useConfirm";
 // @ts-ignore — plain-JS lib, no declarations
 import { uploadToDrive } from "@/lib/drive-upload-client";
-import { layoutNumbering, noteIsStale, changeAnswered, badgeFor } from "@/lib/line-sheets";
+import { layoutNumbering, noteIsStale, askedAgain, badgeFor } from "@/lib/line-sheets";
 import { LineSheetView, LS, type ViewItem, type SaveBody, type ViewRelease } from "@/components/LineSheetView";
 import { VerdictRow } from "@/components/LineSheetVerdicts";
 import { StudioImportPicker } from "@/components/StudioImportPicker";
@@ -297,7 +297,7 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   }
 
   // the view's order (components/LineSheetView GROUPS), for shift-select runs
-  const fresh = (it: any) => !it.client_verdict && it.added_in != null && !(it.images || []).some((im: any) => im.replaces) && !!badgeFor(it);
+  const fresh = (it: any) => !it.client_verdict && it.added_in != null && (askedAgain(it) || (!(it.images || []).some((im: any) => im.replaces) && !!badgeFor(it)));
   const visualOrder = [...concepts.filter(fresh), ...goodToGo, ...changes, ...liked, ...concepts.filter(i => !fresh(i)), ...passed].map(i => i.id);
   const toggleSel = (id: string, shift = false) => setSelected(prev => {
     if (shift && prev.length) {
@@ -399,8 +399,8 @@ export default function LineSheetBuilder({ params }: { params: { id: string } })
   const view: ViewItem[] = items.map(it => ({
     id: it.id, name: it.name, item_no: it.item_no, images: it.images || [],
     badge: it.added_in == null || (it.images || []).some((im: any) => im.replaces) ? "draft" : badgeFor(it),
-    verdict: changeAnswered(it) ? null : it.client_verdict ?? null, verdictBy: it.client_verdict_by ?? null,
-    note: it.client_note ?? null, noteStale: noteIsStale(it), reworked: changeAnswered(it),
+    verdict: it.client_verdict ?? null, verdictBy: it.client_verdict_by ?? null,
+    note: it.client_note ?? null, noteStale: noteIsStale(it), reworked: askedAgain(it),
   }));
   // One card write from the view. No reload here: the view queues writes and
   // calls onSettled (load) once they're all done, so a reload never wipes an
