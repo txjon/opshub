@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createAdmin } from "@supabase/supabase-js";
 import { isRerunLineId, isProductLineId, isCardLineId, briefApproved } from "@/lib/release-lanes";
 import { hubClientLookup } from "@/lib/hub-client";
-import { clientSheetView, publishedImageIds, publishedFace } from "@/lib/line-sheets";
+import { clientSheetView, clientBoard, publishedImageIds, publishedFace } from "@/lib/line-sheets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -94,10 +94,10 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     // (mig 217). Read through THE client view, so only published art shows.
     const boardCards: any[] = [];
     {
-      const { data: boards } = await db.from("line_sheets")
-        .select("id, current_version").eq("client_id", client.id).gt("current_version", 0).is("archived_at", null);
-      for (const b of (boards || []) as any[]) {
-        const view = await clientSheetView(db, b);
+      // THE board (lib/line-sheets clientBoard), the same one his tab shows
+      const board = await clientBoard(db, client.id);
+      if (board) {
+        const view = await clientSheetView(db, board);
         for (const it of view.items) if (it.verdict === "asis") boardCards.push({ id: it.id, name: it.name, itemNo: it.item_no, thumb: it.images[0]?.driveId || null });
       }
     }

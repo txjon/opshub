@@ -319,7 +319,8 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
     return withPortalCookie(NextResponse.json({
       client: { name: client.name },
       features: (client as any).portal_features || [],
-      has_line_sheet: (boards || 0) > 0,
+      // the tab's API rides the 'releases' grant: no grant, no tab
+      has_line_sheet: (boards || 0) > 0 && (((client as any).portal_features || []) as string[]).includes("releases"),
       company: { name: tenant.name, slug: tenant.slug },
       briefs: out,
       orders_summary: {

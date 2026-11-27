@@ -57,6 +57,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   if (b.archive || b.unarchive) {
     const { error } = await db.from("line_sheets").update({ archived_at: b.archive ? now : null } as never).eq("id", params.id);
+    // one live sheet per client (mig 218)
+    if (error?.code === "23505") return NextResponse.json({ error: "This client already has a live line sheet. Archive that one first." }, { status: 409 });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
   }

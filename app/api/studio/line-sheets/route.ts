@@ -66,6 +66,10 @@ export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({} as any));
   if (!b.clientId || !String(b.title || "").trim()) return NextResponse.json({ error: "A client and a title are required" }, { status: 400 });
   const db = admin();
+  // one live line sheet per client (mig 218): it's his board; archive the
+  // old one to start another
+  const { data: live } = await db.from("line_sheets").select("id, title").eq("client_id", b.clientId).is("archived_at", null).limit(1);
+  if ((live || []).length) return NextResponse.json({ error: `This client already has a line sheet ("${(live as any[])[0].title}"). Add to it, or archive it to start a new one.`, sheetId: (live as any[])[0].id }, { status: 409 });
   const title = String(b.title).trim().slice(0, 140);
   let releaseId: string | null = b.releaseId || null;
   let bornRelease = false;

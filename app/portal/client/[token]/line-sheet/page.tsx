@@ -17,11 +17,13 @@ export default function LineSheetTab({ params }: { params: { token: string } }) 
   const { token } = params;
   const [data, setData] = useState<any>(null);
   const [missing, setMissing] = useState(false);
+  const [failed, setFailed] = useState(false);       // couldn't load (not the same as "no line sheet")
   useNoPageZoom();                                                // app feel: the page doesn't pinch; the viewer does
   const api = `/api/portal/client/${token}/line-sheet`;
-  const load = () => fetch(api).then(r => r.json()).then(j => { if (j.error) setMissing(true); else setData(j); }).catch(() => setMissing(true));
+  const load = () => fetch(api).then(async r => { const j = await r.json(); if (r.status === 404) setMissing(true); else if (!r.ok || j.error) setFailed(true); else { setFailed(false); setData(j); } }).catch(() => setFailed(true));
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [token]);
   if (missing) return <div style={{ maxWidth: 1100, margin: "0 auto", padding: "26px 18px", fontFamily: C.font, color: C.faint, fontSize: 13 }}>No line sheet yet. When we post designs for you, they show up here.</div>;
+  if (failed && !data) return <div style={{ maxWidth: 1100, margin: "0 auto", padding: "26px 18px", fontFamily: C.font, color: C.faint, fontSize: 13 }}>Couldn&rsquo;t load your line sheet. Check your connection and refresh.</div>;
   if (!data) return <div style={{ padding: 40, color: C.faint, fontFamily: C.font, fontSize: 13 }}>Loading…</div>;
   const { sheet, version } = data;
   const items: any[] = data.items;

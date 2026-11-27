@@ -95,11 +95,11 @@ export function publishedFace(images: SheetImage[] | null | undefined, published
   return null;
 }
 
-// The client's board: one running line sheet per client (Nov 26 2026) — the
-// newest published, unarchived one. Read by the hub tab and its API.
-export async function clientBoard(db: Db, clientId: string) {
-  const { data } = await db.from("line_sheets").select("*").eq("client_id", clientId).gt("current_version", 0).is("archived_at", null)
-    .order("updated_at", { ascending: false }).limit(1);
+// The client's board: his one live line sheet (mig 218 enforces one
+// unarchived sheet per client), once it's been published. THE lookup for the
+// hub tab, its API and the release picker's "From the board".
+export async function clientBoard(db: Db, clientId: string): Promise<{ id: string; title: string; status: string; current_version: number } | null> {
+  const { data } = await db.from("line_sheets").select("id, title, status, current_version").eq("client_id", clientId).gt("current_version", 0).is("archived_at", null).limit(1);
   return ((data || []) as any[])[0] || null;
 }
 
