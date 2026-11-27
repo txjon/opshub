@@ -226,13 +226,14 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
           style={{ position: "relative", aspectRatio: "1", overflow: "hidden", width: "100%", background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: staff ? (handle ? "grab" : "pointer") : "zoom-in", touchAction: handle ? "manipulation" : undefined, WebkitTouchCallout: "none", userSelect: "none", opacity: it.badge === "draft" ? 0.55 : 1 }}>
           {imgs.length > 1 ? (
             <>
-              <img src={thumbUrl(imgs[0].driveId, 800)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" draggable={false} style={{ width: "62%", height: "92%", objectFit: "contain", marginRight: "-14%", zIndex: 2, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
-              <img src={thumbUrl(imgs[1].driveId, 800)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" draggable={false} style={{ width: "62%", height: "92%", objectFit: "contain", zIndex: 1, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.display = "none"; }} />
+              <img key={imgs[0].driveId} src={thumbUrl(imgs[0].driveId, 800)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" draggable={false} style={{ width: "62%", height: "92%", objectFit: "contain", marginRight: "-14%", zIndex: 2, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.opacity = 0.15; }} />
+              <img key={imgs[1].driveId} src={thumbUrl(imgs[1].driveId, 800)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" draggable={false} style={{ width: "62%", height: "92%", objectFit: "contain", zIndex: 1, mixBlendMode: "multiply" }} onError={(e: any) => { e.target.style.display = "none"; }} />
             </>
           ) : imgs[0] ? (
-            <img src={thumbUrl(imgs[0].driveId, 800)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" draggable={false} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain" }}
+            <img key={imgs[0].driveId} src={thumbUrl(imgs[0].driveId, 800)} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" draggable={false} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain" }}
               // a tall sheet (Jon, Nov 27): show its middle, top and bottom
-              // cropped; the full picture opens on tap
+              // cropped; the full picture opens on tap. Keyed by the
+              // picture, so a Replace starts fresh (no crop or fade carried over)
               onLoad={(e: any) => { const m = e.target; if (m.naturalHeight > m.naturalWidth * 1.15) m.style.objectFit = "cover"; }}
               onError={(e: any) => { e.target.style.opacity = 0.15; }} />
           ) : null}
