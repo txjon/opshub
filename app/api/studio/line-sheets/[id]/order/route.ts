@@ -30,7 +30,9 @@ async function sheetOrder(db: any, sheetId: string) {
 }
 async function goodToGo(db: any, sheetId: string) {
   const { data } = await db.from("line_sheet_items").select("*").eq("sheet_id", sheetId)
-    .eq("client_verdict", "asis").eq("dropped", false).order("item_no");
+    // published only: a draft (e.g. an approved Studio import) hasn't been
+    // on the client's board yet
+    .eq("client_verdict", "asis").eq("dropped", false).not("added_in", "is", null).order("item_no");
   return (data || []) as any[];
 }
 

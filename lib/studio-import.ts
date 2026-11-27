@@ -20,9 +20,12 @@ export type StudioRequest = {
 };
 
 const viewable = (f: any): string | null => {
+  // a PSD's flat preview first: the layered file is huge and often has no
+  // Drive thumbnail. AI/PDF have none, but Drive thumbnails them.
+  if (f.preview_drive_file_id) return f.preview_drive_file_id;
   const m = String(f.mime_type || "");
-  if (m.startsWith("image/")) return f.drive_file_id;
-  return f.preview_drive_file_id || (m.includes("postscript") || m.includes("pdf") ? f.drive_file_id : null);
+  if (m.includes("photoshop")) return null;
+  return m.startsWith("image/") || m.includes("postscript") || m.includes("pdf") ? f.drive_file_id : null;
 };
 const clean = (s: string) => s.replace(/\s*\n\s*/g, " ").trim().slice(0, 500) || null;
 

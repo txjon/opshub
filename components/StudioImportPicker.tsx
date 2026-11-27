@@ -21,6 +21,10 @@ export function StudioImportPicker({ sheetId, onClose, onDone }: { sheetId: stri
       setPicked(new Set((r.requests as StudioRequest[]).filter(q => q.recent && !q.onBoard).map(q => q.id)));
     }).catch(() => { setErr("Couldn't load the Studio requests. Try again."); setReqs([]); });
   }, [sheetId]);
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape" && !busy) onClose(); };
+    window.addEventListener("keydown", esc); return () => window.removeEventListener("keydown", esc);
+  }, [busy, onClose]);
 
   const open = (reqs || []).filter(q => !q.onBoard);
   const already = (reqs || []).filter(q => q.onBoard);
