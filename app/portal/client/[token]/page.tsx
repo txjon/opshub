@@ -10,6 +10,11 @@ import { STUDIO_UNDER_DEV } from "@/lib/v2-flags";
 // simplified Jul 28, Jon: "the feed is confusing" — home is ONLY the Your-move
 // spotlight now). One question, one answer: what needs me. Browsing lives on
 // the tabs (Orders / Pipeline / Catalog), and the empty state points there.
+// Nov 27 2026 (Jon: "a better landing page. Planner last updated, new
+// invoices"): a client with a Planner gets its plate (what's new on it, when
+// it last changed) and unpaid invoices join Your move. Studio is HPD's inbox
+// now, so a planner client never sees Studio plates or links; "Share
+// something" still lands there.
 
 export default function HomePage() {
   const { data, token } = useClientPortal();
@@ -20,8 +25,11 @@ export default function HomePage() {
   // Studio under dev: drop every studio surface from the client's home (the idea
   // door, the "Your move" studio briefs, and the "The studio." section all gate
   // on this). The /studio route itself still resolves by direct URL.
+  const hasPlanner = !!(data as any)?.has_line_sheet;
   const hasStudio = features.includes("studio") && !STUDIO_UNDER_DEV;
-  const briefs: any[] = (data as any)?.briefs || [];
+  const studioShown = hasStudio && !hasPlanner;   // Studio plates and links
+  const briefs: any[] = studioShown ? ((data as any)?.briefs || []) : [];
+  const [planner, setPlanner] = useState<any>(null);
 
   useEffect(() => {
     (async () => {
@@ -30,6 +38,10 @@ export default function HomePage() {
     })();
     // eslint-disable-next-line
   }, [token]);
+  useEffect(() => {
+    if (!hasPlanner) return;
+    fetch(`/api/portal/client/${token}/line-sheet`).then(r => r.ok ? r.json() : null).then(j => setPlanner(j)).catch(() => {});
+  }, [token, hasPlanner]);
 
   if (!data) return null;
   const loading = orders === null;
@@ -103,10 +115,20 @@ export default function HomePage() {
   // ── YOUR MOVE (Jon, Jul 22: "1 thing needs you... I don't know which one").
   //    Home IS the spotlight — the only feed on the page (Jon, Jul 28). ──
   const actOrders = orderRows.filter(x => x.act);
-  const actBriefs = (hasStudio ? briefs : []).filter(b => !["killed", "shelved"].includes(b.state) && (b.state === "with_client" || b.has_unread_external));
-  const spotlightCount = actOrders.length + actBriefs.length;
+  const actBriefs = briefs.filter(b => !["killed", "shelved"].includes(b.state) && (b.state === "with_client" || b.has_unread_external));
+  // Invoices with money still due (project orders and fulfillment invoices alike)
+  const dueInvoices = (orders || []).filter(o => o.phase !== "cancelled" && ["unpaid", "partial"].includes(o.payment_status) && Number(o.balance) > 0.01);
+  const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  // The Planner: what's new on it and not answered yet is a move; otherwise
+  // it's still the first plate, with when it last changed
+  const pItems: any[] = planner?.items || [];
+  const pNew = pItems.filter(i => (i.badge === "new" || i.badge === "updated") && !i.verdict).length;
+  const pCovers = pItems.map(i => i.images?.[0]?.driveId).filter(Boolean).slice(0, 4).map((id: string) => thumb(id));
+  const pWhen = planner?.version?.published_at ? new Date(planner.version.published_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+  const plannerPlate = planner && pItems.length > 0 ? plate("mv-planner", pCovers.length >= 2 ? pCovers : pCovers[0] || null, "Your planner", pNew ? `${pNew} new to look at` : "See your planner", pNew ? C.amber : C.text, pWhen ? `updated ${pWhen}` : "", `${base}/line-sheet`, pNew > 0) : null;
+  const spotlightCount = actOrders.length + actBriefs.length + dueInvoices.length + (pNew ? 1 : 0);
 
-  const nothing = !loading && spotlightCount === 0 && orderRows.length === 0 && briefs.length === 0;
+  const nothing = !loading && spotlightCount === 0 && orderRows.length === 0 && briefs.length === 0 && !plannerPlate;
 
   return (
     <div style={{ paddingTop: "clamp(8px, 3vw, 28px)" }}>
@@ -132,16 +154,21 @@ export default function HomePage() {
       </h1>
 
       {/* The idea door — the Studio's front-door form, in place */}
-      {hasStudio && <IdeaDoor token={token} base={base} />}
+      {hasStudio && <IdeaDoor token={token} base={base} studioShown={studioShown} />}
 
       {loading ? (
         <div style={{ color: C.faint, fontSize: 13, padding: "40px 0", textAlign: "center" }}>Loading your house…</div>
-      ) : spotlightCount > 0 ? (
+      ) : spotlightCount > 0 || plannerPlate ? (
         <>
           {/* ── Your move — the only feed on home: what needs the client, amber,
               labeled, nothing else competing with it (Jon, Jul 28) ── */}
-          {sec("Your move.", `${spotlightCount} thing${spotlightCount === 1 ? "" : "s"} need${spotlightCount === 1 ? "s" : ""} you. Tap in`)}
+          {sec(spotlightCount ? "Your move." : "Your house.", spotlightCount ? `${spotlightCount} thing${spotlightCount === 1 ? "" : "s"} need${spotlightCount === 1 ? "s" : ""} you. Tap in` : "Nothing needs you right now.")}
           <div className="gh-grid">
+            {plannerPlate}
+            {dueInvoices.map(o => {
+              const ref = o.invoice_number || o.qb_invoice_number;
+              return plate(`mv-i-${o.id}`, null, ref ? `Invoice #${ref}` : "Invoice", "Pay your invoice", C.amber, `${money(Number(o.balance))} due${o.title || o.period_label ? ` · ${o.title || o.period_label}` : ""}`, o.kind === "project" ? `${base}/orders?open=${o.id}` : `${base}/orders`, true);
+            })}
             {actOrders.map(({ o, verb, color }) => {
               const art = (o.items || []).map((it: any) => it.thumb_id).find(Boolean);
               return plate(`mv-o-${o.id}`, art ? thumb(art) : null, o.job_number || "Your order", verb, color, o.title || "", `${base}/orders?open=${o.id}`, true);
@@ -173,7 +200,7 @@ export default function HomePage() {
 // ── The idea door, in place — the Studio's front-door form living on Home.
 // Same rules (a name and a picture is all it takes), same POST + upload
 // chain, so the idea lands exactly where a Studio submission lands.
-function IdeaDoor({ token, base }: { token: string; base: string }) {
+function IdeaDoor({ token, base, studioShown }: { token: string; base: string; studioShown: boolean }) {
   const [open, setOpen] = useState(false);
   // two kinds of sharing (Jon, Jul 22): a general idea (studio ping-pong)
   // vs "I have this product ready to make" (art's done — move it)
@@ -216,7 +243,7 @@ function IdeaDoor({ token, base }: { token: string; base: string }) {
           });
         } catch { failed++; }
       }
-      if (failed > 0) setError(`Idea sent, but ${failed} attachment${failed === 1 ? "" : "s"} didn't make it. Add ${failed === 1 ? "it" : "them"} from the Studio.`);
+      if (failed > 0) setError(studioShown ? `Idea sent, but ${failed} attachment${failed === 1 ? "" : "s"} didn't make it. Add ${failed === 1 ? "it" : "them"} from the Studio.` : `Idea sent, but ${failed} attachment${failed === 1 ? "" : "s"} didn't make it. Send ${failed === 1 ? "it" : "them"} to us directly.`);
       setSent(title.trim());
       setTitle(""); setNotes(""); setFiles([]); setOpen(false);
     } catch { setError("Couldn't save the idea."); }
@@ -226,7 +253,7 @@ function IdeaDoor({ token, base }: { token: string; base: string }) {
   if (sent) return (
     <div style={{ textAlign: "center", margin: "0 0 26px", fontSize: 13, color: C.text }}>
       <span style={{ fontWeight: 800 }}>&ldquo;{sent}&rdquo; landed with our team.</span>{" "}
-      <Link href={`${base}/studio`} style={{ color: "#fd3aa3", fontWeight: 800, textDecoration: "none" }}>Watch it in the Studio →</Link>
+      {studioShown ? <Link href={`${base}/studio`} style={{ color: "#fd3aa3", fontWeight: 800, textDecoration: "none" }}>Watch it in the Studio →</Link> : <span style={{ color: C.muted }}>We&rsquo;ll take it from here. Mockups land on your Planner.</span>}
     </div>
   );
 
