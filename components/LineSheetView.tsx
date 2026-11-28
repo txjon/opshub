@@ -102,6 +102,13 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
   const [hold, setHold] = useState<{ id: string; group: Group } | null>(null);
   const [zoom, setZoom] = useState<ViewItem | null>(null);
   const [err, setErr] = useState("");
+  // The client's layout (Jon, Nov 27): "list" = full cards to answer on,
+  // "grid" = small tiles (3 across on a phone) to look over; a tile shows
+  // its answer and opens full screen. Remembered per browser.
+  const [layout, setLayout] = useState<"list" | "grid">("list");
+  useEffect(() => { try { if (localStorage.getItem("planner-layout") === "grid") setLayout("grid"); } catch {} }, []);
+  const pickLayout = (l: "list" | "grid") => { setLayout(l); try { localStorage.setItem("planner-layout", l); } catch {} };
+  const tiles = layout === "grid" && !staff;
   // notes stay folded behind a comment icon (Jon, Nov 26); tap it to read
   const [shownNotes, setShownNotes] = useState<string[]>([]);
   // On a phone the note box's blur can land just BEFORE the tap that caused
@@ -260,12 +267,18 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
               onLoad={(e: any) => { const m = e.target; if (m.naturalHeight > m.naturalWidth * 1.15) m.style.objectFit = "cover"; }}
               onError={(e: any) => { e.target.style.opacity = 0.15; }} />
           ) : null}
-          {it.badge && <span style={{ position: "absolute", top: 8, left: 8, fontSize: 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: badgeCol, background: "rgba(10,10,10,.85)", borderRadius: 6, padding: "3px 8px", zIndex: 3 }}>{it.badge}</span>}
-          {no && <span style={{ position: "absolute", left: 8, bottom: 8, fontFamily: C.mono, fontSize: 10, fontWeight: 700, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>{no}</span>}
+          {it.badge && <span style={{ position: "absolute", top: tiles ? 5 : 8, left: tiles ? 5 : 8, fontSize: tiles ? 7.5 : 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: badgeCol, background: "rgba(10,10,10,.85)", borderRadius: 6, padding: "3px 8px", zIndex: 3 }}>{it.badge}</span>}
+          {no && !tiles && <span style={{ position: "absolute", left: 8, bottom: 8, fontFamily: C.mono, fontSize: 10, fontWeight: 700, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>{no}</span>}
           {staff && sel >= 0 && <span style={{ position: "absolute", right: 8, top: 8, background: C.blue, color: C.bg, borderRadius: 999, width: 22, height: 22, display: "grid", placeItems: "center", fontSize: 11, fontWeight: 900, zIndex: 3 }}>{sel + 1}</span>}
-          {imgs.length > 2 && <span style={{ position: "absolute", right: 8, bottom: 8, fontSize: 9, fontWeight: 800, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>+{imgs.length - 2}</span>}
+          {imgs.length > 2 && !tiles && <span style={{ position: "absolute", right: 8, bottom: 8, fontSize: 9, fontWeight: 800, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>+{imgs.length - 2}</span>}
           {staff && sel < 0 && staff.tools(it)}
         </div>
+        {tiles ? (
+          <div style={{ padding: "6px 7px 7px", flex: 1, display: "flex", flexDirection: "column", gap: 3 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", lineHeight: 1.2, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflowWrap: "anywhere" }}>{it.name || (it.item_no ? String(it.item_no).padStart(2, "0") : "Untitled")}</div>
+            {it.verdict && it.verdict !== "liked" && <span style={{ marginTop: "auto", fontSize: 8.5, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: it.verdict === "asis" ? C.green : it.verdict === "change" ? C.amber : C.faint }}>{it.verdict === "asis" ? "✓ As is" : it.verdict === "change" ? "✎ Change" : "✕ Pass"}</span>}
+          </div>
+        ) : (
         <div style={{ padding: "10px 12px 12px", flex: 1, display: "flex", flexDirection: "column" }}>
           <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
             {staff && !readOnly ? (
@@ -336,6 +349,7 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
             })()}
           </div>
         </div>
+        )}
       </div>
     );
   };
@@ -355,13 +369,29 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
       if (y != null) window.scrollTo({ top: window.scrollY + y - parseFloat(getComputedStyle(bar).top || "0"), behavior: "smooth" });
     }
   }
-  const grid: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 12, marginTop: 12 };
+  const grid: React.CSSProperties = tiles
+    ? { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100px, calc((100% - 16px) / 3)), 1fr))", gap: 8, marginTop: 12 }
+    : { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(170px, 1fr))", gap: 12, marginTop: 12 };
+  // the layout switch: two small icons, the one on shows filled
+  const layoutSwitch = staff ? null : (
+    <span role="group" aria-label="Layout" style={{ flex: "none", marginLeft: "auto", display: "flex", gap: 2, alignSelf: "center" }}>
+      {(["list", "grid"] as const).map(l => (
+        <button key={l} onClick={() => pickLayout(l)} aria-pressed={layout === l} aria-label={l === "list" ? "Big cards" : "Grid"} title={l === "list" ? "Big cards" : "Grid"}
+          style={{ background: layout === l ? C.surface : "none", border: `1px solid ${layout === l ? C.line : "transparent"}`, borderRadius: 7, padding: 6, cursor: "pointer", color: layout === l ? C.text : C.faint, display: "grid", placeItems: "center" }}>
+          <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+            {l === "list" ? <><rect x="5" y="3" width="14" height="8" rx="1.5" /><rect x="5" y="13" width="14" height="8" rx="1.5" /></>
+              : <>{[3, 10, 17].flatMap(y => [3, 10, 17].map(x => <rect key={`${x}${y}`} x={x} y={y} width="4.5" height="4.5" rx="1" />))}</>}
+          </svg>
+        </button>
+      ))}
+    </span>
+  );
 
   return (
     <div style={{ fontFamily: C.font, color: C.text }}>
       <style dangerouslySetInnerHTML={{ __html: `
-        .lsx-filters{position:sticky;top:0;z-index:20;display:flex;gap:22px;overflow-x:auto;scrollbar-width:none;margin:22px -18px 0;padding:0 18px;background:rgba(10,10,10,.94);backdrop-filter:blur(10px);border-bottom:1px solid ${C.line2}}
-        .lsx-filters::-webkit-scrollbar{display:none}
+        .lsx-filters{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:10px;margin:22px -18px 0;padding:0 18px;background:rgba(10,10,10,.94);backdrop-filter:blur(10px);border-bottom:1px solid ${C.line2}}
+        .lsx-chips{flex:1;min-width:0;display:flex;gap:22px;overflow-x:auto;scrollbar-width:none}.lsx-chips::-webkit-scrollbar{display:none}
         @media(min-width:641px){.lsx-filters{top:${stickyTop}px}}
         .lsx-card .lsx-tool{opacity:0;transition:opacity .12s}.lsx-card:hover .lsx-tool,.lsx-card .lsx-tool:focus-visible{opacity:1}@media (hover:none){.lsx-card .lsx-tool{opacity:1}}
       ` }} />
@@ -371,14 +401,16 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
       <div className="lsx-anchor" />
       {(groups.length > 1 || relChips.length > 0) && (
         <nav className="lsx-filters" aria-label="Groups">
-          {[{ id: null as string | null, name: "All", n: items.length }, ...groups, ...relChips.map(x => ({ id: x.id, name: x.name, n: x.list.length }))].map(g => (
+          <div className="lsx-chips">{[{ id: null as string | null, name: "All", n: items.length }, ...groups, ...relChips.map(x => ({ id: x.id, name: x.name, n: x.list.length }))].map(g => (
             <button key={g.id ?? "all"} onClick={() => choose(g.id)} aria-pressed={active === g.id}
               style={{ flex: "none", background: "none", border: "none", borderBottom: `2px solid ${active === g.id ? C.text : "transparent"}`, padding: "10px 0 8px", cursor: "pointer", fontFamily: C.font, fontSize: 11, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: active === g.id ? C.text : C.faint, whiteSpace: "nowrap" }}>
               {g.name}<span style={{ fontFamily: C.mono, fontWeight: 600, letterSpacing: 0, marginLeft: 5, color: C.faint }}>{g.n}</span>
             </button>
-          ))}
+          ))}</div>
+          {layoutSwitch}
         </nav>
       )}
+      {!(groups.length > 1 || relChips.length > 0) && layoutSwitch && <div style={{ display: "flex", marginTop: 16 }}>{layoutSwitch}</div>}
       {activeRel && (
         <section style={{ marginTop: 30 }}>
           <h2 style={{ fontSize: 16, fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.02em", margin: 0, color: C.text }}>{activeRel.r.title}</h2>
