@@ -107,7 +107,15 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
   // its answer and opens full screen. Remembered per browser.
   const [layout, setLayout] = useState<"list" | "grid">("list");
   useEffect(() => { try { if (localStorage.getItem("planner-layout") === "grid") setLayout("grid"); } catch {} }, []);
-  const pickLayout = (l: "list" | "grid") => { setLayout(l); try { localStorage.setItem("planner-layout", l); } catch {} };
+  const pickLayout = (l: "list" | "grid") => {
+    // a note box open (a tile has none): save what's typed first, like pick()
+    if (noteFor && noteRef.current) {
+      const it = items.find(x => x.id === noteFor.id), el = noteRef.current;
+      el.dataset.cancel = "1";
+      if (it) void saveNote(it, el.value, noteFor.mode); else setNoteFor(null);
+    }
+    setLayout(l); try { localStorage.setItem("planner-layout", l); } catch {}
+  };
   const tiles = layout === "grid" && !staff;
   // notes stay folded behind a comment icon (Jon, Nov 26); tap it to read
   const [shownNotes, setShownNotes] = useState<string[]>([]);
@@ -268,7 +276,7 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
               onError={(e: any) => { e.target.style.opacity = 0.15; }} />
           ) : null}
           {it.badge && <span style={{ position: "absolute", top: tiles ? 5 : 8, left: tiles ? 5 : 8, fontSize: tiles ? 7.5 : 8.5, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: badgeCol, background: "rgba(10,10,10,.85)", borderRadius: 6, padding: "3px 8px", zIndex: 3 }}>{it.badge}</span>}
-          {no && !tiles && <span style={{ position: "absolute", left: 8, bottom: 8, fontFamily: C.mono, fontSize: 10, fontWeight: 700, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>{no}</span>}
+          {no && <span style={{ position: "absolute", left: tiles ? 5 : 8, bottom: tiles ? 5 : 8, fontFamily: C.mono, fontSize: 10, fontWeight: 700, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>{no}</span>}
           {staff && sel >= 0 && <span style={{ position: "absolute", right: 8, top: 8, background: C.blue, color: C.bg, borderRadius: 999, width: 22, height: 22, display: "grid", placeItems: "center", fontSize: 11, fontWeight: 900, zIndex: 3 }}>{sel + 1}</span>}
           {imgs.length > 2 && !tiles && <span style={{ position: "absolute", right: 8, bottom: 8, fontSize: 9, fontWeight: 800, color: "#555", background: "rgba(255,255,255,.92)", borderRadius: 5, padding: "2px 6px", zIndex: 3 }}>+{imgs.length - 2}</span>}
           {staff && sel < 0 && staff.tools(it)}
@@ -396,7 +404,7 @@ export function LineSheetView({ items: itemsIn, stamp, head, save, onSettled, st
         .lsx-card .lsx-tool{opacity:0;transition:opacity .12s}.lsx-card:hover .lsx-tool,.lsx-card .lsx-tool:focus-visible{opacity:1}@media (hover:none){.lsx-card .lsx-tool{opacity:1}}
       ` }} />
       {head}
-      {!staff && <div style={{ marginTop: 6, fontSize: 11.5, color: C.faint }}>Tap As is, Change or Pass on anything. Tap it again to undo. We see it instantly.</div>}
+      {!staff && <div style={{ marginTop: 6, fontSize: 11.5, color: C.faint }}>{tiles ? "Tap a piece to see it big. Switch to big cards to answer." : "Tap As is, Change or Pass on anything. Tap it again to undo. We see it instantly."}</div>}
       {err && <div role="alert" onClick={() => setErr("")} style={{ position: "fixed", left: 16, right: 16, bottom: staff ? 190 : 84, zIndex: 260, maxWidth: 520, margin: "0 auto", background: C.surface, border: `1px solid ${C.red}`, borderRadius: 10, padding: "11px 14px", fontSize: 13, color: C.text }}>{err}</div>}
       <div className="lsx-anchor" />
       {(groups.length > 1 || relChips.length > 0) && (
